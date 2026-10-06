@@ -74,6 +74,141 @@ namespace ATKINSMEC
             // The duct system types belong to THIS model and do not
             // change with what is ticked anywhere, so this is read once
             RefreshSystemTypes();
+
+            // The links list, read HERE while the command's API context
+            // is still open - so the window opens with its links rather
+            // than waiting on a round trip through the external event.
+            // Shown in Window_Loaded.
+            _first = VENTREAD.Do(doc, new VENTREAD.Ask { Links = true });
+        }
+
+        // ==================================================
+        // What was read from the model (VENTREAD)
+        // ==================================================
+        //
+        // THE WINDOW NEVER READS THE MODEL FROM ITS OWN HANDLERS. Every
+        // read goes through VENTREAD - in the constructor, or in the
+        // external event - and lands here as plain data. A tick then only
+        // rearranges what is held; it asks Revit for nothing but what has
+        // not been read yet. Refresh lets go of all of it.
+
+        // The model the window was opened on, for ExtEventHan's reads
+        public Document Document
+        {
+            get { return _doc; }
+        }
+
+        private VENTREAD.Answer _first;
+
+        private List<VENTLEVELMAP.Storey> _storeys = new List<VENTLEVELMAP.Storey>();
+
+        // Every room read, per link - all of them, before any level or
+        // apartment is applied (RVTLINKSELECTION.RoomsOn does that)
+        private readonly Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>> _roomsOf =
+            new Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>>();
+
+        // The apartments map, and the Apartments ticks it was built for
+        private VENTAPARTMENTS.Map _map;
+        private string _mapFor;
+
+        // Each model's fixture families, read when the dialog is first
+        // opened; the dialog opens once they arrive
+        private Dictionary<long, Dictionary<string, int>> _fixturesOf;
+        private bool _openFixtures;
+
+        private bool _reading;
+
+        // ExtEventHan's answer, on Revit's thread - which is this
+        // window's thread too
+        public void Take(VENTREAD.Answer answer)
+        {
+            if (answer == null)
+                return;
+
+            _reading = false;
+
+            if (answer.Storeys != null && answer.Storeys.Count > 0)
+                _storeys = answer.Storeys;
+
+            foreach (KeyValuePair<long, List<RVTLINKSELECTION.LinkedRoom>> rooms in answer.Rooms)
+                _roomsOf[rooms.Key] = rooms.Value;
+
+            if (answer.Apartments != null)
+            {
+                _map = answer.Apartments;
+                _mapFor = answer.ApartmentsFor;
+            }
+
+            if (answer.Fixtures != null)
+                _fixturesOf = answer.Fixtures;
+
+            if (answer.Links != null)
+                ShowLinks(answer.Links);     // which refreshes the levels
+            else
+                RefreshLevels();
+
+            // "Ready." replaces only the reading message - anything said
+            // since (a set-up restored, an Apartments tick) stays
+            if (answer.Trouble.Count > 0)
+                Status("Could not read " + string.Join("; ", answer.Trouble), false);
+            else if (!_reading && TxtStatus.Text == ReadingSaid)
+                Status("Ready.", false);
+
+            if (_openFixtures && _fixturesOf != null)
+            {
+                _openFixtures = false;
+
+                // After the event handler has returned, not inside it: a
+                // modal dialog there would hold Revit's API context open
+                Dispatcher.BeginInvoke(new Action(OpenFixtures));
+            }
+        }
+
+        // Asks the external event for what is missing. The levels list is
+        // left as it is until the answer comes back and rebuilds it.
+        private void Ask(VENTREAD.Ask ask)
+        {
+            if (Command.extEventHan == null)
+                return;
+
+            _reading = true;
+
+            Status(ReadingSaid, true);
+
+            Command.extEventHan.Read(ask);
+        }
+
+        private const string ReadingSaid = "Reading the linked models...";
+
+        // What RefreshLevels would need that has not been read: the rooms
+        // of a link ticked for the first time, the apartments map when
+        // the Apartments ticks have changed, and the rooms of the interior
+        // placements that map finds (read in the same trip - VENTREAD.Do)
+        private VENTREAD.Ask Missing(List<long> ticked)
+        {
+            var ask = new VENTREAD.Ask();
+
+            string key = VENTREAD.ApartmentsKey(VENTSETTINGS.ApartmentLinkIds);
+
+            bool wantMap = VENTSETTINGS.ApartmentLinkIds.Count > 0;
+
+            if (wantMap && _mapFor != key)
+            {
+                ask.Apartments = true;
+                ask.Have.UnionWith(_roomsOf.Keys);
+            }
+
+            VENTAPARTMENTS.Map map = wantMap && _mapFor == key ? _map : null;
+
+            IEnumerable<long> wanted = map != null ? map.RoomLinks(ticked) : ticked;
+
+            foreach (long linkId in wanted)
+            {
+                if (!_roomsOf.ContainsKey(linkId))
+                    ask.Rooms.Add(linkId);
+            }
+
+            return ask;
         }
 
         // ==================================================
@@ -398,7 +533,9 @@ namespace ATKINSMEC
         {
             TxtDocument.Text = _docTitle;
 
-            LoadLinks();
+            // The links read in the constructor
+            Take(_first);
+            _first = null;
 
             ChkFixtures.IsChecked = VENTSETTINGS.CountFixtures;
             ShowFixtures();
@@ -439,9 +576,26 @@ namespace ATKINSMEC
             SaveSettings();
         }
 
-        // Reading the links' fixture families from a button, as the
-        // levels list already reads the links' rooms - see RefreshLevels
+        // The Fixtures... dialog: which models, which families
         private void BtnFixtures_Click(object sender, RoutedEventArgs e)
+        {
+            // Each model's families are read once, through the external
+            // event, and the dialog opens when they arrive (Take). It
+            // cannot ask for them itself: an external event does not run
+            // while a modal dialog is up.
+            if (_fixturesOf == null)
+            {
+                _openFixtures = true;
+
+                Ask(new VENTREAD.Ask { Fixtures = true });
+
+                return;
+            }
+
+            OpenFixtures();
+        }
+
+        private void OpenFixtures()
         {
             var sources = new List<VENTFIXTUREDIALOG.Source>
             {
@@ -454,7 +608,7 @@ namespace ATKINSMEC
             var dialog = new VENTFIXTUREDIALOG(
                 sources,
                 TickedLinks(),
-                ids => VENTFIXTURES.Families(_doc, ids))
+                ids => VENTSETTINGS.FamiliesFrom(_fixturesOf, ids))
             {
                 Owner = this
             };
@@ -468,7 +622,9 @@ namespace ATKINSMEC
             SaveSettings();
         }
 
-        private void LoadLinks()
+        // The links list, from links already read (VENTREAD.LinkRow - each
+        // placement's label and its span of THIS model's levels)
+        private void ShowLinks(List<VENTREAD.LinkRow> links)
         {
             // A Refresh keeps what is ticked now: take it before the
             // list is emptied, then settle it against the new list below
@@ -477,20 +633,14 @@ namespace ATKINSMEC
 
             _links.Clear();
 
-            List<RVTLINKSELECTION.LinkItem> links =
-                RVTLINKSELECTION.GetLinks(_doc);
-
-            // Each placement's span of THIS model's levels, by the band
-            // rule every other part of AUTOVENT uses
-            List<VENTLEVELMAP.Storey> storeys =
-                RVTLINKSELECTION.GetHostLevels(_doc);
-
             // WHAT WAS CHOSEN FOR THESE LINKS, settled against the links
             // loaded now - by id, then by a label naming just one of them
             // (VENTSAVED.Resolve). A link that has gone is simply not
             // ticked; it is still remembered (Capture keeps it).
+            links = links ?? new List<VENTREAD.LinkRow>();
+
             var loaded = links
-                .Select(l => new VENTSAVED.LinkRef { Id = l.Id, Label = l.ToString() })
+                .Select(l => new VENTSAVED.LinkRef { Id = l.Id, Label = l.Label })
                 .ToList();
 
             var roomLinks = new HashSet<long>();
@@ -509,15 +659,15 @@ namespace ATKINSMEC
                     loaded.Concat(new[] { new VENTSAVED.LinkRef { Id = 0, Label = "This model" } })));
             }
 
-            foreach (RVTLINKSELECTION.LinkItem link in links)
+            foreach (VENTREAD.LinkRow link in links)
             {
                 // Set before the callbacks are attached, so filling the
                 // list is not taken for somebody ticking
                 var tick = new Tick
                 {
                     Id = link.Id,
-                    Label = link.ToString(),
-                    Span = RVTLINKSELECTION.LevelSpan(_doc, link.Id, storeys),
+                    Label = link.Label,
+                    Span = link.Span,
                     IsOn = roomLinks.Contains(link.Id),
                     IsApartments = VENTSETTINGS.ApartmentLinkIds.Contains(link.Id)
                 };
@@ -840,6 +990,17 @@ namespace ATKINSMEC
         {
             Gate();
 
+            // ANYTHING NOT READ YET is asked for, and the list is left as
+            // it is until it arrives - Take calls back in here, and by then
+            // it has all been read. Nothing below touches the model.
+            VENTREAD.Ask missing = Missing(TickedLinks());
+
+            if (missing.Any)
+            {
+                Ask(missing);
+                return;
+            }
+
             // The levels somebody had opened stay open when the list is
             // rebuilt - ticking a link should not fold the tree away - and
             // what they had picked stays picked
@@ -874,9 +1035,8 @@ namespace ATKINSMEC
             // architect's convention and changed every time somebody
             // ticked a different link. The rooms still come from the
             // links; each one lands on the storey of THIS model it sits
-            // on - see VENTLEVELMAP.
-            List<VENTLEVELMAP.Storey> storeys =
-                RVTLINKSELECTION.GetHostLevels(_doc);
+            // on - see VENTLEVELMAP. Read with the links (VENTREAD).
+            List<VENTLEVELMAP.Storey> storeys = _storeys;
 
             if (storeys.Count == 0)
             {
@@ -887,28 +1047,17 @@ namespace ATKINSMEC
             }
 
             // Which linked rooms land on each - the count beside the level
-            // and the list under it, from one walk of the links. A level
-            // that will do nothing says so instead of being found out by
-            // running it. Only done once any link is ticked.
-            Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> roomsOn;
+            // and the list under it. A level that will do nothing says so
+            // instead of being found out by running it. Arithmetic over
+            // the rooms already read (RVTLINKSELECTION.RoomsOn).
+            VENTAPARTMENTS.Map apartments =
+                VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
 
-            VENTAPARTMENTS.Map apartments = null;
+            Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> roomsOn =
+                RVTLINKSELECTION.RoomsOn(linkIds, _roomsOf, apartments, storeys);
 
-            if (linkIds.Count == 0)
-            {
-                roomsOn = new Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>>(
-                    StringComparer.OrdinalIgnoreCase);
-
-                // What the apartment ticks find is still worth saying
-                if (VENTSETTINGS.ApartmentLinkIds.Count > 0)
-                    apartments = VENTAPARTMENTS.Build(_doc);
-            }
-            else
-            {
-                roomsOn = RVTLINKSELECTION.RoomsByHostLevel(
-                    _doc, linkIds, storeys, out apartments);
-            }
-
+            // What the apartment ticks find is worth saying even with no
+            // link ticked
             ShowApartments(apartments);
 
             // The link's name goes on a room only when there is more than
@@ -1080,9 +1229,18 @@ namespace ATKINSMEC
             TxtLevelsInfo.Text = summary;
         }
 
+        // EVERYTHING READ IS LET GO and read again: the links, and then
+        // each ticked link's rooms and the apartments as the levels list
+        // asks for them. The one way to pick up a link reloaded, a room
+        // drawn or a level added since the window opened.
         private void BtnRefreshLinks_Click(object sender, RoutedEventArgs e)
         {
-            LoadLinks();
+            _roomsOf.Clear();
+            _map = null;
+            _mapFor = null;
+            _fixturesOf = null;
+
+            Ask(new VENTREAD.Ask { Links = true });
         }
 
         // A level's click ticks every room under it, and so do these

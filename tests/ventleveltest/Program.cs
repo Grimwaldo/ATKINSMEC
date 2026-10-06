@@ -378,6 +378,109 @@ internal static class Program
                 && none.Settle(1, "1:1", 0, null) == null);
         }
 
+        // ---- RoomsOn: the levels list, from rooms already read ----------
+        //
+        // AUTOVENT's window reads each link's rooms once, inside the
+        // external event, and a tick only runs RoomsOn over them. So this
+        // is now everything a tick does - and what the list shows has to
+        // be exactly what a run would process.
+        {
+            var bands = new List<VENTLEVELMAP.Storey>
+            {
+                At("GR", 0.0), At("L01", 4.0), At("L02", 8.0)
+            };
+
+            const long Arc = 10, Ind = 20, Pod = 30;
+
+            RVTLINKSELECTION.LinkedRoom R(long link, long id, string number, string name, double floorMetres)
+            {
+                return new RVTLINKSELECTION.LinkedRoom
+                {
+                    LinkId = link, RoomId = id, Number = number, Name = name,
+                    LinkName = "link " + link, LinkLevel = "Level " + floorMetres,
+                    Floor = Mm(floorMetres * 1000.0)
+                };
+            }
+
+            var roomsOf = new Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>>
+            {
+                // The architect's model: a lobby, an apartment with rooms
+                // inside it, and a basement room below every level here
+                [Arc] = new List<RVTLINKSELECTION.LinkedRoom>
+                {
+                    R(Arc, 1, "G-001", "LOBBY", 0.0),
+                    R(Arc, 2, "G-002", "DRIVER/STAFF APT", 0.0),
+                    R(Arc, 3, "B-001", "STORE", -4.0),
+                    R(Arc, 4, "101", "CORRIDOR", 4.0)
+                },
+
+                // The interior model, NOT ticked: two rooms inside the
+                // apartment, one standing outside every apartment
+                [Ind] = new List<RVTLINKSELECTION.LinkedRoom>
+                {
+                    R(Ind, 51, "G-02-2", "Toilet", 0.0),
+                    R(Ind, 52, "G-02-1", "Bed room", 0.0),
+                    R(Ind, 53, "X-1", "Loose room", 0.0)
+                }
+            };
+
+            string K(long link, long room) => RVTLINKSELECTION.RoomKey(link, room);
+
+            var apt = new VENTAPARTMENTS.Apartment { Key = K(Arc, 2), Name = "DRIVER/STAFF APT", Number = "G-002" };
+
+            var map = new VENTAPARTMENTS.Map();
+            map.Sources.Add(Arc);
+            map.ByRoom[K(Ind, 51)] = apt;
+            map.ByRoom[K(Ind, 52)] = apt;
+            map.Holding.Add(apt.Key);
+            map.FoundIn.Add(Ind);
+
+            var on = RVTLINKSELECTION.RoomsOn(new[] { Arc, Pod }, roomsOf, map, bands);
+
+            List<RVTLINKSELECTION.LinkedRoom> gr = on.ContainsKey("GR") ? on["GR"] : new List<RVTLINKSELECTION.LinkedRoom>();
+
+            Check("each room lands under the storey its floor stands in",
+                gr.Exists(r => r.RoomId == 1) && on.ContainsKey("L01") && on["L01"].Count == 1 && on["L01"][0].RoomId == 4);
+
+            Check("a room below every level of this model is in no level",
+                !on.Values.Any(l => l.Exists(r => r.RoomId == 3)));
+
+            Check("an apartment with rooms inside is not a row - its rooms are",
+                !gr.Exists(r => r.LinkId == Arc && r.RoomId == 2) &&
+                gr.Exists(r => r.RoomId == 51) && gr.Exists(r => r.RoomId == 52));
+
+            Check("an interior placement nobody ticked gives ONLY the rooms inside apartments",
+                !gr.Exists(r => r.RoomId == 53));
+
+            Check("the rooms inside carry their apartment",
+                gr.Where(r => r.LinkId == Ind).All(r => r.ApartmentKey == apt.Key && r.Apartment == "DRIVER/STAFF APT"));
+
+            Check("an apartment's rooms sit together, in number order inside it",
+                gr.Count == 3 && gr[0].RoomId == 1 && gr[1].RoomId == 52 && gr[2].RoomId == 51);
+
+            Check("a link ticked but not read yet gives nothing, and nothing throws",
+                !on.Values.Any(l => l.Exists(r => r.LinkId == Pod)));
+
+            Check("the rooms handed back are copies - what was read keeps no apartment",
+                roomsOf[Ind].All(r => r.ApartmentKey == null));
+
+            var plain = RVTLINKSELECTION.RoomsOn(new[] { Arc }, roomsOf, null, bands);
+
+            Check("with no apartments the interior model, unticked, gives nothing at all",
+                !plain.Values.Any(l => l.Exists(r => r.LinkId == Ind)) &&
+                plain["GR"].Exists(r => r.RoomId == 2));
+
+            var both = RVTLINKSELECTION.RoomsOn(new[] { Arc, Ind }, roomsOf, map, bands);
+
+            Check("ticked, the interior model gives all its rooms - the loose one too",
+                both["GR"].Exists(r => r.RoomId == 53) && both["GR"].Exists(r => r.RoomId == 51));
+
+            Check("nothing ticked, or nothing read, is an empty list rather than an error",
+                RVTLINKSELECTION.RoomsOn(new long[0], roomsOf, map, bands).Count == 0 &&
+                RVTLINKSELECTION.RoomsOn(new[] { Arc }, null, map, bands).Count == 0 &&
+                RVTLINKSELECTION.RoomsOn(null, roomsOf, map, bands).Count == 0);
+        }
+
         Console.WriteLine();
         Console.WriteLine(_failed == 0
             ? "all checks passed"

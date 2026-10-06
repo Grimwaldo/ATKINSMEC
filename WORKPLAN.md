@@ -1,5 +1,33 @@
 # Work plan — state and next steps
 
+## AUTOVENT reads the model only in an API context; backups; installer - 2026-10-06
+
+At the user's request ("rebuild the installer, then do 4 then 3").
+
+**Installer** rebuilt after everything below; both carry the day's DLLs
+(checked by hash inside the zips).
+
+**Backups.** Every commit is pushed by a hook (`tools\git-hooks`) to
+`backup-onedrive`, a bare repository in `C:\Users\moham\OneDrive\Backups`.
+**OneDrive was not running and no account was signed in**, so that copy
+only leaves the machine once somebody signs OneDrive in. **`D:` is
+write-protected** ("The media is write protected" - a disk setting),
+so the D: backup the user also chose could not be made; the hook already
+knows `backup-d` for when it can. Both told to the user.
+
+**AUTOVENT's window no longer reads the model from its own handlers.**
+Every read goes through `VENTREAD` - in the constructor (inside the
+command) or the external event - and the window holds what was read, so
+a tick is arithmetic (`RVTLINKSELECTION.RoomsOn`) and asks Revit only for
+what it has not got. Refresh lets go of everything. Found on the way:
+**`ExtEventHan` never cleared `Request`**, so a later Raise would have
+re-run the last write or export - fixed. `ventleveltest` 60 (11 new),
+`ventsettingstest` 83 (4 new), all 16 harnesses pass; built and deployed
+for all six, hashes match. **Never run in Revit** - check that ticking
+links fills the levels list (the status bar says "Reading the linked
+models..." first), that Refresh picks up a link reloaded, and that
+Fixtures... opens with its families.
+
 ## Under git, harnesses in the repo, AUTOVENT remembers each model - 2026-10-06
 
 At the user's request, after a review of what was worth worrying about.

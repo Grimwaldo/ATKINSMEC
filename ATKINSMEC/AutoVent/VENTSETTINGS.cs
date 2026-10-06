@@ -199,6 +199,42 @@ namespace ATKINSMEC
             public bool Counted { get; set; }
         }
 
+        // THE FIXTURES DIALOG'S LIST for the sources ticked in it, from
+        // each model's families as read (VENTREAD, source -> family ->
+        // count; 0 is this model) - so the dialog never touches the model
+        // itself. The same list VENTFIXTURES.Families gives for those
+        // sources read together: counts added across them, by name,
+        // pre-ticked by the rule an export would count by.
+        public static List<FixtureFamily> FamiliesFrom(
+            IDictionary<long, Dictionary<string, int>> fixtures, IEnumerable<long> sources)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (long source in new HashSet<long>(sources ?? new long[0]))
+            {
+                Dictionary<string, int> of;
+
+                if (fixtures == null || !fixtures.TryGetValue(source, out of) || of == null)
+                    continue;
+
+                foreach (KeyValuePair<string, int> family in of)
+                {
+                    int n;
+                    counts.TryGetValue(family.Key, out n);
+                    counts[family.Key] = n + family.Value;
+                }
+            }
+
+            var list = new List<FixtureFamily>();
+
+            foreach (KeyValuePair<string, int> c in counts)
+                list.Add(new FixtureFamily { Name = c.Key, Count = c.Value, Counted = CountsFamily(c.Key) });
+
+            list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
+            return list;
+        }
+
         public static bool CountsFamily(string familyName)
         {
             return FixtureFamilies.Count > 0

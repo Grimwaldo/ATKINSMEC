@@ -26,22 +26,64 @@ namespace ATKINSMEC
         public string ShowLevel { get; set; }
         public int ShowElsewhere { get; set; }
 
+        // WHAT THE WINDOW WANTS READ (VENTREAD) - kept apart from Request,
+        // because a read and a run can both be waiting: a tick asks for a
+        // link's rooms and Run is pressed before Revit gets round to it.
+        // Asks raised before the event runs are merged into one.
+        private VENTREAD.Ask _reads;
+
+        public void Read(VENTREAD.Ask ask)
+        {
+            if (ask == null || !ask.Any)
+                return;
+
+            if (_reads == null)
+                _reads = new VENTREAD.Ask();
+
+            _reads.Add(ask);
+
+            Command.ExtEvent.Raise();
+        }
+
         public void Execute(UIApplication app)
         {
+            // TAKEN AND CLEARED AT ONCE. Request was never reset, so any
+            // later Raise - a read, say - would have run the last write
+            // or export again
+            int request = Request;
+            Request = 0;
+
+            VENTREAD.Ask reads = _reads;
+            _reads = null;
+
+            // From the model the WINDOW was opened on - not the one in
+            // front, and not Command.Doc, which the button resets even
+            // when it only brings the open window forward
+            if (reads != null && Command.Window != null)
+            {
+                VENTREAD.Answer answer = VENTREAD.Do(Command.Window.Document, reads);
+
+                // Revit's own thread is the window's thread too
+                Command.Window.Take(answer);
+            }
+
+            if (request == 0)
+                return;
+
             Document doc =
                 app.ActiveUIDocument.Document;
 
-            if (Request == 1)
+            if (request == 1)
             {
                 REVITROOMS rooms = new REVITROOMS();
                 rooms.Rooms(doc);
             }
-            else if (Request == 2)
+            else if (request == 2)
             {
                 REVITEXPORT export = new REVITEXPORT();
                 export.Export(doc);
             }
-            else if (Request == 3)
+            else if (request == 3)
             {
                 string said;
 

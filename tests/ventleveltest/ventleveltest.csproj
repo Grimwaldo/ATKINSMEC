@@ -12,6 +12,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELMAP.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTAPARTMENTMAP.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\RVTLINKROOMS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELROWS.cs" />
   </ItemGroup>
 
 </Project>

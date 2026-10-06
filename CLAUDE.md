@@ -261,6 +261,9 @@ byte scan proves the NAMES; this proves they decode.
   names run to forty characters and the first render cut "location
   Tower B" off the end of the row - the one part that tells the two
   apart. A title that occurs once is still just the title.
+  **A partial class**: its Revit-free half, `RVTLINKROOMS.cs`, holds
+  `LinkedRoom`, `RoomKey` and `RoomsOn` (linked rooms onto this model's
+  levels), so the tests can reach them.
 - `SpaceKey.cs` — **dead code**, superseded by `VENTSHEET.SpaceKey`.
 
 **AUTOVENT** — `Command.cs`, **`VENTWindow.xaml` + `.xaml.cs` (WPF)**,
@@ -273,7 +276,8 @@ worksheet-name rule, Revit-free),
 `VENTLEVELMAP.cs` (a linked room onto a storey of this model,
 Revit-free), `VENTSETTINGS.cs` (what it used to guess, Revit-free),
 `VENTSAVED.cs` (each model's set-up, remembered between sessions,
-Revit-free),
+Revit-free), `VENTREAD.cs` (everything the window reads from the model,
+in the constructor or the external event - never from a handler),
 `VENTFCUCHECK.cs` (a room whose units and endcaps disagree,
 Revit-free), `VENTLEVELNOTE.cs` (what the levels card says, Revit-free
 so the preview renders the real wording), `VENTEXPORTNOTE.cs` (what
@@ -612,11 +616,12 @@ link's content actually stands on has not been seen.
 
 **THE LEVELS LIST IS A TREE, AND EACH LEVEL OPENS TO ITS ROOMS**, at the
 user's request - number and name, the link's name too when more than
-one link is ticked. `RVTLINKSELECTION.RoomsByHostLevel` replaced
-`CountRoomsByHostLevel`: one walk of the links gives both the count
+one link is ticked. `RVTLINKSELECTION.RoomsOn` gives both the count
 beside a level and the list under it, through the SAME band rule the
 export and the airflow write use, so what a level shows is exactly what
-a run would process there. Levels start closed and the tree virtualises,
+a run would process there. It is arithmetic over each link's rooms as
+already READ (`ReadRooms`, through `VENTREAD` - see "THE WINDOW NEVER
+READS THE MODEL" below), so a tick costs nothing. Levels start closed and the tree virtualises,
 so thousands of rooms cost nothing until somebody opens a level; the
 ones that were open stay open when a link tick rebuilds the list.
 
@@ -951,9 +956,12 @@ Occupants" is left as the office sheet has it.
   end at "from 1..."), and where from in its tooltip; the **Fixtures...**
   dialog changes either. The three export hints became one paragraph
   each to give that line room - rendered at 1x and 1.5x.
-- The dialog reads the links' fixture families from a button handler,
-  as the levels list already reads their rooms (`RefreshLevels`) - the
-  same read-only practice, not a new kind of risk.
+- The dialog's families are read ONCE per window through the external
+  event (`VENTREAD`, per model), and the dialog opens when they arrive;
+  `VENTSETTINGS.FamiliesFrom` adds them up for the models ticked in it.
+  **The dialog cannot ask for them itself: an external event does not
+  run while a modal dialog is up** - and it used to read them straight
+  from its callback, outside any API context.
 
 Proven in `tests/officetest` against the REAL office workbook:
 the column is found and is "No. of Units", it sits right of the Room
@@ -1026,7 +1034,7 @@ Tower 2 and MLCP have no apartments.
 - An apartment with a room inside goes in `Holding`; one with nothing
   inside (a corridor in the architect's model) stays an ordinary room.
 - **ONE MAP, FOUR USERS, AND THEY MUST AGREE**: the levels tree
-  (`RoomsByHostLevel` - interior rooms listed as `APARTMENT  /  room`,
+  (`RoomsOn` - interior rooms listed as `APARTMENT  /  room`,
   grouped), the export (`CollectRooms` - `Holding` apartments are no
   row, interior rooms carry `Room.ApartmentKey/Apartment/Number`), the
   airflow write (`REVITROOMS` - `Holding` apartments are NOT candidates
@@ -1132,9 +1140,57 @@ found at run time.
 **The move was cheap because none of the work was ever in the form.**
 `VENTSHEET` reads the workbook, `REVITROOMS` writes the terminals,
 `REVITEXPORT` writes the sheet back; the window only orchestrated them.
-Worth keeping true. It is still MODELESS, so every Revit call still
-goes through `ExtEventHan` - a WPF button handler is no more an API
-context than a WinForms one.
+Worth keeping true. It is still MODELESS, so every Revit call goes
+through `ExtEventHan` - a WPF button handler is no more an API context
+than a WinForms one.
+
+**THE WINDOW NEVER READS THE MODEL FROM ITS OWN HANDLERS - and until
+2026-10-06 it did.** The runs went through `ExtEventHan`, but the READS
+did not: every link tick re-read every ticked link's rooms (and, with
+apartments on, every room of EVERY loaded link plus a `GetRoomAtPoint`
+each) straight from the tick, Refresh re-read the links and their level
+spans, and the Fixtures dialog read families from its callback - all
+outside any API context. Autodesk does not support that; read-only
+calls mostly work, which is how it went unnoticed, but nothing promises
+they will, and every tick on a big job paid for a full re-read.
+
+Now every read goes through **`VENTREAD`** (`Ask` in, `Answer` out):
+
+- **the first one in the window's CONSTRUCTOR**, which runs inside the
+  command's API context - the links, their spans and this model's
+  levels - so the window opens with its links list and no round trip;
+- **the rest through the external event** (`ExtEventHan.Read`), and the
+  answer comes back to `VENTWindow.Take` on Revit's thread, which is the
+  window's thread too;
+- **the window holds what was read** - each link's rooms (`_roomsOf`,
+  all of them, before any level or apartment is applied), the
+  apartments map and the Apartments ticks it was built for (`_mapFor`),
+  each model's fixture families - and **`RefreshLevels` asks only for
+  what is missing** (`Missing`): a link ticked for the first time, or
+  the map when the Apartments ticks changed. The interior placements a
+  new map finds are read in the same trip. Everything else is
+  `RVTLINKSELECTION.RoomsOn` over what is held, which is Revit-free and
+  tested (`tests/ventleveltest`);
+- **Refresh lets go of all of it** and reads afresh - the one way to see
+  a link reloaded, a room drawn or a level added since the window
+  opened;
+- **`VENTREAD.Do` answers EVERY part it was asked for**, with nothing if
+  it must (a closed model, an unreadable link). The window asks again
+  for whatever is still missing, so an unanswered part would be asked
+  for forever;
+- **reads come from the window's OWN document** (`VENTWindow.Document`),
+  not `Command.Doc` - the AUTOVENT button resets that even when it only
+  brings an open window forward over another model.
+
+**`ExtEventHan` NEVER CLEARED `Request`**, so any later `Raise` - which
+reads now do all the time - would have run the last airflow write or
+export AGAIN. `Execute` now takes the request and clears it first, and
+reads are kept apart from it (`_reads`, merged when several are raised
+before Revit gets to them), so a read and a run waiting together both
+happen: the read first, then the run.
+
+**Never run in Revit.** Built for all six; `tests/ventleveltest` covers
+`RoomsOn` (11 checks) and `tests/ventsettingstest` `FamiliesFrom`.
 
 **A modeless WPF window MUST be given Revit as its owner**
 (`WindowInteropHelper` + `UIApplication.MainWindowHandle`). Without it

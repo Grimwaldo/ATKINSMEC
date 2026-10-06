@@ -226,6 +226,36 @@ internal static class Program
 
         VENTSETTINGS.FixtureFamilies.Clear();
 
+        // ---- the Fixtures dialog's list, from what was read ----------
+        var read = new System.Collections.Generic.Dictionary<long, System.Collections.Generic.Dictionary<string, int>>
+        {
+            [0] = new System.Collections.Generic.Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["M_Urinal - Wall Hung"] = 2 },
+            [11] = new System.Collections.Generic.Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["M_Water Closet - Flush Valve - Wall Mounted"] = 86,
+                ["M_Lavatory - Vanity"] = 120,
+                ["M_Urinal - Wall Hung"] = 34
+            }
+        };
+
+        var families = VENTSETTINGS.FamiliesFrom(read, new long[] { 0, 11, 11, 99 });
+
+        Check("the dialog's families add up across the models ticked, by name",
+            families.Count == 3 &&
+            families.Find(f => f.Name == "M_Urinal - Wall Hung").Count == 36 &&
+            families.Find(f => f.Name == "M_Lavatory - Vanity").Count == 120);
+
+        Check("...a model named twice is counted once, and one never read gives nothing",
+            families.Find(f => f.Name == "M_Water Closet - Flush Valve - Wall Mounted").Count == 86);
+
+        Check("...sorted by name and pre-ticked by the rule an export counts by",
+            families[0].Name == "M_Lavatory - Vanity" && !families[0].Counted &&
+            families.Find(f => f.Name == "M_Urinal - Wall Hung").Counted);
+
+        Check("...and nothing read, or nothing ticked, is an empty list",
+            VENTSETTINGS.FamiliesFrom(null, new long[] { 0 }).Count == 0 &&
+            VENTSETTINGS.FamiliesFrom(read, null).Count == 0);
+
         Saved();
 
         Console.WriteLine();
