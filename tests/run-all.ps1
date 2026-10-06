@@ -18,13 +18,13 @@ $tests = @(
     'aligntest', 'chwjointtest', 'chwsizetest', 'ducttest', 'equiptest',
     'esptest', 'fittingtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
     'officetest', 'roomtest', 'runtest', 'sheettest', 'synctest',
-    'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest'
+    'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest', 'geomtest'
 )
 
 # RECOVERED AT AN OLDER VERSION AND OUT OF STEP - see tests\README.md.
 # A mirror of SPRINKLERLAYOUT from 2026-08-31 that prints a layout and
 # asserts nothing. Run by name to look at it.
-$stale = @('geomtest')
+$stale = @()
 
 if ($Only) { $tests = @($tests) + $stale | Where-Object { $Only -contains $_ } }
 
