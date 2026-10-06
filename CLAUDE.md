@@ -103,6 +103,23 @@ Git for Windows' default would rewrite them on checkout. Git stores
 exactly what is on disk. The identity is set for this repository only
 (`git config user.name` / `user.email`); there was no global one.
 
+**EVERY COMMIT IS COPIED TO A BACKUP REPOSITORY BY A HOOK**
+(`tools\git-hooks\post-commit`, switched on by `git config
+core.hooksPath tools/git-hooks`). The remote is `backup-onedrive` =
+`C:\Users\moham\OneDrive\Backups\ATKINSMEC.git`, a bare repository. The
+hook skips a remote a clone has not got and never fails a commit; a
+push that does not go through prints a warning. Two things limit it,
+both found on 2026-10-06:
+
+- **OneDrive was not running and had no account signed in**, so that
+  copy only leaves the machine once somebody signs OneDrive in. Until
+  then it is a second copy on the SAME disk.
+- **`D:` (the separate SATA disk, "STORE") is write-protected** - "The
+  media is write protected" - which is a disk setting, not a folder
+  permission. The hook already knows a `backup-d` remote: once `D:` is
+  writable, `git init --bare D:\Backups\ATKINSMEC.git` and `git remote
+  add backup-d D:/Backups/ATKINSMEC.git` are all it takes.
+
 The test harnesses are in `tests\` - see **Conventions and traps** -
 and `tests\run-all.ps1` runs them.
 

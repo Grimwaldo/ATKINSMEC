@@ -1,0 +1,19 @@
+#!/bin/sh
+# Copies every commit to the backup repositories, so a backup never
+# depends on somebody remembering to make one. Wired up by
+#
+#     git config core.hooksPath tools/git-hooks
+#
+# A remote this clone does not have is skipped without a word, so the
+# hook is harmless in any other clone. A failed push warns and never
+# stops the commit - the commit is already made by the time this runs.
+
+for remote in backup-onedrive backup-d; do
+    git remote | grep -qx "$remote" || continue
+
+    if ! git push --quiet --all "$remote" >/dev/null 2>&1; then
+        echo "backup: could not copy this commit to $remote - push it by hand" >&2
+    fi
+done
+
+exit 0
