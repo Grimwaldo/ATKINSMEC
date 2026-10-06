@@ -36,6 +36,63 @@ namespace ATKINSMEC
             _event = externalEvent;
 
             this.Text = "SPRINKLERS - " + doc.Title;
+
+            // READ HERE, inside the command's API context. Load would
+            // happen to work too - WinForms raises it inside Show() - but
+            // that is an accident of timing, not a promise.
+            _links = RVTLINKSELECTION.GetLinks(doc);
+            _symbols = SPRINKLERPLAN.GetSprinklerSymbols(doc);
+
+            // What the window says about each family, read now - the
+            // family list and the Place confirmation used to ask the
+            // FamilySymbol from their own handlers
+            foreach (FamilySymbol symbol in _symbols)
+            {
+                _facts.Add(new SymbolFacts
+                {
+                    Label = symbol.FamilyName + " : " + symbol.Name,
+                    Placement = SPRINKLERPLAN.PlacementDescription(symbol),
+                    NeedsHost = SPRINKLERPLAN.NeedsHost(symbol)
+                });
+            }
+        }
+
+        // One per _symbols entry, in the same order
+        private class SymbolFacts
+        {
+            public string Label;
+            public string Placement;
+            public bool NeedsHost;
+        }
+
+        private readonly List<SymbolFacts> _facts = new List<SymbolFacts>();
+
+        // The model the window was opened on, for SPRINKLEREVENT's reads
+        public Document Document
+        {
+            get { return _doc; }
+        }
+
+        private readonly List<RVTLINKSELECTION.LinkItem> _links;
+
+        // EACH LINK'S ROOM LEVELS, read once through the external event
+        // (SPRINKLEREVENT.ReadLevels) - never from the window's own
+        // handlers, which are outside any API context
+        private readonly Dictionary<long, List<string>> _levelsOf =
+            new Dictionary<long, List<string>>();
+
+        private const string ReadingLevels = "Reading the link's floors...";
+
+        // SPRINKLEREVENT's answer, on Revit's thread - the window's too
+        public void ReportLevels(Dictionary<long, List<string>> read)
+        {
+            foreach (KeyValuePair<long, List<string>> link in read)
+                _levelsOf[link.Key] = link.Value ?? new List<string>();
+
+            if (lblSourceInfo.Text == ReadingLevels)
+                lblSourceInfo.Text = string.Empty;
+
+            RefreshLevels();
         }
 
         private void SPRINKLERForm_FormClosed(
@@ -98,11 +155,8 @@ namespace ATKINSMEC
 
         private void SPRINKLERForm_Load(object sender, EventArgs e)
         {
-            foreach (RVTLINKSELECTION.LinkItem link in
-                     RVTLINKSELECTION.GetLinks(_doc))
-            {
+            foreach (RVTLINKSELECTION.LinkItem link in _links)
                 clbLinks.Items.Add(link);
-            }
 
             foreach (SPRINKLERRULES.HazardRule rule in SPRINKLERRULES.Rules)
             {
@@ -112,10 +166,8 @@ namespace ATKINSMEC
 
             cmbSetAll.SelectedIndex = 0;
 
-            _symbols = SPRINKLERPLAN.GetSprinklerSymbols(_doc);
-
-            foreach (FamilySymbol symbol in _symbols)
-                cmbFamily.Items.Add(symbol.FamilyName + " : " + symbol.Name);
+            foreach (SymbolFacts facts in _facts)
+                cmbFamily.Items.Add(facts.Label);
 
             cmbHosting.Items.Add("Automatic (from the family)");
             cmbHosting.Items.Add("Host on the ceiling face");
@@ -290,12 +342,11 @@ namespace ATKINSMEC
                 return;
             }
 
-            FamilySymbol symbol = _symbols[cmbFamily.SelectedIndex];
+            SymbolFacts facts = _facts[cmbFamily.SelectedIndex];
 
-            string text = "This family is " +
-                SPRINKLERPLAN.PlacementDescription(symbol) + ".";
+            string text = "This family is " + facts.Placement + ".";
 
-            if (SPRINKLERPLAN.NeedsHost(symbol))
+            if (facts.NeedsHost)
                 text += " It will not place without a ceiling.";
 
             lblPlacementInfo.Text = text;
@@ -335,17 +386,33 @@ namespace ATKINSMEC
             return ids;
         }
 
+        // The ticked links' floors that have rooms, from what was read.
+        // A link not read yet is asked for, and the list is rebuilt when
+        // its floors arrive (ReportLevels).
         private void RefreshLevels()
         {
-            clbLevels.Items.Clear();
-
             List<long> ids = CheckedLinkIds();
 
-            if (ids.Count == 0)
-                return;
+            List<long> missing = ids.Where(id => !_levelsOf.ContainsKey(id)).ToList();
 
-            foreach (string level in
-                     RVTLINKSELECTION.GetLevelNamesWithRooms(_doc, ids))
+            if (missing.Count > 0)
+            {
+                lblSourceInfo.Text = ReadingLevels;
+
+                _handler.ReadLevels(missing);
+                _event.Raise();
+
+                return;
+            }
+
+            clbLevels.Items.Clear();
+
+            // The same list one read of all of them gives: each floor
+            // once, sorted by name
+            foreach (string level in ids
+                         .SelectMany(id => _levelsOf[id])
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
             {
                 clbLevels.Items.Add(level, true);
             }
@@ -760,6 +827,7 @@ namespace ATKINSMEC
             }
 
             FamilySymbol symbol = _symbols[cmbFamily.SelectedIndex];
+            SymbolFacts facts = _facts[cmbFamily.SelectedIndex];
 
             SPRINKLERPLAN.Hosting hosting = SelectedHosting();
 
@@ -774,7 +842,7 @@ namespace ATKINSMEC
                     hostingText = "unhosted, at ceiling height";
                     break;
                 default:
-                    hostingText = SPRINKLERPLAN.NeedsHost(symbol)
+                    hostingText = facts.NeedsHost
                         ? "hosted on the ceiling face (this family needs a host)"
                         : "unhosted, at ceiling height";
                     break;
@@ -782,7 +850,7 @@ namespace ATKINSMEC
 
             if (MessageBox.Show(
                     $"Place {heads} sprinkler(s) across {chosen.Count} room(s) " +
-                    $"using {symbol.FamilyName} : {symbol.Name}?\r\n\r\n" +
+                    $"using {facts.Label}?\r\n\r\n" +
                     $"They will be {hostingText}, and can be removed with a " +
                     "single undo.",
                     "SPRINKLERS",

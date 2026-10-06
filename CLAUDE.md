@@ -1339,6 +1339,32 @@ correcting the coordinates alone would have moved those models' heads
 onto the level above. Heads hosted on a ceiling face are untouched -
 Revit decides their level. Never run in Revit.
 
+**THE WINDOW READS THE MODEL ONLY IN AN API CONTEXT** - the AUTOVENT fix
+(`VENTREAD`) applied here on 2026-10-06, at the user's request. It used
+to read every room of the ticked links from the LINK TICK
+(`GetLevelNamesWithRooms`), and the family list and the Place
+confirmation asked the `FamilySymbol` from their own handlers. Now:
+
+- the links, the sprinkler families and what the window says about each
+  family (`SymbolFacts` - label, placement, needs a host) are read in
+  the CONSTRUCTOR, inside the command. `Load` would have worked too -
+  WinForms raises it inside `Show()` - but that is timing, not a
+  promise;
+- each link's floors are read ONCE through the event
+  (`SPRINKLEREVENT.ReadLevels`, answered in `ReportLevels`) and kept per
+  link (`_levelsOf`), so a tick is a merge of what is held - de-duplicated
+  and sorted by name, which is exactly what one read of all of them gave;
+- **those reads have their own slot, apart from `Action`**: a tick can
+  come while a listing or a placement is waiting, and the one slot
+  would throw one of them away - a lost listing leaves "List rooms"
+  greyed for good. `DoReadLevels` answers every link it was asked for,
+  with nothing if it must, or the window would ask again on every tick;
+- reads come from the window's own document (`SPRINKLERForm.Document`),
+  not the one in front.
+
+The listing, zoom and placement went through the event already. Never
+run in Revit; built for all six.
+
 **ALIGN TERMINALS** — `ALIGNCommand.cs`, `ALIGNEVENT.cs` (external
 event), `ALIGNForm*.cs`, `ALIGNHELPForm*.cs`, `ALIGNTERMINALS.cs`
 (matching and moving). Matching

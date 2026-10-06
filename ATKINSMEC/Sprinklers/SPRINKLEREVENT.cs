@@ -38,8 +38,29 @@ namespace ATKINSMEC
         public FamilySymbol Symbol { get; set; }
         public SPRINKLERPLAN.Hosting Hosting { get; set; }
 
+        // THE LINKS WHOSE ROOM LEVELS THE WINDOW WANTS, kept apart from
+        // Action. The window used to read them straight from a link tick,
+        // outside any API context; it now asks here. A separate slot,
+        // because a tick can come while a listing or a placement is
+        // waiting, and the one Action slot would throw one of them away -
+        // a lost listing leaves its button greyed for good.
+        private readonly HashSet<long> _levelsToRead = new HashSet<long>();
+
+        public void ReadLevels(IEnumerable<long> linkIds)
+        {
+            _levelsToRead.UnionWith(linkIds);
+        }
+
         public void Execute(UIApplication app)
         {
+            if (_levelsToRead.Count > 0)
+            {
+                List<long> ids = _levelsToRead.ToList();
+                _levelsToRead.Clear();
+
+                DoReadLevels(ids);
+            }
+
             try
             {
                 switch (Action)
@@ -71,6 +92,35 @@ namespace ATKINSMEC
         public string GetName()
         {
             return "ATKINS sprinklers";
+        }
+
+        // Each link on its own, so the window can keep them per link and
+        // only ask for a link it has not read. From the model the WINDOW
+        // was opened on, not the one in front. EVERY link asked for is
+        // answered - with nothing, if it cannot be read - or the window
+        // would ask for it again on every tick.
+        private void DoReadLevels(List<long> ids)
+        {
+            var read = new Dictionary<long, List<string>>();
+
+            Document doc = Form == null ? null : Form.Document;
+
+            foreach (long id in ids)
+            {
+                try
+                {
+                    read[id] = doc != null && doc.IsValidObject
+                        ? RVTLINKSELECTION.GetLevelNamesWithRooms(doc, new[] { id })
+                        : new List<string>();
+                }
+                catch
+                {
+                    read[id] = new List<string>();
+                }
+            }
+
+            if (Form != null && !Form.IsDisposed)
+                Form.ReportLevels(read);
         }
 
         private void DoListRooms(UIApplication app)
