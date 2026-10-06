@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    BaseIntermediateOutputPath has to be set before Microsoft.Common.props
+    is imported, otherwise NuGet writes its assets to the default obj\
+    while the build writes elsewhere (MSB3539). Giving each Revit version
+    its own obj folder keeps their restores and intermediates apart.
+  -->
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
+    <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>

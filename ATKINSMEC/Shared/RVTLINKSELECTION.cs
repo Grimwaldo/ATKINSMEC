@@ -1,0 +1,736 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
+
+namespace ATKINSMEC
+{
+    public class RVTLINKSELECTION
+    {
+        // Set by the form, read by REVITROOMS when the run is raised
+        public static List<long> SelectedLinkIds = new List<long>();
+
+        public static HashSet<string> SelectedLevels =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // THE ROOMS UNTICKED in AUTOVENT's levels list, by RoomKey. Both
+        // runs - the export and the airflow write - leave these out.
+        //
+        // The UNticked ones rather than the ticked ones on purpose: a
+        // room the list never saw (drawn in the link after the window
+        // was filled) is then processed as it always was, instead of
+        // silently dropping out because nobody could tick it.
+        public static HashSet<string> ExcludedRooms = new HashSet<string>();
+
+        // "link id:room id" - the key REVITROOMS already files rooms by.
+        // Defined once, beside the window's room rows, so the rooms the
+        // window unticks are exactly the rooms the runs skip.
+        public static string RoomKey(long linkId, long roomId)
+        {
+            return VENTWindow.RoomRow.KeyOf(linkId, roomId);
+        }
+
+        public class LinkItem
+        {
+            public long Id { get; set; }
+
+            // The model's title - or, for a model placed more than once,
+            // the title AND which placement this is (LinkLabels)
+            public string Name { get; set; }
+
+            public override string ToString()
+            {
+                return Name;
+            }
+        }
+
+        public class LevelItem
+        {
+            public string Name { get; set; }
+            public bool InSheet { get; set; }
+
+            public override string ToString()
+            {
+                return Name + (InSheet
+                    ? "        [in sheet]"
+                    : "        [not in sheet]");
+            }
+        }
+
+        // ONE ROW PER PLACEMENT, not per model: every RevitLinkInstance
+        // with a loaded document. ALIGN TERMINALS, SHEET QA and SPRINKLERS
+        // list these too, and all of them match by Id, never by name.
+        public static List<LinkItem> GetLinks(Document doc)
+        {
+            var result = new List<LinkItem>();
+
+            Dictionary<long, string> labels = LinkLabels(doc);
+
+            foreach (RevitLinkInstance linkInstance in Placements(doc))
+            {
+                long id = linkInstance.Id.ToValue();
+
+                string label;
+
+                if (!labels.TryGetValue(id, out label))
+                    continue;
+
+                result.Add(new LinkItem
+                {
+                    Id = id,
+                    Name = label
+                });
+            }
+
+            result.Sort((a, b) =>
+                string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
+            return result;
+        }
+
+        private static IEnumerable<RevitLinkInstance> Placements(Document doc)
+        {
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(RevitLinkInstance))
+                .Cast<RevitLinkInstance>()
+                .Where(l => l.GetLinkDocument() != null);
+        }
+
+        // WHICH PLACEMENT IS WHICH, at the user's request. A model linked
+        // more than once - one tower model placed for both towers - used
+        // to give two rows with the same title and no way to tell them
+        // apart. A title that occurs more than once now carries the rest
+        // of Revit's own name for the instance ("ARC.rvt : 2 : location
+        // Tower B" in Manage Links and the Properties palette), without
+        // the word "location":
+        //
+        //     ARC-000010.rvt : 2 : Tower B
+        //
+        // KEPT SHORT ON PURPOSE. Office file names run to forty
+        // characters, and the first render cut "location Tower B" off
+        // the end of the row - the one part that tells the two apart.
+        //
+        // The instance part is the instance's "Name" parameter (Revit
+        // numbers them 1, 2, ... and people rename them), then the part
+        // of Element.Name after the title, then the element id - the
+        // first that says anything. "location <Not Shared>" is Revit's
+        // way of saying there is no shared site, and is left off.
+        //
+        // A title that occurs once is just the title, as before.
+        public static Dictionary<long, string> LinkLabels(Document doc)
+        {
+            var labels = new Dictionary<long, string>();
+
+            if (doc == null)
+                return labels;
+
+            List<RevitLinkInstance> placements = Placements(doc).ToList();
+
+            var titles = placements
+                .GroupBy(l => l.GetLinkDocument().Title, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (RevitLinkInstance link in placements)
+            {
+                string title = link.GetLinkDocument().Title;
+                long id = link.Id.ToValue();
+
+                if (titles[title] < 2)
+                {
+                    labels[id] = title;
+                    continue;
+                }
+
+                string[] parts = (link.Name ?? string.Empty)
+                    .Split(new[] { " : " }, StringSplitOptions.None);
+
+                string which = string.Empty;
+
+                try
+                {
+                    Parameter name = link.get_Parameter(
+                        BuiltInParameter.RVT_LINK_INSTANCE_NAME);
+
+                    if (name != null)
+                        which = (name.AsString() ?? string.Empty).Trim();
+                }
+                catch
+                {
+                    // fall back on the element name below
+                }
+
+                if (which.Length == 0 && parts.Length >= 2)
+                    which = parts[1].Trim();
+
+                if (which.Length == 0)
+                    which = "id " + id;
+
+                string where = parts.Length >= 3 ? parts[2].Trim() : string.Empty;
+
+                if (where.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
+                    where = string.Empty;
+
+                if (where.StartsWith("location ", StringComparison.OrdinalIgnoreCase))
+                    where = where.Substring("location ".Length).Trim();
+
+                labels[id] = title + " : " + which +
+                             (where.Length > 0 ? " : " + where : string.Empty);
+            }
+
+            return labels;
+        }
+
+        // WHICH OF THIS MODEL'S LEVELS A PLACEMENT COVERS, at the user's
+        // request - "from which level they are starting to level ending
+        // based on the main model levels":
+        //
+        //     B1_BASEMENT  to  P3_PODIUM 3   -   412 room(s)
+        //
+        // THE SPAN IS THE LINK'S MODEL CONTENT, its rooms are only
+        // counted. It was worked out from the rooms at first, and then
+        // from the link's levels for a link with none; the user asked for
+        // shaft openings to be ignored, which only means anything when
+        // the span is read from what is MODELLED - see Content. Shaft
+        // openings are the reason it is asked for: a shaft is usually
+        // constrained to some level far above or below the building, and
+        // would stretch the span to reach it.
+        //
+        // The lowest and the highest of the link's levels that something
+        // modelled STANDS ON (Element.LevelId), each put on a storey of
+        // this model by the same band rule the rooms use
+        // (VENTLEVELMAP.StoreyOf). A level only a wall's TOP reaches, with
+        // nothing standing on it, is not counted - nearly always the roof
+        // is on it, so this costs nothing in a real model and keeps the
+        // test to one cheap question per level.
+        //
+        // The rooms are still read, for the count and for how many fall
+        // below every level of this model - what AUTOVENT will skip. Only
+        // AUTOVENT asks.
+        public static string LevelSpan(
+            Document doc, long linkId, List<VENTLEVELMAP.Storey> storeys)
+        {
+            var link = doc == null
+                ? null
+                : doc.GetElement(REVITCOMPAT.NewId(linkId)) as RevitLinkInstance;
+
+            Document linked = link == null ? null : link.GetLinkDocument();
+
+            if (linked == null || storeys == null || storeys.Count == 0)
+                return string.Empty;
+
+            // ---- the rooms: counted, and how many are below every level
+            int rooms = 0;
+            int below = 0;
+
+            var placed = new FilteredElementCollector(linked)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .Cast<Room>()
+                .Where(r => r.Area > 0);
+
+            foreach (Room room in placed)
+            {
+                rooms++;
+
+                if (VENTLEVELMAP.StoreyOf(storeys, HostElevationOf(link, linked, room)) < 0)
+                    below++;
+            }
+
+            // ---- the span: the lowest and highest level anything stands on
+            Transform transform = link.GetTotalTransform();
+
+            // Lowest first, at the height each one is IN THIS MODEL
+            var levels = new FilteredElementCollector(linked)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .Select(l => new KeyValuePair<Level, double>(
+                    l, transform.OfPoint(new XYZ(0, 0, InternalZ(l))).Z))
+                .OrderBy(l => l.Value)
+                .ToList();
+
+            ElementMulticategoryFilter content = Content(linked);
+
+            // ElementLevelFilter is a SLOW filter, so an empty level costs a
+            // scan of the whole link. Hence inwards from each end, stopping
+            // at the first level that carries something, rather than every
+            // level in turn: only the empty levels at the very top and
+            // bottom are ever paid for.
+            Func<KeyValuePair<Level, double>, bool> carries = l =>
+                content != null &&
+                new FilteredElementCollector(linked)
+                    .WhereElementIsNotElementType()
+                    .WherePasses(content)
+                    .WherePasses(new ElementLevelFilter(l.Key.Id))
+                    .FirstElementId() != ElementId.InvalidElementId;
+
+            int first = levels.FindIndex(l => carries(l));
+
+            if (first < 0)
+                return "nothing modelled on its levels   -   " + Counted(rooms, below, false);
+
+            int last = levels.FindLastIndex(l => carries(l));
+
+            int low = VENTLEVELMAP.StoreyOf(storeys, levels[first].Value);
+            int high = VENTLEVELMAP.StoreyOf(storeys, levels[last].Value);
+
+            string span = high < 0
+                ? "all below this model's lowest level"
+                : low < 0
+                    ? "below " + storeys[0].Name + "  to  " + storeys[high].Name
+                    : Span(storeys, low, high);
+
+            return span + "   -   " + Counted(rooms, below, low < 0);
+        }
+
+        // "412 room(s)", and how many will be skipped for standing below
+        // every level of this model. Short where the span has just said
+        // "below B1_BASEMENT": the two usually come together - rooms down
+        // there stand on a slab down there - and the long form ran off
+        // the end of the row at 100% scaling.
+        private static string Counted(int rooms, int below, bool spanSaysBelow)
+        {
+            if (rooms == 0)
+                return "no rooms";
+
+            if (below == 0)
+                return rooms + " room(s)";
+
+            return rooms + " room(s), " + below +
+                   (spanSaysBelow ? " below" : " below this model's levels");
+        }
+
+        // WHAT COUNTS AS THE LINK'S CONTENT: every MODEL category it has,
+        // less those that are not the building itself.
+        //
+        // - SHAFT OPENINGS, at the user's request.
+        // - Rooms, areas and spaces: spaces, not things. The rooms are
+        //   counted separately.
+        // - Masses, model and sketch lines, reference planes, scope boxes,
+        //   section boxes, cameras, levels and grids: setting-out, not
+        //   building - and a level must not count as standing on itself.
+        // - Nested links: another model, with a span of its own.
+        // - Imported CAD (a category with a POSITIVE id, made by the
+        //   import): reference, and often placed somewhere arbitrary.
+        //
+        // An allow-list built from the link's own categories, so anything
+        // that is not a model category (views, annotation, tags) is out
+        // without having to be named.
+        private static readonly BuiltInCategory[] NotContent =
+        {
+            BuiltInCategory.OST_ShaftOpening,
+            BuiltInCategory.OST_Rooms,
+            BuiltInCategory.OST_Areas,
+            BuiltInCategory.OST_MEPSpaces,
+            BuiltInCategory.OST_Mass,
+            BuiltInCategory.OST_Lines,
+            BuiltInCategory.OST_SketchLines,
+            BuiltInCategory.OST_CLines,
+            BuiltInCategory.OST_VolumeOfInterest,
+            BuiltInCategory.OST_SectionBox,
+            BuiltInCategory.OST_Cameras,
+            BuiltInCategory.OST_Levels,
+            BuiltInCategory.OST_Grids,
+            BuiltInCategory.OST_RvtLinks
+        };
+
+        private static ElementMulticategoryFilter Content(Document linked)
+        {
+            var skip = new HashSet<long>(NotContent.Select(c => (long)(int)c));
+
+            var ids = new List<ElementId>();
+
+            foreach (Category category in linked.Settings.Categories)
+            {
+                if (category == null || category.CategoryType != CategoryType.Model)
+                    continue;
+
+                long id = category.Id.ToValue();
+
+                if (id >= 0 || skip.Contains(id))
+                    continue;
+
+                ids.Add(category.Id);
+            }
+
+            return ids.Count == 0 ? null : new ElementMulticategoryFilter(ids);
+        }
+
+        private static string Span(List<VENTLEVELMAP.Storey> storeys, int low, int high)
+        {
+            return low == high
+                ? storeys[low].Name + " only"
+                : storeys[low].Name + "  to  " + storeys[high].Name;
+        }
+
+        // Only levels that actually carry placed rooms are worth offering
+        // ==================================================
+        // The MAIN model's storeys, and getting a linked room onto one
+        // ==================================================
+
+        // AUTOVENT groups by these now rather than by the linked
+        // models' own level names - see VENTLEVELMAP for why.
+        //
+        // Note this takes NO link ids: the levels of the main model are
+        // the same whichever links are ticked, which is most of the
+        // point. GetLevelNamesWithRooms below is untouched, because
+        // SPRINKLERS still wants exactly what it does.
+        public static List<VENTLEVELMAP.Storey> GetHostLevels(Document doc)
+        {
+            var storeys = new List<VENTLEVELMAP.Storey>();
+
+            if (doc == null)
+                return storeys;
+
+            var collector = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level));
+
+            foreach (Element element in collector)
+            {
+                var level = element as Level;
+
+                if (level == null)
+                    continue;
+
+                storeys.Add(new VENTLEVELMAP.Storey
+                {
+                    Name = level.Name ?? string.Empty,
+                    Elevation = InternalZ(level),
+                    Shown = level.Elevation
+                });
+            }
+
+            VENTLEVELMAP.InOrder(storeys);
+
+            return storeys;
+        }
+
+        // A LEVEL'S HEIGHT IN ITS OWN MODEL'S INTERNAL COORDINATES - the
+        // ones every point, bounding box and link transform is in.
+        //
+        // NOT Level.Elevation, which is what all of this used, and which
+        // put a link's rooms under the level ABOVE the one they are on -
+        // user-reported. Autodesk's own words: "If the Elevation Base
+        // parameter is set to Project, the elevation is relative to
+        // project origin. If ... Shared, the elevation is relative to
+        // shared origin", and "The project base point represents the
+        // origin of the project coordinate system". So Elevation is
+        // measured from the base point or from the survey point, as the
+        // LEVEL TYPE says - and architects very often type their levels
+        // to the survey point so the heads read the site datum. A datum
+        // height put through a link transform, which goes internal to
+        // internal, lands the whole datum too high: with storeys about
+        // that tall, exactly one level up.
+        //
+        // ProjectElevation is from the project base point whatever the
+        // Elevation Base says, and the base point's Position is where it
+        // stands in the model, so the two together are the height in
+        // the model. Used for BOTH sides - this model's levels and every
+        // linked level and room - so the two are always in one system.
+        public static double InternalZ(Level level)
+        {
+            double z = level.ProjectElevation;
+
+            try
+            {
+                BasePoint basePoint = BasePoint.GetProjectBasePoint(level.Document);
+
+                if (basePoint != null)
+                    z += basePoint.Position.Z;
+            }
+            catch
+            {
+                // no base point to read: the base point is the origin
+            }
+
+            return z;
+        }
+
+        // WHERE THE ROOM'S FLOOR IS, in the MAIN model's coordinates.
+        //
+        // The room's own floor - its level plus its base offset - rather
+        // than its level alone: a room lowered 150 mm for a wet area, or
+        // raised onto a mezzanine, sits where it sits, whatever level the
+        // architect hung it from.
+        //
+        // A LINKED LEVEL'S ELEVATION IS NOT IN THE HOST'S COORDINATES
+        // until the link's transform is applied to it. A link set up by
+        // shared coordinates is usually a plain translation, and it is
+        // the Z of that translation that would otherwise put every room
+        // in the building on the wrong floor.
+        public static double HostElevationOf(
+            RevitLinkInstance linkInstance,
+            Document linkedDoc,
+            Room room)
+        {
+            double z = 0;
+
+            try
+            {
+                var level = linkedDoc.GetElement(room.LevelId) as Level;
+
+                if (level != null)
+                    z = InternalZ(level);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                z += room.BaseOffset;
+            }
+            catch
+            {
+                // no offset to read: the level is the floor
+            }
+
+            try
+            {
+                Transform transform = linkInstance.GetTotalTransform();
+
+                if (transform != null)
+                    return transform.OfPoint(new XYZ(0, 0, z)).Z;
+            }
+            catch
+            {
+            }
+
+            return z;
+        }
+
+        // One linked room, as the levels list shows it. Plain data, so
+        // the window can hold it without holding anything of Revit's.
+        public class LinkedRoom
+        {
+            public long LinkId { get; set; }
+            public long RoomId { get; set; }
+            public string Name { get; set; }
+            public string Number { get; set; }
+            public string LinkName { get; set; }
+
+            // The level it hangs from IN THE LINK, and its floor in this
+            // model's internal coordinates - so the window can say why it
+            // was put where it was
+            public string LinkLevel { get; set; }
+            public double Floor { get; set; }
+
+            // The apartment it stands in (VENTAPARTMENTS), or null
+            public string ApartmentKey { get; set; }
+            public string Apartment { get; set; }
+            public string ApartmentNumber { get; set; }
+        }
+
+        // The ticked links' rooms, grouped by the storey of THIS model
+        // each one stands on - the same band rule the export and the
+        // airflow write use (VENTLEVELMAP.StoreyOf), so what the list
+        // shows under a level is exactly what a run would process there.
+        //
+        // It replaced a method that only COUNTED them. The window needs
+        // the rooms themselves now, for the list under each level, and
+        // one walk of the links serves both: the count is the list's
+        // length.
+        public static Dictionary<string, List<LinkedRoom>> RoomsByHostLevel(
+            Document doc,
+            IEnumerable<long> linkIds,
+            List<VENTLEVELMAP.Storey> storeys)
+        {
+            VENTAPARTMENTS.Map apartments;
+
+            return RoomsByHostLevel(doc, linkIds, storeys, out apartments);
+        }
+
+        // ...and the apartments map it was built with, for the window to
+        // say which interior placements were found on which floors
+        public static Dictionary<string, List<LinkedRoom>> RoomsByHostLevel(
+            Document doc,
+            IEnumerable<long> linkIds,
+            List<VENTLEVELMAP.Storey> storeys,
+            out VENTAPARTMENTS.Map apartments)
+        {
+            var byLevel = new Dictionary<string, List<LinkedRoom>>(
+                StringComparer.OrdinalIgnoreCase);
+
+            apartments = new VENTAPARTMENTS.Map();
+
+            if (doc == null || linkIds == null || storeys == null)
+                return byLevel;
+
+            // The same label the links list shows, so a room from the
+            // second placement of a model says so
+            Dictionary<long, string> labels = LinkLabels(doc);
+
+            // The list shows what the export writes: an apartment with
+            // rooms inside is not a row, its rooms are - and those rooms
+            // come from every placement they were FOUND in, ticked or not.
+            // See VENTAPARTMENTS.
+            var ticked = new HashSet<long>(linkIds);
+
+            apartments = VENTAPARTMENTS.Build(doc);
+
+            foreach (long linkId in apartments.RoomLinks(ticked))
+            {
+                var linkInstance =
+                    doc.GetElement(REVITCOMPAT.NewId(linkId))
+                        as RevitLinkInstance;
+
+                if (linkInstance == null)
+                    continue;
+
+                Document linkedDoc = linkInstance.GetLinkDocument();
+
+                if (linkedDoc == null)
+                    continue;
+
+                var rooms =
+                    new FilteredElementCollector(linkedDoc)
+                    .OfCategory(BuiltInCategory.OST_Rooms)
+                    .WhereElementIsNotElementType()
+                    .Cast<Room>()
+                    .Where(r => r.Area > 0);
+
+                foreach (Room room in rooms)
+                {
+                    string roomKey = RoomKey(linkId, room.Id.ToValue());
+
+                    // From an interior placement nobody ticked, only the
+                    // rooms that belong in an apartment
+                    if (!apartments.Takes(linkId, roomKey, ticked))
+                        continue;
+
+                    if (apartments.Holding.Contains(roomKey))
+                        continue;
+
+                    double floor = HostElevationOf(linkInstance, linkedDoc, room);
+
+                    string level = VENTLEVELMAP.NameAt(storeys, floor);
+
+                    if (level.Length == 0)
+                        continue;
+
+                    VENTAPARTMENTS.Apartment apartment = apartments.Of(roomKey);
+
+                    var own = linkedDoc.GetElement(room.LevelId) as Level;
+
+                    Parameter name =
+                        room.get_Parameter(BuiltInParameter.ROOM_NAME);
+
+                    List<LinkedRoom> list;
+
+                    if (!byLevel.TryGetValue(level, out list))
+                    {
+                        list = new List<LinkedRoom>();
+                        byLevel.Add(level, list);
+                    }
+
+                    list.Add(new LinkedRoom
+                    {
+                        LinkId = linkId,
+                        RoomId = room.Id.ToValue(),
+                        Name = name == null
+                            ? string.Empty
+                            : name.AsString() ?? string.Empty,
+                        Number = room.Number ?? string.Empty,
+                        LinkName = labels.ContainsKey(linkId)
+                            ? labels[linkId]
+                            : linkedDoc.Title,
+                        LinkLevel = own == null ? string.Empty : own.Name,
+                        Floor = floor,
+                        ApartmentKey = apartment == null ? null : apartment.Key,
+                        Apartment = apartment == null ? null : apartment.Name,
+                        ApartmentNumber = apartment == null ? null : apartment.Number
+                    });
+                }
+            }
+
+            foreach (List<LinkedRoom> list in byLevel.Values)
+                list.Sort(ByApartmentThenNumber);
+
+            return byLevel;
+        }
+
+        // An apartment's rooms together, as the export writes them: an
+        // apartment sorts among the rooms by its own number and name, its
+        // rooms by theirs inside it
+        private static int ByApartmentThenNumber(LinkedRoom a, LinkedRoom b)
+        {
+            LinkedRoom ua = a.ApartmentKey == null ? a : new LinkedRoom { Number = a.ApartmentNumber ?? string.Empty, Name = a.Apartment ?? string.Empty };
+            LinkedRoom ub = b.ApartmentKey == null ? b : new LinkedRoom { Number = b.ApartmentNumber ?? string.Empty, Name = b.Apartment ?? string.Empty };
+
+            int byUnit = ByNumber(ua, ub);
+
+            if (byUnit != 0)
+                return byUnit;
+
+            // Two apartments numbered and named alike stay apart
+            int byKey = string.CompareOrdinal(a.ApartmentKey ?? string.Empty, b.ApartmentKey ?? string.Empty);
+
+            return byKey != 0 ? byKey : ByNumber(a, b);
+        }
+
+        // Room numbers are usually numeric but may carry letters; the
+        // same order the export writes them in
+        private static int ByNumber(LinkedRoom a, LinkedRoom b)
+        {
+            double na, nb;
+
+            if (double.TryParse(a.Number, out na) &&
+                double.TryParse(b.Number, out nb) &&
+                na != nb)
+                return na.CompareTo(nb);
+
+            int byNumber = string.Compare(
+                a.Number, b.Number, StringComparison.OrdinalIgnoreCase);
+
+            return byNumber != 0
+                ? byNumber
+                : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static List<string> GetLevelNamesWithRooms(
+            Document doc,
+            IEnumerable<long> linkIds)
+        {
+            var names = new List<string>();
+
+            var seen =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (long linkId in linkIds)
+            {
+                RevitLinkInstance linkInstance =
+                    doc.GetElement(REVITCOMPAT.NewId(linkId)) as RevitLinkInstance;
+
+                if (linkInstance == null)
+                    continue;
+
+                Document linkDoc = linkInstance.GetLinkDocument();
+
+                if (linkDoc == null)
+                    continue;
+
+                var rooms =
+                    new FilteredElementCollector(linkDoc)
+                    .OfCategory(BuiltInCategory.OST_Rooms)
+                    .WhereElementIsNotElementType()
+                    .Cast<Room>()
+                    .Where(r => r.Area > 0);
+
+                foreach (Room room in rooms)
+                {
+                    Element level = linkDoc.GetElement(room.LevelId);
+
+                    if (level == null)
+                        continue;
+
+                    if (seen.Add(level.Name))
+                        names.Add(level.Name);
+                }
+            }
+
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+
+            return names;
+        }
+    }
+}

@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A single self-contained installer executable.
+
+    net48 is chosen deliberately: .NET Framework 4.8 ships with every
+    Windows 10 and 11, so the resulting .exe runs anywhere with nothing
+    to install first. A .NET 8 build would need a runtime present or a
+    ~70 MB self-contained bundle.
+
+    The add-in files themselves are embedded as resources, so the .exe is
+    the whole package - one file to hand to someone.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>ATKINSMEC-Setup</AssemblyName>
+    <RootNamespace>ATKINSMEC.Setup</RootNamespace>
+
+    <!-- Without this the filename alone triggers a UAC prompt -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <Product>ATKINSMEC</Product>
+    <Company>ATKINS</Company>
+    <AssemblyTitle>ATKINSMEC add-ins for Revit</AssemblyTitle>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0</Version>
+
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Payload.cs" />
+    <Compile Include="Installer.cs" />
+    <Compile Include="SetupForm.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <!--
+    The whole add-in, as one compressed archive built by
+    build-installer.ps1. Entries are named <version>/<relative path>,
+    which is how Payload.cs works out where each file belongs.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="payload.zip">
+      <LogicalName>PAYLOAD.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <Target Name="RequirePayload" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('payload.zip')"
+           Text="payload.zip is missing. Run build-installer.ps1 from the repository root - it stages the add-in and packs it before building this." />
+  </Target>
+
+</Project>

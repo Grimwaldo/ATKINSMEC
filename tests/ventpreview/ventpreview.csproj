@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <AssemblyName>ventpreview</AssemblyName>
+    <RootNamespace>ventpreview</RootNamespace>
+    <StartupObject>ventpreview.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stub.cs" />
+    <Compile Include="Tutorial.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELNOTE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELROWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTEXPORTNOTE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIXTUREDIALOG.cs" />
+    <Page Include="..\..\ATKINSMEC\AutoVent\VENTWindow.xaml">
+      <Link>VENTWindow.xaml</Link>
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+  </ItemGroup>
+
+</Project>

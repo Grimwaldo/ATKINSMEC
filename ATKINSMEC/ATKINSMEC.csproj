@@ -1,0 +1,180 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One project, one Revit version per build:
+
+        dotnet build -c Release -p:RevitVersion=2024
+
+    The runtime follows the Revit version - 2022-2024 are .NET Framework
+    4.8, 2025-2026 are .NET 8, 2027 is .NET 10. Use build-all.ps1 to
+    produce and deploy every version in one go.
+  -->
+
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
+
+    <TargetFramework Condition="'$(RevitVersion)' &lt; '2025'">net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitVersion)' &gt;= '2025' And '$(RevitVersion)' &lt; '2027'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitVersion)' &gt;= '2027'">net10.0-windows</TargetFramework>
+
+    <AssemblyName>ATKINSMEC</AssemblyName>
+    <RootNamespace>ATKINSMEC</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- AUTOVENT's window is WPF. The other eight add-ins are
+         still WinForms, and the two sit together in one assembly
+         perfectly well - but BOTH switches have to be on, or the
+         XAML never gets compiled and the window is not found. -->
+    <UseWPF>true</UseWPF>
+
+    <!-- Assembly info is generated: leaving it off would also drop the
+         SupportedOSPlatform attribute, which makes the platform
+         analyser flag every WinForms call (CA1416) -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AssemblyTitle>ATKINSMEC</AssemblyTitle>
+    <Product>ATKINSMEC</Product>
+    <Company>ATKINS</Company>
+    <Copyright>Copyright © 2025</Copyright>
+    <ComVisible>false</ComVisible>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0</Version>
+
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\$(RevitVersion)\</OutputPath>
+
+    <!-- BaseIntermediateOutputPath is set in Directory.Build.props.
+         Each version has its own obj folder, so the default exclude
+         (which follows it) would leave the other versions' generated
+         files to be compiled into this one -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**</DefaultItemExcludes>
+
+    <!-- ElementId went 64-bit in 2024; REVITCOMPAT.cs switches on this -->
+    <DefineConstants Condition="'$(RevitVersion)' &gt;= '2024'">$(DefineConstants);REVIT2024_OR_NEWER</DefineConstants>
+
+    <!-- Selection.SetReferences - selecting an element INSIDE a link -
+         arrived in 2023; AUTOVENT's "Show in plan" uses it -->
+    <DefineConstants Condition="'$(RevitVersion)' &gt;= '2023'">$(DefineConstants);REVIT2023_OR_NEWER</DefineConstants>
+
+    <NoWarn>$(NoWarn);CS0618;CS0108</NoWarn>
+
+    <!-- Revit is Windows-only; without this the platform analyser flags
+         every WinForms call as possibly unsupported (CA1416) -->
+    <SupportedOSPlatformVersion Condition="'$(RevitVersion)' &gt;= '2025'">7.0</SupportedOSPlatformVersion>
+
+    <!-- Revit loads .NET add-ins dynamically: emit the deps file so
+         EPPlus resolves inside the host -->
+    <EnableDynamicLoading Condition="'$(RevitVersion)' &gt;= '2025'">true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <!-- Revit API assemblies, matched to the version being built -->
+  <PropertyGroup>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2022'">2022.1.80</RevitApiVersion>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2023'">2023.1.90</RevitApiVersion>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2024'">2024.3.60</RevitApiVersion>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2025'">2025.4.60</RevitApiVersion>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2026'">2026.4.10</RevitApiVersion>
+    <RevitApiVersion Condition="'$(RevitVersion)' == '2027'">2027.2.0</RevitApiVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" />
+    <PackageReference Include="EPPlus" Version="8.6.0" />
+  </ItemGroup>
+
+  <!--
+    On .NET Framework the graph pulls two System.Memory assembly
+    versions (4.0.1.2 and 4.0.5.0) and picks the older, which EPPlus
+    then fails to load at runtime. Pinning it settles on one.
+    .NET 8/10 have these types in the runtime, so this is net48 only.
+  -->
+  <ItemGroup Condition="'$(RevitVersion)' &lt; '2025'">
+    <PackageReference Include="System.Memory" Version="4.6.3" />
+    <PackageReference Include="System.Buffers" Version="4.6.1" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="ATKINSMEC.addin" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="ATKINSMEC.csproj.classic.bak" />
+  </ItemGroup>
+
+  <!--
+    The source is sorted into one folder per add-in. Nothing here has to
+    list the files - the SDK globs **\*.cs - but a form's RESOURCES are
+    a different matter: ComponentResourceManager(typeof(Winform)) looks
+    for "ATKINSMEC.Winform.resources" at runtime, and that name knows
+    nothing about folders. Left alone, the move renamed them to
+    ATKINSMEC.AutoVent.Winform.resources and the lookup would fail the
+    moment somebody put an image on one of these two forms.
+
+    LogicalName pins the name back where the type expects it.
+    DependentUpon nests the .resx under its form in Solution Explorer.
+
+    AUTOVENT's Winform is gone - that add-in is WPF now - so CHWForm is
+    the only one left needing this.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Update="ChwVolume\CHWForm.resx">
+      <DependentUpon>CHWForm.cs</DependentUpon>
+      <LogicalName>ATKINSMEC.CHWForm.resources</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    The ribbon icons. LogicalName is pinned for the same reason the
+    .resx above is: the default name is built from the FOLDER, so moving
+    Resources\Icons would silently rename every one of them and UI.cs
+    would quietly find nothing. Pinned, the folder can move and the
+    lookup still works. Regenerate them with tools\make-icons.py.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Icons\*.png">
+      <LogicalName>ATKINSMEC.Icons.%(Filename).png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    AUTOVENT's export template: the office's own ventilation calculation
+    workbook, byte for byte. VENTOFFICE copies its Tower 2 worksheet (or
+    Tower-1, or MLCP) and keeps its three ASHRAE worksheets. Pinned for
+    the same reason as the icons. To revise the calculation, replace this
+    file and rebuild - scratchpad/officetest runs the export against it.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\VentTemplate.xlsx">
+      <LogicalName>ATKINSMEC.VentTemplate.xlsx</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    Copy the build into this Revit version's add-ins folder. This never
+    fails the build: when Revit is open it holds the old DLL and the
+    copy is simply reported as skipped.
+  -->
+  <Target Name="DeployToRevit" AfterTargets="Build">
+    <PropertyGroup>
+      <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\</RevitAddinDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <DeployFiles Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(RevitAddinDir)" ContinueOnError="WarnAndContinue" />
+
+    <Copy SourceFiles="@(DeployFiles)"
+          DestinationFolder="$(RevitAddinDir)%(RecursiveDir)"
+          ContinueOnError="WarnAndContinue">
+      <Output TaskParameter="CopiedFiles" ItemName="Copied" />
+    </Copy>
+
+    <Message Importance="high"
+             Text="Revit $(RevitVersion) ($(TargetFramework)) -> deployed @(Copied->Count()) file(s) to $(RevitAddinDir)" />
+  </Target>
+
+</Project>

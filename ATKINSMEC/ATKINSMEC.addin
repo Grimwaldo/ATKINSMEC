@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+	<AddIn Type="Application">
+		<Name>ATKINSMEC</Name>
+		<FullClassName>ATKINSMEC.UI</FullClassName>
+		<Text>ATKINSMEC</Text>
+		<Description>AUTOVENT, CHW VOLUME and DUCT INSULATION</Description>
+		<VisibilityMode>AlwaysVisible</VisibilityMode>
+		<Assembly>ATKINSMEC.dll</Assembly>
+		<AddInId>8B993A7C-BF69-4629-BA8D-21E2C616718A</AddInId>
+		<VendorId>ATKINS</VendorId>
+		<VendorDescription>ATKINS MEP</VendorDescription>
+	</AddIn>
+</RevitAddIns>

@@ -1,0 +1,857 @@
+<Window x:Class="ATKINSMEC.VENTWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AUTOVENT"
+        Height="860" Width="1060"
+        MinHeight="800" MinWidth="920"
+        WindowStartupLocation="CenterScreen"
+        Background="#FFF4F6F8"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display"
+        FontFamily="Segoe UI" FontSize="13"
+        Loaded="Window_Loaded">
+
+    <Window.Resources>
+
+        <!-- One place for the palette. Everything below refers to these
+             rather than naming a colour, so the whole window can be
+             re-skinned by editing six lines. -->
+        <Color x:Key="AccentColour">#FF15629B</Color>
+        <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColour}"/>
+        <SolidColorBrush x:Key="AccentDark" Color="#FF0E4A78"/>
+        <SolidColorBrush x:Key="AccentPale" Color="#FFE8F1F8"/>
+        <SolidColorBrush x:Key="Ink" Color="#FF1F2933"/>
+        <SolidColorBrush x:Key="Muted" Color="#FF6B7785"/>
+        <!-- Dark amber: reads as a warning, 5.4:1 on white -->
+        <SolidColorBrush x:Key="Warn" Color="#FF9A5B00"/>
+        <SolidColorBrush x:Key="Hairline" Color="#FFDCE3EA"/>
+        <SolidColorBrush x:Key="Card" Color="#FFFFFFFF"/>
+
+        <!-- A card: white, hairline border, soft corner. Used for every
+             section so the window reads as one thing. -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Card}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+
+        <Style x:Key="CardHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+
+        <Style x:Key="StepNumber" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Width" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="17"/>
+        </Style>
+
+        <!-- Buttons. Flat, with a real pressed state - the default
+             WPF chrome looks like Windows XP next to Revit. -->
+        <Style x:Key="FlatButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="Background" Value="#FFF7F9FB"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentPale}"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFD7E6F2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFF2F4F6"/>
+                                <Setter Property="Foreground" Value="#FFAAB4BE"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="22,10"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{StaticResource Accent}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentDark}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FF0A3A5E"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFCBD4DC"/>
+                                <Setter Property="Foreground" Value="#FFF0F2F4"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A ticked row in either list -->
+        <Style x:Key="TickRow" TargetType="CheckBox">
+            <Setter Property="Margin" Value="10,5"/>
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="PlainList" TargetType="ListBox">
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFCFDFE"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border Background="Transparent">
+                                        <ContentPresenter/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A ticked row. The CheckBox binds to the item, so ticking
+             changes the data and not the control - which is what lets
+             the level list be rebuilt without losing the ticks. -->
+        <DataTemplate x:Key="TickTemplate">
+            <CheckBox IsChecked="{Binding IsOn, Mode=TwoWay}"
+                      Style="{StaticResource TickRow}">
+                <!-- A TextBlock, NOT Content="{Binding}": ContentPresenter
+                     treats an underscore as an access key and swallows
+                     it, and these are level names like GR_GROUND FLOOR -->
+                <TextBlock Text="{Binding Label}"/>
+            </CheckBox>
+        </DataTemplate>
+
+        <!-- A link: which placement, and underneath, quieter, which of
+             this model's levels it covers. Tighter than a plain ticked
+             row, so three still show in the list's height. -->
+        <DataTemplate x:Key="LinkTemplate">
+            <!-- Two ticks per placement: the row's own (read its rooms)
+                 and, on the right, APARTMENTS - an architect's model
+                 whose rooms are apartments, with the interior models'
+                 rooms found inside them (VENTAPARTMENTS). Any number of
+                 placements may carry either. -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Both lines in full on hover, for a name or a span
+                     still too long for the row -->
+                <CheckBox Grid.Column="0"
+                          IsChecked="{Binding IsOn, Mode=TwoWay}"
+                          Style="{StaticResource TickRow}"
+                          Margin="10,3,4,3"
+                          VerticalContentAlignment="Top"
+                          ToolTip="{Binding Tip}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Label}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Detail}"
+                                   FontSize="11.5"
+                                   Margin="0,1,0,0"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{StaticResource Muted}"/>
+                    </StackPanel>
+                </CheckBox>
+
+                <CheckBox Grid.Column="1"
+                          IsChecked="{Binding IsApartments, Mode=TwoWay}"
+                          Style="{StaticResource TickRow}"
+                          Margin="4,3,10,3"
+                          VerticalAlignment="Top"
+                          ToolTip="This model's rooms are APARTMENTS. The rooms of interior models standing inside them - found in every placement, on the same level of this model - are written under them, as the office's Tower-1 sheet does. Its rooms with nothing inside stay ordinary rooms.">
+                    <TextBlock Text="Apartments"
+                               FontSize="11.5"
+                               Foreground="{StaticResource Muted}"/>
+                </CheckBox>
+            </Grid>
+        </DataTemplate>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Tabs, flattened to an underline. A raised WinForms tab in a
+             window like this looks like a different decade. -->
+        <Style x:Key="UnderlineTab" TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Chrome"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0,0,0,2"
+                                Padding="18,9">
+                            <ContentPresenter ContentSource="Header"
+                                              x:Name="Label"
+                                              TextBlock.Foreground="{StaticResource Muted}"
+                                              TextBlock.FontWeight="SemiBold"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Label" Property="TextBlock.Foreground" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Label" Property="TextBlock.Foreground" Value="{StaticResource Ink}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Window.Resources>
+
+    <DockPanel>
+
+        <!-- ================= header ================= -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource Accent}" Padding="22,16">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="AUTOVENT"
+                               Foreground="White"
+                               FontSize="19"
+                               FontWeight="Bold"/>
+                    <TextBlock Text="Ventilation airflows from the schedule onto the air terminals"
+                               Foreground="#FFCFE2F0"
+                               FontSize="12"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <TextBlock x:Name="TxtDocument"
+                           DockPanel.Dock="Right"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"
+                           Foreground="#FFCFE2F0"
+                           FontSize="12"
+                           TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ================= status bar ================= -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{StaticResource Card}"
+                BorderBrush="{StaticResource Hairline}"
+                BorderThickness="0,1,0,0"
+                Padding="22,10">
+            <DockPanel>
+                <Button x:Name="BtnClose"
+                        DockPanel.Dock="Right"
+                        Style="{StaticResource FlatButton}"
+                        Content="Close"
+                        MinWidth="90"
+                        Click="BtnClose_Click"/>
+
+                <Border x:Name="StatusDot"
+                        DockPanel.Dock="Left"
+                        Width="8" Height="8"
+                        CornerRadius="4"
+                        Margin="0,0,10,0"
+                        VerticalAlignment="Center"
+                        Background="{StaticResource Hairline}"/>
+
+                <TextBlock x:Name="TxtStatus"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource Muted}"
+                           TextTrimming="CharacterEllipsis"
+                           Text="Ready."/>
+            </DockPanel>
+        </Border>
+
+        <!-- ================= body ================= -->
+        <Grid Margin="22,18,22,14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="190"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="18"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 1. linked models -->
+            <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                        <Border Style="{StaticResource StepNumber}">
+                            <TextBlock Text="1" Foreground="White" FontSize="11"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="Linked models"
+                                   Style="{StaticResource CardHeading}"
+                                   Margin="0,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Refresh, and beside it what the apartment ticks
+                         found: which interior placements stand inside
+                         which architect's apartments, on which of this
+                         model's levels - in full on hover -->
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" LastChildFill="True">
+                        <Button x:Name="BtnRefreshLinks"
+                                DockPanel.Dock="Left"
+                                Style="{StaticResource FlatButton}"
+                                Content="Refresh"
+                                Click="BtnRefreshLinks_Click"/>
+
+                        <TextBlock x:Name="TxtApartments"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Style="{StaticResource Hint}"/>
+                    </DockPanel>
+
+                    <TextBlock x:Name="TxtLinksInfo"
+                               DockPanel.Dock="Bottom"
+                               Style="{StaticResource Hint}"
+                               Margin="0,10,0,0"/>
+
+                    <!-- 116, not 150: these two top cards set the height
+                         of the whole top row, and the 34 px they gave up
+                         is what lets the levels card show its warning and
+                         the bottom card clear the status bar at 150%
+                         scaling. Four links still show before it scrolls. -->
+                    <ListBox x:Name="ListLinks"
+                             Style="{StaticResource PlainList}"
+                             ItemTemplate="{StaticResource LinkTemplate}"
+                             Height="116"
+                             Margin="0,10,0,0"/>
+                </DockPanel>
+            </Border>
+
+            <!-- 2. the sheet -->
+            <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource CardStyle}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                        <Border Style="{StaticResource StepNumber}">
+                            <TextBlock Text="2" Foreground="White" FontSize="11"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="Ventilation schedule"
+                                   Style="{StaticResource CardHeading}"
+                                   Margin="0,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <Grid DockPanel.Dock="Top" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="BtnImport"
+                                Grid.Column="0"
+                                Style="{StaticResource FlatButton}"
+                                Content="Open workbook..."
+                                Click="BtnImport_Click"/>
+
+                        <TextBlock x:Name="TxtSheetPath"
+                                   Grid.Column="1"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Muted}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Text="No file chosen"/>
+                    </Grid>
+
+                    <Grid DockPanel.Dock="Top" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="Worksheet"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink}"/>
+
+                        <ComboBox x:Name="CboWorksheet"
+                                  Grid.Column="1"
+                                  Margin="12,0,0,0"
+                                  IsEnabled="False"
+                                  SelectionChanged="CboWorksheet_SelectionChanged"/>
+                    </Grid>
+
+                    <!-- 116 to match the links list beside it -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  MaxHeight="116"
+                                  Margin="0,12,0,0">
+                        <TextBlock x:Name="TxtSheetInfo"
+                                   Style="{StaticResource Hint}"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- 3. levels -->
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                    Style="{StaticResource CardStyle}"
+                    Margin="0,18,0,0">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                        <Border Style="{StaticResource StepNumber}">
+                            <TextBlock Text="3" Foreground="White" FontSize="11"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="Levels to process"
+                                   Style="{StaticResource CardHeading}"
+                                   Margin="0,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- A DockPanel, not a StackPanel: a StackPanel hands
+                         its children unlimited height, so the scroll viewer
+                         grew to its whole text and the CARD clipped it,
+                         with no scroll bar to say there was more. Filling
+                         the rest of the card, it scrolls. -->
+                    <DockPanel DockPanel.Dock="Right"
+                               Width="260"
+                               Margin="18,10,0,0">
+                        <StackPanel DockPanel.Dock="Top"
+                                    Orientation="Horizontal">
+                            <Button x:Name="BtnAllLevels"
+                                    Style="{StaticResource FlatButton}"
+                                    Content="All"
+                                    MinWidth="56"
+                                    Click="BtnAllLevels_Click"/>
+                            <Button x:Name="BtnNoLevels"
+                                    Style="{StaticResource FlatButton}"
+                                    Content="None"
+                                    MinWidth="56"
+                                    Margin="6,0,0,0"
+                                    Click="BtnNoLevels_Click"/>
+
+                            <!-- Acts on the rows PICKED in the list, not
+                                 on the ticks; greyed until one is -->
+                            <Button x:Name="BtnShowRoom"
+                                    Style="{StaticResource FlatButton}"
+                                    Content="Show in plan"
+                                    Margin="6,0,0,0"
+                                    IsEnabled="False"
+                                    ToolTip="Open a plan and zoom to the picked rooms - a picked level counts as all its rooms. Ctrl+click or Shift+click to pick several. Double-clicking a room shows just that one."
+                                    Click="BtnShowRoom_Click"/>
+                        </StackPanel>
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      Margin="0,10,0,0">
+                            <StackPanel>
+                                <!-- First, and in the warning colour: these
+                                     are the levels that process nothing -->
+                                <TextBlock x:Name="TxtLevelsWarning"
+                                           Style="{StaticResource Hint}"
+                                           Foreground="{StaticResource Warn}"
+                                           Margin="0,0,0,6"
+                                           Visibility="Collapsed"/>
+
+                                <TextBlock x:Name="TxtLevelsInfo"
+                                           Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+
+                    <!-- A TREE: each level ticks as before, and opens to
+                         the linked rooms that stand on it. The rooms are
+                         read in the same pass that counts them, so the
+                         list under a level is exactly what a run would
+                         process there. Levels start closed and the rooms
+                         are only built when opened (virtualised), so a
+                         job of thousands of rooms costs nothing until
+                         somebody looks. -->
+                    <TreeView x:Name="ListLevels"
+                              Margin="0,10,0,0"
+                              BorderBrush="{StaticResource Hairline}"
+                              BorderThickness="1"
+                              Background="#FFFCFDFE"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              SelectedItemChanged="ListLevels_SelectedItemChanged"
+                              MouseDoubleClick="ListLevels_MouseDoubleClick"
+                              PreviewMouseLeftButtonDown="ListLevels_PreviewMouseLeftButtonDown"
+                              PreviewKeyDown="ListLevels_PreviewKeyDown">
+
+                        <TreeView.Resources>
+                            <!-- SEVERAL ROWS CAN BE PICKED, and a TreeView
+                                 only knows how to select one. So its own
+                                 highlight is switched off here and each row
+                                 draws its pick itself (PickRow, from the
+                                 row's IsPicked) - see VENTLEVELROWS.Picks -->
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF1F2933"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FF1F2933"/>
+
+                            <!-- Background Transparent, not unset, so a
+                                 click anywhere on the row lands on it -->
+                            <Style x:Key="PickRow" TargetType="Border">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="1"/>
+                                <Setter Property="CornerRadius" Value="3"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPicked}" Value="True">
+                                        <Setter Property="Background" Value="#FFDCEAF6"/>
+                                        <Setter Property="BorderBrush" Value="#FFA9C8E3"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TreeView.Resources>
+
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Rooms}">
+
+                                <!-- The level. Its tick FOLLOWS its rooms:
+                                     all, none, or the third state for some
+                                     - set by the code, never by a click,
+                                     since a click only ever means all or
+                                     none.
+
+                                     The BOX alone is the tick; the name
+                                     beside it PICKS the level, as a room's
+                                     does. It was the checkbox's Content
+                                     until rows could be picked, and then a
+                                     click on the name would have ticked
+                                     instead. A TextBlock either way, never
+                                     Content - an underscore in Content is
+                                     an access key (GR_GROUND FLOOR).
+
+                                     ONE-WAY, and LevelTick_Click sets the
+                                     row. WPF sends a click on the third
+                                     state to UNTICKED, which would untick
+                                     every room of a level somebody had
+                                     only partly ticked; from the third
+                                     state a click here ticks them all. -->
+                                <Border Style="{StaticResource PickRow}"
+                                        Padding="4,3"
+                                        Margin="0,1"
+                                        ToolTip="{Binding Tip}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <CheckBox IsChecked="{Binding Checked, Mode=OneWay}"
+                                                  IsThreeState="False"
+                                                  VerticalAlignment="Center"
+                                                  Click="LevelTick_Click"/>
+                                        <TextBlock Text="{Binding Label}"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{StaticResource Ink}"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Rooms carry no IsExpanded; a plain
+                                     container style keeps the level's
+                                     binding off them -->
+                                <HierarchicalDataTemplate.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem"/>
+                                </HierarchicalDataTemplate.ItemContainerStyle>
+
+                                <HierarchicalDataTemplate.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- The BOX alone is the tick. The
+                                             number and name sit outside
+                                             it, so clicking a room to pick
+                                             it (for Show in plan) cannot
+                                             untick it by accident. -->
+                                        <Border Style="{StaticResource PickRow}"
+                                                Padding="2,1"
+                                                Margin="0,1"
+                                                ToolTip="{Binding Tip}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <CheckBox IsChecked="{Binding IsOn, Mode=TwoWay}"
+                                                      VerticalAlignment="Center"
+                                                      Click="RoomTick_Click"/>
+                                            <TextBlock Text="{Binding Number}"
+                                                       MinWidth="64"
+                                                       Margin="8,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{StaticResource Muted}"/>
+                                            <TextBlock Text="{Binding Name}"
+                                                       Margin="8,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{StaticResource Ink}"/>
+                                        </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </HierarchicalDataTemplate.ItemTemplate>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <!-- 4. what to do -->
+            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                    Style="{StaticResource CardStyle}"
+                    Margin="0,18,0,0"
+                    Padding="16,6,16,16">
+                <TabControl x:Name="TabActions"
+                            BorderThickness="0"
+                            Background="Transparent" SelectionChanged="TabActions_SelectionChanged">
+                    <TabControl.Resources>
+                        <Style TargetType="TabItem" BasedOn="{StaticResource UnderlineTab}"/>
+                    </TabControl.Resources>
+
+                    <TabItem Header="Write airflows into the model">
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Width="250">
+                                <TextBlock x:Name="TxtFreshTypes"
+                                           Text="Fresh air system type(s)"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{StaticResource Ink}"/>
+
+                                <ListBox x:Name="LstFresh"
+                                         Height="64"
+                                         Margin="0,5,0,0"
+                                         ItemTemplate="{StaticResource TickTemplate}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1"
+                                        Width="250"
+                                        Margin="16,0,0,0">
+                                <TextBlock x:Name="TxtExtractTypes"
+                                           Text="Extract / exhaust system type(s)"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{StaticResource Ink}"/>
+
+                                <ListBox x:Name="LstExtract"
+                                         Height="64"
+                                         Margin="0,5,0,0"
+                                         ItemTemplate="{StaticResource TickTemplate}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Margin="18,0,0,0">
+
+                                <!-- The button shares this row: stacked
+                                     under the hint it fell off the
+                                     bottom of the card. -->
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Endcap reach"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource Ink}"/>
+
+                                    <TextBox x:Name="TxtEndcapReach"
+                                             Width="62"
+                                             Margin="8,0,0,0"
+                                             VerticalAlignment="Center"
+                                             Text="1500"/>
+
+                                    <TextBlock Text="mm"
+                                               Margin="6,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource Ink}"/>
+
+                                    <Button x:Name="BtnRun"
+                                            Margin="20,0,0,0"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Content="Assign airflows"
+                                            Click="BtnRun_Click"/>
+                                </StackPanel>
+
+                                <!-- Two short sentences, one per line.
+                                     Each has to fit ONE line at 150%
+                                     scaling: the card is as tall as the
+                                     two lists beside it, and a third line
+                                     pushes the whole window past its
+                                     height. -->
+                                <TextBlock Margin="0,10,0,0"
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource Hint}" Text="How far an endcap may look for the FCU it feeds."/>
+
+                            </StackPanel>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Export rooms back to Excel">
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Which of the three ways -->
+                            <StackPanel Grid.Column="0" Width="300">
+
+                                <!-- A TextBlock inside, never Content:
+                                     an underscore in a RadioButton's
+                                     Content is an access key and the
+                                     letter after it vanishes. -->
+                                <RadioButton x:Name="RdoIntoImported"
+                                             GroupName="ExportWay"
+                                             IsChecked="True"
+                                             Checked="ExportWay_Changed">
+                                    <TextBlock Text="Fill the Imported worksheet "/>
+                                </RadioButton>
+
+                                <ComboBox x:Name="CboExportSheet"
+                                          Width="274"
+                                          HorizontalAlignment="Left"
+                                          Margin="22,5,0,9"
+                                          IsEnabled="False"/>
+
+                                <RadioButton x:Name="RdoNewWorkbook"
+                                             GroupName="ExportWay"
+                                             Checked="ExportWay_Changed">
+                                    <TextBlock Text="A new workbook, from the Excel default template" Margin="0,0,-5,0"/>
+                                </RadioButton>
+
+                                <RadioButton x:Name="RdoAddWorksheet"
+                                             GroupName="ExportWay"
+                                             Margin="0,7,0,0"
+                                             Checked="ExportWay_Changed">
+                                    <TextBlock Text="Add a new worksheet to the imported Excel sheet" Width="326" HorizontalAlignment="Left" Margin="0,0,-10,0"/>
+                                </RadioButton>
+
+                            </StackPanel>
+
+                            <!-- What to call it, and go -->
+                            <StackPanel Grid.Column="1"
+                                        Width="220"
+                                        Margin="22,0,0,0">
+
+                                <TextBlock Text="Call the new worksheet"
+                                           Foreground="{StaticResource Ink}"/>
+
+                                <TextBox x:Name="TxtNewSheet"
+                                         Margin="0,5,0,0"
+                                         IsEnabled="False"
+                                         Text="Ventilation"/>
+
+                                <Button x:Name="BtnExport"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,14,0,0"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Content="Export rooms..."
+                                        IsEnabled="False"
+                                        Click="BtnExport_Click"/>
+
+                            </StackPanel>
+
+                            <!-- The hint, and under it the fixtures line:
+                                 water closets and urinals counted into the
+                                 sheet's "No. of Units". In this column
+                                 because the tab has no other room and the
+                                 window no height to give. -->
+                            <Grid Grid.Column="2" Margin="22,0,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock x:Name="TxtExportHint"
+                                           Grid.Row="0"
+                                           VerticalAlignment="Top"
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource Hint}"
+                                           Text=""/>
+
+                                <DockPanel Grid.Row="1" Margin="0,6,0,0">
+                                    <Button x:Name="BtnFixtures"
+                                            DockPanel.Dock="Right"
+                                            Style="{StaticResource FlatButton}"
+                                            Padding="10,3"
+                                            Margin="8,0,0,0"
+                                            Content="Fixtures..."
+                                            ToolTip="Which models the WCs and urinals are counted from, and which fixture families count"
+                                            Click="BtnFixtures_Click"/>
+
+                                    <!-- A TextBlock, never Content: an
+                                         underscore in Content is an
+                                         access key -->
+                                    <CheckBox x:Name="ChkFixtures"
+                                              IsChecked="True"
+                                              VerticalAlignment="Center"
+                                              VerticalContentAlignment="Center"
+                                              ToolTip="Set by the code - what will be counted, and from where"
+                                              Click="ChkFixtures_Click">
+                                        <TextBlock x:Name="TxtFixtures"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource Ink}"
+                                                   FontSize="12"/>
+                                    </CheckBox>
+                                </DockPanel>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Border>
+
+        </Grid>
+    </DockPanel>
+</Window>

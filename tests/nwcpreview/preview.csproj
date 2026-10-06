@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>nwcpreview</AssemblyName>
+    <RootNamespace>nwcpreview</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stub.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\FORMSIZE.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCForm.Designer.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCHELPForm.Designer.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCHELPForm.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCMODELForm.Designer.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCMODELForm.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCWORKSETForm.Designer.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCWORKSETForm.cs" />
+    <Compile Include="..\..\ATKINSMEC\NwcExport\NWCSETTINGS.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\WORKSETPICK.cs" />
+  </ItemGroup>
+
+</Project>
