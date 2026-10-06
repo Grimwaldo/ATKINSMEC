@@ -1,9 +1,13 @@
+using ATKINSMEC;
 using System;
 using System.Collections.Generic;
 
-// Mirrors the decisions in QACHWFITTINGS - which of Revit's five
+// The decisions in QACHWFITTINGS' replace step - which of Revit's five
 // creation calls a replaced fitting needs, and which pipe is the branch
-// of a tee - with no Revit present. Keep the two in step.
+// of a tee - with no Revit present. The REAL rules are compiled in
+// (QACHWSHAPE); only the dispatch on how many ends a fitting has is
+// repeated here. Until 2026-10-06 this was a hand-kept copy, and it had
+// fallen behind the add-in's 2-degree rule for straight.
 //
 // This is the part that can be got wrong SILENTLY. A tee rebuilt with
 // the wrong pipe as its branch still comes out a tee, still connects,
@@ -20,7 +24,7 @@ internal static class Program
             _failed++;
     }
 
-    private const double AgreeMm = 0.5;
+    private const double AgreeMm = QACHWSHAPE.AgreeMm;
 
     // Revit's PartType, as far as this cares
     private enum Kind { Undefined, Elbow, Tee, Cross, Transition, Union }
@@ -51,34 +55,44 @@ internal static class Program
     }
 
     // ==================================================
-    // The mirrored decisions
+    // The real decisions (QACHWSHAPE), behind the same small adapter
+    // QACHWFITTINGS.Make is: two ends, three, or four
     // ==================================================
+
+    private static QACHWSHAPE.Says SaysOf(Kind kind)
+    {
+        switch (kind)
+        {
+            case Kind.Elbow: return QACHWSHAPE.Says.Elbow;
+            case Kind.Transition: return QACHWSHAPE.Says.Transition;
+            case Kind.Union: return QACHWSHAPE.Says.Union;
+            default: return QACHWSHAPE.Says.Nothing;
+        }
+    }
 
     private static string Make(
         Kind kind, List<XYZ> axes, List<Want> wants)
     {
-        if (axes.Count == 2)
+        List<QAVEC> v = axes.ConvertAll(a => new QAVEC(a.X, a.Y, a.Z));
+
+        if (v.Count == 2)
         {
-            bool straight = Math.Abs(axes[0].Dot(axes[1])) > 0.999;
-
-            bool sameSize =
-                Math.Abs(wants[0].WantMm - wants[1].WantMm) <= AgreeMm;
-
-            if (kind == Kind.Elbow
-                || (kind != Kind.Transition
-                    && kind != Kind.Union
-                    && !straight))
-                return "elbow";
-
-            return sameSize ? "union" : "transition";
+            switch (QACHWSHAPE.Join(
+                        SaysOf(kind), v[0].Dot(v[1]),
+                        QACHWSHAPE.SameSize(wants[0].WantMm, wants[1].WantMm)))
+            {
+                case QACHWSHAPE.Two.Elbow: return "elbow";
+                case QACHWSHAPE.Two.Union: return "union";
+                default: return "transition";
+            }
         }
 
-        if (axes.Count == 3)
-            return "tee branch=" + Odd(axes);
+        if (v.Count == 3)
+            return "tee branch=" + QACHWSHAPE.Odd(v);
 
-        if (axes.Count == 4)
+        if (v.Count == 4)
         {
-            int partner = Partner(axes, 0);
+            int partner = QACHWSHAPE.Partner(v, 0);
 
             var rest = new List<int>();
 
@@ -92,62 +106,6 @@ internal static class Program
         }
 
         return "refuse";
-    }
-
-    private static int Odd(List<XYZ> axes)
-    {
-        int one = 0;
-        int two = 1;
-
-        double best = -1;
-
-        for (int i = 0; i < axes.Count; i++)
-        {
-            for (int j = i + 1; j < axes.Count; j++)
-            {
-                double parallel = Math.Abs(axes[i].Dot(axes[j]));
-
-                if (parallel > best)
-                {
-                    best = parallel;
-
-                    one = i;
-                    two = j;
-                }
-            }
-        }
-
-        for (int i = 0; i < axes.Count; i++)
-        {
-            if (i != one && i != two)
-                return i;
-        }
-
-        return axes.Count - 1;
-    }
-
-    private static int Partner(List<XYZ> axes, int of)
-    {
-        int best = of == 0 ? 1 : 0;
-
-        double parallel = -1;
-
-        for (int i = 0; i < axes.Count; i++)
-        {
-            if (i == of)
-                continue;
-
-            double how = Math.Abs(axes[of].Dot(axes[i]));
-
-            if (how > parallel)
-            {
-                parallel = how;
-
-                best = i;
-            }
-        }
-
-        return best;
     }
 
     // ==================================================
@@ -210,9 +168,30 @@ internal static class Program
             Make(Kind.Transition, nearlyStraight, Sizes(80, 50))
                 == "transition");
 
-        Check("but an unknown family that far off-axis IS an elbow",
-            Make(Kind.Undefined, nearlyStraight, Sizes(50, 50))
-                == "elbow");
+        // THE 2-DEGREE LINE IS REVIT'S. This check used to say an unknown
+        // family 1.8 degrees off-axis IS an elbow - written against an
+        // older, tighter "straight". NewElbowFitting will not make a turn
+        // under about 2 degrees, so the add-in moved to cos(2 deg); below
+        // it the answer has to be a union or a reducer, and an elbow
+        // asked for there would only be refused.
+        var bent = Axes(East, new XYZ(-Math.Cos(5 * Math.PI / 180), Math.Sin(5 * Math.PI / 180), 0));
+
+        Check("an unknown family that really turns (5 degrees) IS an elbow",
+            Make(Kind.Undefined, bent, Sizes(50, 50)) == "elbow");
+
+        Check("an unknown family 1.8 degrees off-axis is straight - a union, "
+              + "since Revit makes no elbow that shallow",
+            Make(Kind.Undefined, nearlyStraight, Sizes(50, 50)) == "union");
+
+        XYZ Off(double degrees)
+        {
+            double r = degrees * Math.PI / 180;
+            return new XYZ(-Math.Cos(r), Math.Sin(r), 0);
+        }
+
+        Check("the line is at 2 degrees: 1.9 is straight, 2.1 is a turn",
+            Make(Kind.Undefined, Axes(East, Off(1.9)), Sizes(50, 50)) == "union" &&
+            Make(Kind.Undefined, Axes(East, Off(2.1)), Sizes(50, 50)) == "elbow");
 
         // --- a tee ---------------------------------------------------
 

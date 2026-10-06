@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ALIGN TERMINALS' matching - the REAL ALIGNMATCH compiled in. The
+       harness before this mirrored it and was lost from %TEMP%. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>aligntest</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\ATKINSMEC\AlignTerminals\ALIGNMATCH.cs" />
+  </ItemGroup>
+
+</Project>

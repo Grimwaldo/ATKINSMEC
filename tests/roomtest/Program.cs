@@ -2,7 +2,17 @@ using System;
 using System.Collections.Generic;
 
 // Mirrors QACHWROOM with no Revit: will the pipe survive the bigger
-// fittings, and if not, where does the room come from? Keep in step.
+// fittings, and if not, where does the room come from? A HAND-KEPT COPY -
+// QACHWROOM walks Revit's own connectors, so the real code cannot be
+// compiled in. KEEP IT IN STEP: change one, change the other.
+//
+// Brought back in step on 2026-10-06, after the copy recovered from the
+// session transcripts turned out to predate six fixes in the add-in: the
+// 2.5 mm floor (was 5), a reach of 8 (was 4), the gentle route tried on
+// BOTH ends before the branch route on either, Leg refusing a walk that
+// comes back round to the short pipe, a dead end that lets any pipework
+// move (a cap included - only equipment stays), and Branch letting go
+// of the short pipe's own joint instead of calling it a ring.
 //
 // The case that started it: a 60 mm jog between two DN20 elbows, sized
 // up to DN80. The elbows grow from either side, the jog is left with
@@ -26,16 +36,19 @@ internal static class Program
             _failed++;
     }
 
-    private const double Floor = 5;       // shortest pipe worth keeping
+    // QACHWROOM's numbers. Floor there is max(2 x Revit's short curve
+    // tolerance, 2.5 mm) - about 2.4 and 2.5, so 2.5. It was 5 until a
+    // real model showed that far too strict.
+    private const double Floor = 2.5;     // shortest pipe worth keeping
     private const double InLine = 0.9994; // cos(2 degrees)
-    private const int Reach = 4;          // how far to look for a giver
+    private const int Reach = 8;          // how far to look for a giver
     private const int Bundle = 12;        // most that may be pushed along
 
     // ==================================================
     // A tiny model
     // ==================================================
 
-    private enum Kind { Pipe, Elbow, Tee, Valve, Equipment }
+    private enum Kind { Pipe, Elbow, Tee, Valve, Equipment, Cap }
 
     private class Thing
     {
@@ -239,6 +252,11 @@ internal static class Program
             if (next == null)
                 return null;
 
+            // Round the houses and back to the pipe being saved: a ring,
+            // not a pipe in line with itself
+            if (next.Id == pipe.Id)
+                return null;
+
             if (next.What == Kind.Pipe
                 && Math.Abs(next.Dot(pipe)) > InLine)
             {
@@ -331,7 +349,11 @@ internal static class Program
             if (++count > Bundle)
                 return false;
 
-            if (one.What != Kind.Pipe && !Movable(one) && !IsTee(one))
+            // Anything that is pipework moves, whatever shape - a cap
+            // has ONE end and is the very definition of a dead end. Only
+            // equipment stays put. (This used to demand two ends or
+            // more, and turned a cap away as though it were a chiller.)
+            if (one.What == Kind.Equipment)
                 return false;
 
             into.Add(one.Id);
@@ -389,10 +411,18 @@ internal static class Program
             {
                 Thing next = m.Things[id];
 
-                // Back to the short pipe by another road: a ring, not a
-                // dead end, and pushing it would pull the far side apart
+                // The fitting on the end of the short pipe is joined to
+                // it - that is the joint being let go of. Reaching the
+                // short pipe from anywhere ELSE is a ring, not a dead end,
+                // and pushing it would pull the far side apart. (The copy
+                // used to refuse both, which made this route dead code.)
                 if (next.Id == pipe.Id)
-                    return null;
+                {
+                    if (one.Id != near.Id)
+                        return null;
+
+                    continue;
+                }
 
                 if (seen.Add(next.Id))
                     queue.Enqueue(next);
@@ -500,11 +530,22 @@ internal static class Program
         return true;
     }
 
+    // The GENTLE route on both ends before the other on either: letting
+    // the next pipe in line give up the length moves one leg and nothing
+    // else, while pushing a branch along moves everything hanging off it
     private static Shift Make(Model m, Thing pipe, double by)
     {
         foreach (int id in pipe.Joined)
         {
-            Shift shift = Leg(m, pipe, id) ?? Branch(m, pipe, id);
+            Shift shift = Leg(m, pipe, id);
+
+            if (shift != null && Survives(m, shift, pipe, by))
+                return shift;
+        }
+
+        foreach (int id in pipe.Joined)
+        {
+            Shift shift = Branch(m, pipe, id);
 
             if (shift != null && Survives(m, shift, pipe, by))
                 return shift;
@@ -563,10 +604,10 @@ internal static class Program
                 need.HasValue);
 
             // 30 mm of take-off at DN20 becomes 120 at DN80: 90 of
-            // growth at each end, so 60 - 180 = -120, and it needs 125
-            // to reach the 5 mm floor
-            Check("and the shortfall is worked out, not guessed  (125 mm)",
-                need.HasValue && Math.Abs(need.Value - 125) < 0.001);
+            // growth at each end, so 60 - 180 = -120, and it needs 122.5
+            // to reach the 2.5 mm floor (125 when the floor was 5)
+            Check("and the shortfall is worked out, not guessed  (122.5 mm)",
+                need.HasValue && Math.Abs(need.Value - 122.5) < 0.001);
 
             Check("the same jog is fine going to DN25",
                 !Need(m, b, 25).HasValue);
@@ -582,6 +623,12 @@ internal static class Program
                 shift != null && Same(shift.Seams, b.Id, d.Id));
         }
 
+        // THE FAR SIDE ENDS AT EQUIPMENT in the models below. A pipe
+        // hanging in mid-air is itself a dead end, so the branch route
+        // would push IT along and "succeed" through something no real
+        // job has - which is how these checks failed once the walk was
+        // put right. A pump at the end of A is the system it belongs to.
+
         // --- a dead end, with nothing in line ------------------------
         {
             var m = new Model();
@@ -591,7 +638,9 @@ internal static class Program
             Thing b = m.Add(Kind.Pipe, 0, 0, 1, 60);
             Thing e2 = m.Add(Kind.Elbow, 0, 0, 0, 0, 30);
             Thing c = m.Add(Kind.Pipe, 1, 0, 0, 800);
+            Thing system = m.Add(Kind.Equipment, 1, 0, 0, 0);
 
+            m.Join(system, a);
             m.Join(a, e1);
             m.Join(e1, b);
             m.Join(b, e2);
@@ -618,7 +667,9 @@ internal static class Program
             Thing e2 = m.Add(Kind.Elbow, 0, 0, 0, 0, 30);
             Thing c = m.Add(Kind.Pipe, 1, 0, 0, 800);
             Thing pump = m.Add(Kind.Equipment, 1, 0, 0, 0);
+            Thing system = m.Add(Kind.Equipment, 1, 0, 0, 0);
 
+            m.Join(system, a);
             m.Join(a, e1);
             m.Join(e1, b);
             m.Join(b, e2);
@@ -697,6 +748,13 @@ internal static class Program
             // Only 100 mm to give, and 125 is wanted
             Thing d = m.Add(Kind.Pipe, 0, 0, 1, 100);
 
+            // Both far ends at equipment: with either one loose, pushing
+            // that dead end along would be a perfectly good answer
+            Thing system = m.Add(Kind.Equipment, 1, 0, 0, 0);
+            Thing unit = m.Add(Kind.Equipment, 0, 0, 1, 0);
+
+            m.Join(system, a);
+            m.Join(d, unit);
             m.Join(a, e1);
             m.Join(e1, b);
             m.Join(b, e2);
@@ -750,7 +808,9 @@ internal static class Program
             Thing d = m.Add(Kind.Pipe, 0, 0, 1, 1500);
             Thing branch = m.Add(Kind.Pipe, 0, 1, 0, 3000);
             Thing pump = m.Add(Kind.Equipment, 0, 1, 0, 0);
+            Thing system = m.Add(Kind.Equipment, 1, 0, 0, 0);
 
+            m.Join(system, a);
             m.Join(a, e1);
             m.Join(e1, b);
             m.Join(b, e2);
@@ -764,6 +824,43 @@ internal static class Program
             // reaches the pump behind it
             Check("a tee whose branch runs off to equipment is refused",
                 Make(m, b, 125) == null);
+        }
+
+        // --- a cap is a dead end, not an obstacle ---------------------
+        // A short pipe off a tee; the tee's drop ends in a CAP. Sliding
+        // the tee along the main brings the drop - cap and all. The walk
+        // used to demand two ends or more and turned the cap away as
+        // though it were a chiller (found in a real model).
+        {
+            var m = new Model();
+
+            Thing system = m.Add(Kind.Equipment, 1, 0, 0, 0);
+            Thing mainW = m.Add(Kind.Pipe, 1, 0, 0, 3000);
+            Thing tee = m.Add(Kind.Tee, 0, 0, 0, 0, 40);
+            Thing p = m.Add(Kind.Pipe, 1, 0, 0, 60);
+            Thing e = m.Add(Kind.Elbow, 0, 0, 0, 0, 30);
+            Thing up = m.Add(Kind.Pipe, 0, 0, 1, 1500);
+            Thing unit = m.Add(Kind.Equipment, 0, 0, 1, 0);
+            Thing drop = m.Add(Kind.Pipe, 0, 1, 0, 600);
+            Thing cap = m.Add(Kind.Cap, 0, 0, 0, 0, 10);
+
+            m.Join(system, mainW);
+            m.Join(mainW, tee);
+            m.Join(tee, p);
+            m.Join(tee, drop);
+            m.Join(drop, cap);
+            m.Join(p, e);
+            m.Join(e, up);
+            m.Join(up, unit);
+
+            Shift shift = Make(m, p, 20);
+
+            Check("a cap on the end of a tee's drop slides along with it",
+                shift != null && shift.Route == "tee"
+                && shift.Moving.Contains(cap.Id) && shift.Moving.Contains(drop.Id));
+
+            Check("...and the main in line with the short pipe gives up the length",
+                shift != null && Same(shift.Seams, p.Id, mainW.Id));
         }
 
         // --- a pipe between two tees, in NEITHER run ------------------

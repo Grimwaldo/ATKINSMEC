@@ -15,17 +15,16 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Only)
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $tests = @(
-    'chwjointtest', 'chwsizetest', 'ducttest', 'equiptest', 'esptest',
-    'icontest', 'levelrowtest', 'nwcsettingstest',
-    'officetest', 'runtest', 'sheettest', 'synctest',
+    'aligntest', 'chwjointtest', 'chwsizetest', 'ducttest', 'equiptest',
+    'esptest', 'fittingtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
+    'officetest', 'roomtest', 'runtest', 'sheettest', 'synctest',
     'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest'
 )
 
 # RECOVERED AT AN OLDER VERSION AND OUT OF STEP - see tests\README.md.
-# Each MIRRORS add-in logic by hand rather than compiling it in, and the
-# copy that could be recovered predates later fixes, so a failure here
-# says nothing about the add-in. Run by name to look at one.
-$stale = @('roomtest', 'fittingtest', 'geomtest')
+# A mirror of SPRINKLERLAYOUT from 2026-08-31 that prints a layout and
+# asserts nothing. Run by name to look at it.
+$stale = @('geomtest')
 
 if ($Only) { $tests = @($tests) + $stale | Where-Object { $Only -contains $_ } }
 

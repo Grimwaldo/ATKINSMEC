@@ -63,7 +63,6 @@ namespace ATKINSMEC
             public string Family;
             public string Type;
             public string LinkName;
-            public bool Taken;
         }
 
         // ==================================================
@@ -81,13 +80,12 @@ namespace ATKINSMEC
 
             List<Candidate> targets = CollectFromLinks(doc, options);
 
-            // Bucketed by the search radius, so each terminal only looks
-            // at the nine cells around it rather than every candidate
-            Dictionary<long, List<Candidate>> grid = BuildGrid(targets, maxFeet);
-
-            var pairs = new List<Tuple<double, FamilyInstance, Candidate>>();
-
             List<FamilyInstance> scope = InScope(doc, options);
+
+            // What the matching needs, read off the model once; the
+            // matching itself is ALIGNMATCH, Revit-free and tested
+            var ours = new List<ALIGNMATCH.Point>();
+            var byId = new Dictionary<long, FamilyInstance>();
 
             foreach (FamilyInstance terminal in scope)
             {
@@ -105,52 +103,57 @@ namespace ATKINSMEC
                     continue;
                 }
 
-                foreach (Candidate candidate in Near(grid, point, maxFeet))
+                long id = terminal.Id.ToValue();
+
+                byId[id] = terminal;
+
+                ours.Add(new ALIGNMATCH.Point
                 {
-                    if (!Allowed(terminal, candidate, options))
-                        continue;
-
-                    double distance = PlanDistance(point, candidate.Point);
-
-                    if (distance > maxFeet)
-                        continue;
-
-                    pairs.Add(Tuple.Create(distance, terminal, candidate));
-                }
+                    Id = id,
+                    X = point.X,
+                    Y = point.Y,
+                    Z = point.Z,
+                    Family = FamilyOf(terminal),
+                    Type = TypeOf(terminal)
+                });
             }
 
-            // Nearest first, and each architectural terminal claimed
-            // once - otherwise two MEP terminals can be dragged onto the
-            // same diffuser and stack on top of each other
-            pairs.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+            List<ALIGNMATCH.Point> theirs = targets
+                .Select(c => new ALIGNMATCH.Point
+                {
+                    X = c.Point.X,
+                    Y = c.Point.Y,
+                    Z = c.Point.Z,
+                    Family = c.Family,
+                    Type = c.Type
+                })
+                .ToList();
 
             var used = new HashSet<long>();
 
-            foreach (Tuple<double, FamilyInstance, Candidate> pair in pairs)
+            foreach (ALIGNMATCH.Pair pair in ALIGNMATCH.Match(
+                         ours, theirs, maxFeet, options.SameFamily, options.SameType))
             {
-                long id = pair.Item2.Id.ToValue();
+                FamilyInstance terminal = byId[pair.TerminalId];
+                Candidate target = targets[pair.Target];
 
-                if (used.Contains(id) || pair.Item3.Taken)
-                    continue;
+                used.Add(pair.TerminalId);
 
-                used.Add(id);
-                pair.Item3.Taken = true;
-
-                XYZ from = PointOf(pair.Item2);
-                XYZ to = pair.Item3.Point;
+                XYZ from = PointOf(terminal);
+                XYZ to = target.Point;
 
                 if (!options.MatchElevation)
                     to = new XYZ(to.X, to.Y, from.Z);
 
                 matches.Add(new Match
                 {
-                    TerminalId = id,
-                    TerminalName = NameOf(pair.Item2),
-                    LinkName = pair.Item3.LinkName,
-                    TargetName = pair.Item3.Family + " : " + pair.Item3.Type,
+                    TerminalId = pair.TerminalId,
+                    TerminalName = NameOf(terminal),
+                    LinkName = target.LinkName,
+                    TargetName = target.Family + " : " + target.Type,
                     From = from,
                     To = to,
-                    PlanDistanceMm = FromFeet(pair.Item1),
+                    PlanDistanceMm = FromFeet(pair.Distance),
                     RiseMm = FromFeet(to.Z - from.Z)
                 });
             }
@@ -349,96 +352,10 @@ namespace ATKINSMEC
         }
 
         // ==================================================
-        // The grid
-        // ==================================================
-
-        private static Dictionary<long, List<Candidate>> BuildGrid(
-            List<Candidate> candidates, double cell)
-        {
-            var grid = new Dictionary<long, List<Candidate>>();
-
-            if (cell <= 0)
-                cell = 1;
-
-            foreach (Candidate candidate in candidates)
-            {
-                long key = CellKey(candidate.Point, cell);
-
-                List<Candidate> bucket;
-
-                if (!grid.TryGetValue(key, out bucket))
-                {
-                    bucket = new List<Candidate>();
-                    grid[key] = bucket;
-                }
-
-                bucket.Add(candidate);
-            }
-
-            return grid;
-        }
-
-        private static long CellKey(XYZ point, double cell)
-        {
-            long x = (long)Math.Floor(point.X / cell);
-            long y = (long)Math.Floor(point.Y / cell);
-
-            // Two 32 bit cell indices packed into one key
-            return (x << 32) ^ (y & 0xFFFFFFFFL);
-        }
-
-        private static IEnumerable<Candidate> Near(
-            Dictionary<long, List<Candidate>> grid, XYZ point, double cell)
-        {
-            if (cell <= 0)
-                cell = 1;
-
-            long cx = (long)Math.Floor(point.X / cell);
-            long cy = (long)Math.Floor(point.Y / cell);
-
-            for (long dx = -1; dx <= 1; dx++)
-            {
-                for (long dy = -1; dy <= 1; dy++)
-                {
-                    long key = ((cx + dx) << 32) ^ ((cy + dy) & 0xFFFFFFFFL);
-
-                    List<Candidate> bucket;
-
-                    if (!grid.TryGetValue(key, out bucket))
-                        continue;
-
-                    foreach (Candidate candidate in bucket)
-                    {
-                        if (!candidate.Taken)
-                            yield return candidate;
-                    }
-                }
-            }
-        }
-
-        // ==================================================
         // Small helpers
         // ==================================================
 
-        private static bool Allowed(
-            FamilyInstance terminal, Candidate candidate, Options options)
-        {
-            if (options.SameType)
-            {
-                return Same(FamilyOf(terminal), candidate.Family) &&
-                       Same(TypeOf(terminal), candidate.Type);
-            }
-
-            if (options.SameFamily)
-                return Same(FamilyOf(terminal), candidate.Family);
-
-            return true;
-        }
-
-        private static bool Same(string a, string b)
-        {
-            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-        }
+        // The grid, the matching and its filter are ALIGNMATCH (Revit-free)
 
         private static double PlanDistance(XYZ a, XYZ b)
         {

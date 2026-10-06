@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATKINSMEC
 {
@@ -43,14 +44,10 @@ namespace ATKINSMEC
         // How close two connectors have to be before they count as
         // agreeing. Half a millimetre - this is "are these the same
         // size", not "is this the right size".
-        private const double AgreeMm = 0.5;
+        private const double AgreeMm = QACHWSHAPE.AgreeMm;
 
-        // When two pipes count as one straight line rather than a turn.
-        // This is cos(2 degrees), and the two degrees is Revit's own
-        // number: NewElbowFitting takes a turn of "typically 2 to 95
-        // degrees" and refuses anything shallower, so below it the
-        // answer has to be a union or a reducer.
-        private const double Straight = 0.9994;
+        // When two pipes count as one straight line rather than a turn -
+        // cos(2 degrees), Revit's own limit: QACHWSHAPE.Straight
 
         public class Result
         {
@@ -737,15 +734,13 @@ namespace ATKINSMEC
             if (one == null || two == null)
                 return false;
 
-            bool straight = Math.Abs(one.DotProduct(two)) > Straight;
-
             bool sameSize;
 
             try
             {
-                sameSize = Math.Abs(
-                    QAGRIDS.FromFeet(a.Radius * 2.0)
-                    - QAGRIDS.FromFeet(b.Radius * 2.0)) <= AgreeMm;
+                sameSize = QACHWSHAPE.SameSize(
+                    QAGRIDS.FromFeet(a.Radius * 2.0),
+                    QAGRIDS.FromFeet(b.Radius * 2.0));
             }
             catch
             {
@@ -754,84 +749,54 @@ namespace ATKINSMEC
                 sameSize = true;
             }
 
-            // The part type is the better answer where there is one;
-            // the geometry is the fallback for a family that will not
-            // say what it is.
-            if (kind == PartType.Elbow
-                || (kind != PartType.Transition
-                    && kind != PartType.Union
-                    && !straight))
+            // WHICH FITTING is QACHWSHAPE's, Revit-free, so the test
+            // compiles the real rule
+            switch (QACHWSHAPE.Join(SaysOf(kind), one.DotProduct(two), sameSize))
             {
-                doc.Create.NewElbowFitting(a, b);
+                case QACHWSHAPE.Two.Elbow:
+                    doc.Create.NewElbowFitting(a, b);
+                    break;
 
-                return true;
+                case QACHWSHAPE.Two.Union:
+                    doc.Create.NewUnionFitting(a, b);
+                    break;
+
+                default:
+                    doc.Create.NewTransitionFitting(a, b);
+                    break;
             }
-
-            if (sameSize)
-                doc.Create.NewUnionFitting(a, b);
-            else
-                doc.Create.NewTransitionFitting(a, b);
 
             return true;
         }
 
-        // Of three pipes into a tee, the branch is the one that is not
-        // in line with the other two.
-        private static int Odd(List<XYZ> axes)
+        private static QACHWSHAPE.Says SaysOf(PartType kind)
         {
-            int one = 0;
-            int two = 1;
-
-            double best = -1;
-
-            for (int i = 0; i < axes.Count; i++)
+            switch (kind)
             {
-                for (int j = i + 1; j < axes.Count; j++)
-                {
-                    double parallel = Math.Abs(axes[i].DotProduct(axes[j]));
-
-                    if (parallel > best)
-                    {
-                        best = parallel;
-
-                        one = i;
-                        two = j;
-                    }
-                }
+                case PartType.Elbow: return QACHWSHAPE.Says.Elbow;
+                case PartType.Transition: return QACHWSHAPE.Says.Transition;
+                case PartType.Union: return QACHWSHAPE.Says.Union;
+                default: return QACHWSHAPE.Says.Nothing;
             }
-
-            for (int i = 0; i < axes.Count; i++)
-            {
-                if (i != one && i != two)
-                    return i;
-            }
-
-            return axes.Count - 1;
         }
 
-        // Which of the others is most nearly in line with this one
+        private static List<QAVEC> Vecs(List<XYZ> axes)
+        {
+            return axes.Select(a => new QAVEC(a.X, a.Y, a.Z)).ToList();
+        }
+
+        // Of three pipes into a tee, the branch is the one that is not
+        // in line with the other two - QACHWSHAPE.Odd
+        private static int Odd(List<XYZ> axes)
+        {
+            return QACHWSHAPE.Odd(Vecs(axes));
+        }
+
+        // Which of the others is most nearly in line with this one -
+        // QACHWSHAPE.Partner
         private static int Partner(List<XYZ> axes, int of)
         {
-            int best = of == 0 ? 1 : 0;
-
-            double parallel = -1;
-
-            for (int i = 0; i < axes.Count; i++)
-            {
-                if (i == of)
-                    continue;
-
-                double how = Math.Abs(axes[of].DotProduct(axes[i]));
-
-                if (how > parallel)
-                {
-                    parallel = how;
-
-                    best = i;
-                }
-            }
-
-            return best;
+            return QACHWSHAPE.Partner(Vecs(axes), of);
         }
 
         // Which way a connector faces. NOT Connector.Direction - that

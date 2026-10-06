@@ -45,6 +45,9 @@ so they run from any clone.
 | `sheettest` | The FCU schedule reader against `data\FCU_Schedule.xlsx` | FCUSHEET |
 | `nwcsettingstest` | NWC BATCH settings round trip (18 of the 38 checks it once had) | NWCSETTINGS, WORKSETPICK |
 | `synctest` | AUTOSYNC reachability probes, timed, and its settings | SYNCNET, SYNCSETTINGS |
+| `aligntest` | ALIGN TERMINALS matching: plan distance only, nearest first, each target once, family/type filters, ties settled by id, the grid against brute force (6,000 probes, negative regions) and the cell key across 4000 x 4000 cells. Rewritten 2026-10-06 - the old one was lost | ALIGNMATCH |
+| `fittingtest` | Which fitting a replaced CHW fitting needs (elbow / union / reducer, Revit's 2-degree line), a tee's branch, a cross's pairs | QACHWSHAPE |
+| `roomtest` | Making room for bigger CHW fittings: the shortfall, the leg / branch / tee routes, rings, equipment, caps - **mirror** of QACHWROOM, which walks Revit connectors and cannot be compiled in. Brought back in step 2026-10-06 | (mirror) |
 | `runtest` | CHW run grouping - **mirror** of QACHWRUNS | (mirror) |
 | `ducttest` | Duct spatial index and meeting ends - **mirror** of QADUCTS | (mirror) |
 | `icontest` | The eighteen ribbon icons decode out of the BUILT 2025 DLL - build the add-in first | (reads the DLL) |
@@ -66,9 +69,13 @@ in one of these says nothing about the add-in.
 
 | Harness | State |
 |---|---|
-| `roomtest` | Mirror of QACHWROOM. 4 of its checks fail - the mirror predates the tee and dead-end fixes the later checks were written for |
-| `fittingtest` | Mirror of QACHWFITTINGS. 1 check fails (an unknown family far off-axis as an elbow) |
 | `geomtest` | Mirror of SPRINKLERLAYOUT from 2026-08-31; prints a layout, asserts nothing |
 | `nwcpreview` | Predates the worksets picker; does not build |
 
-`aligntest` (ALIGN TERMINALS matching) could not be recovered at all.
+`roomtest` and `fittingtest` were here until 2026-10-06. `fittingtest` now
+compiles the real rules (QACHWSHAPE, moved out of QACHWFITTINGS); its one
+failing check had been written against an older, tighter "straight" and
+was rewritten for Revit's 2-degree line. `roomtest` is still a mirror -
+QACHWROOM walks Revit's connectors - but was brought back in step with six
+fixes it predated, and its models given the equipment ends CLAUDE.md says
+they need.

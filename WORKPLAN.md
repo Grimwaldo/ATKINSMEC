@@ -1,5 +1,31 @@
 # Work plan — state and next steps
 
+## SPRINKLERS reads in an API context; the test gaps closed - 2026-10-06
+
+At the user's request (issues 3 and 5 of the review).
+
+**SPRINKLERS' window no longer reads the model from its own handlers.**
+Links, families and what the window says about each family are read in
+the constructor; each link's floors through `SPRINKLEREVENT.ReadLevels`,
+in a slot apart from `Action` so a tick cannot throw away a waiting
+listing. Never run in Revit - check that ticking a link fills the floors
+list ("Reading the link's floors..." first).
+
+**Tests.** All 19 current harnesses pass.
+- `fittingtest` compiles the REAL rules now - `QACHWSHAPE.cs`, moved out of
+  `QACHWFITTINGS` unchanged. 20 checks; one rewritten for Revit's 2-degree
+  line, which it predated.
+- `roomtest` is still a mirror (QACHWROOM walks Revit connectors) but is
+  back in step with six fixes it predated, its models given equipment
+  ends, and a cap check added. 29 checks. Change the two together.
+- `aligntest` rewritten against the REAL matching - `ALIGNMATCH.cs`, moved
+  out of `ALIGNTERMINALS.Plan`; ties now settled by id. 15 checks; the cell
+  key check was confirmed to fail against the classic broken packing.
+- Still stale: `geomtest` (asserts nothing), `nwcpreview` (does not build).
+
+Built for all six; QACHWFITTINGS and ALIGNTERMINALS changed shape but not
+behaviour (ALIGN ties aside). **Neither has run in Revit since.**
+
 ## AUTOVENT reads the model only in an API context; backups; installer - 2026-10-06
 
 At the user's request ("rebuild the installer, then do 4 then 3").

@@ -1372,6 +1372,20 @@ is **plan distance only** — the MEP elevation is the thing being fixed,
 so including it would let a badly levelled terminal match the wrong
 ceiling. Each linked terminal is claimed once, greedily nearest first.
 
+**THE MATCHING IS `ALIGNMATCH.cs`, REVIT-FREE**, moved out of
+`ALIGNTERMINALS.Plan` on 2026-10-06 so the test compiles the real thing
+(`tests/aligntest`, 15 checks). The harness before it MIRRORED the
+matching and was lost with the scratchpad. `Plan` now only reads each
+terminal's point, family and type off the model and builds the results.
+**Ties are now settled by terminal id, then target** - the plain sort
+it replaced left two equal distances in whatever order it liked, so two
+runs on one model could disagree. The cell key packs two signed indices
+into one long, and **negative coordinates are where that bites**: the
+test unpacks all 16 million keys of a 4000 x 4000 block round the
+origin, and was checked to FAIL against the classic `(cx << 32) | cy`.
+A broken key only merges buckets - the grid-against-brute-force check
+still passes - which is why the key has a check of its own.
+
 **SHEET QA** — `QACommand.cs`, `QAEVENT.cs` (external event),
 `QAForm*.cs`, `QAHELPForm*.cs`, `QAEXPORT.cs` (spreadsheet, Revit-free),
 `QACHECK.cs` (the framework), `QAFLOWCHECK.cs` (the flowrate check),
@@ -1840,7 +1854,7 @@ All of it is behind **`QASETTINGS.ChwKeepShortPipes`** (the checkbox
 "Slide fittings along to keep pipes Revit would delete", on by default).
 Off, a run with a doomed pipe is simply refused - still nothing deleted.
 
-Harness at `tests/roomtest` - 22 checks, and it has earned its keep
+Harness at `tests/roomtest` - 29 checks, and it has earned its keep
 three times: the far boundary fitting deleted and then moved; the
 dead-end walk calling its own seam a ring, which made that whole route
 dead code; and, once the models were given a proper termination, a walk
@@ -1849,12 +1863,31 @@ with itself. **Model the far side as ending at equipment** - a stub
 hanging in mid-air lets the branch route "succeed" through something
 that would not exist in a real job.
 
+**IT IS A MIRROR, AND IT DRIFTED.** `QACHWROOM` walks Revit's own
+connectors, so it cannot be compiled into a test; the harness keeps a
+hand copy on a toy model. The copy recovered from the transcripts on
+2026-10-06 predated six fixes - the 2.5 mm floor, a reach of 8, the
+gentle route on both ends before the branch on either, `Leg` refusing a
+walk back round to the short pipe, caps as dead ends, and `Branch`
+letting go of the short pipe's own joint - and its models had lost
+their equipment ends. All put back, plus a check for the cap.
+**Change `QACHWROOM`'s walk and the copy in the same commit.** Making
+the walk testable for real means running it over an abstract network,
+which is a rewrite of the most field-debugged code in the suite - not
+something to do without a real model to check it on.
+
 Order is pipes -> fittings -> joints -> fittings once more (only if a
 joint was actually mended, since mending one can hand a fitting back the
 pipe it takes its size from). A replaced fitting's id goes in `Gone` so
 `Mend` does not report its old joints as broken. Decision harness at
-`tests/fittingtest` - 19 checks on which creation call each shape
+`tests/fittingtest` - 20 checks on which creation call each shape
 needs, including a tee's branch found wherever it sits in the list.
+**It compiles the REAL rules**: `QACHWSHAPE.cs` (Revit-free - `Join`,
+`Odd`, `Partner`, `Straight`, `SameSize`), moved out of `QACHWFITTINGS`
+unchanged on 2026-10-06. Its hand copy had fallen behind - still
+"straight" at 0.999 after the add-in moved to Revit's 2 degrees - and
+one check had been written against the older line; it now pins 1.9
+degrees as straight and 2.1 as a turn.
 
 `MEPCurve.Diameter` is **read-only**; the writable route is
 `RBS_PIPE_DIAMETER_PARAM` via `Parameter.Set`. (`FamilyInstance.Symbol` is settable too, but swapping a
@@ -3162,8 +3195,10 @@ taskbar now.
   order, gave back every lost harness but `aligntest`. Edits made by a
   SCRIPT are not in that record, so those were re-run on copies - which
   is why `chwjointtest` has 55 of its 64 checks and `nwcsettingstest` 18
-  of 38, and why `roomtest`, `fittingtest`, `geomtest` and `nwcpreview`
-  are kept but marked **stale** (`tests\README.md`). **A harness written
+  of 38. `roomtest` and `fittingtest` came back stale and were brought
+  in step the same day, `aligntest` was rewritten against the real code,
+  and only `geomtest` and `nwcpreview` remain **stale**
+  (`tests\README.md`). **A harness written
   through a shell script is invisible to that record** - one more reason
   to write files with the Write and Edit tools.
 
@@ -3215,11 +3250,9 @@ taskbar now.
   `<Compile Include=`s the form's two files, calls `Show()` then
   `DrawToBitmap`, and saves a PNG. Fastest way to check wording and
   layout before deploying.
-- The matching harness for ALIGN TERMINALS (`aligntest`) is **lost** -
-  it is not in the transcripts. It mirrored the grid bucketing and
-  greedy one-to-one assignment of `ALIGNTERMINALS`; the cell key packs
-  two signed cell indices into one long, which is where negative model
-  coordinates would bite, and that is what a new one should test first.
+- The matching harness for ALIGN TERMINALS (`tests/aligntest`) was
+  lost and has been REWRITTEN against the real `ALIGNMATCH` - see ALIGN
+  TERMINALS above.
 - Geometry harness for the sprinkler layout: `tests/geomtest`, a
   mirror of `SPRINKLERLAYOUT` from 2026-08-31 - **stale**, and it prints
   a layout rather than asserting anything.
