@@ -51,6 +51,17 @@ namespace ATKINSMEC
             _doc = doc;
             _docTitle = docTitle ?? string.Empty;
 
+            // HOW THIS MODEL WAS LAST SET UP (VENTSAVED). The key needs
+            // the document, and the constructor is the one place inside
+            // the command's API context. A model never set up gets the
+            // DEFAULTS - not what the last model opened left in the
+            // statics.
+            _modelKey = ModelKey(doc);
+            _saved = VENTSAVED.Recall(_modelKey);
+            _recalled = _saved != null;
+
+            Restore(_saved);
+
             ListLinks.ItemsSource = _links;
             ListLevels.ItemsSource = _levels;
 
@@ -63,6 +74,187 @@ namespace ATKINSMEC
             // The duct system types belong to THIS model and do not
             // change with what is ticked anywhere, so this is read once
             RefreshSystemTypes();
+        }
+
+        // ==================================================
+        // This model's set-up, remembered (VENTSAVED)
+        // ==================================================
+
+        // Null for a model never saved to disk: it has nowhere stable to
+        // be remembered under, so its set-up lasts while the window does
+        private readonly string _modelKey;
+
+        // The set-up as it stands - read from the file on opening, then
+        // kept up to date by every change (Capture), so a Refresh of the
+        // links list keeps what was ticked rather than going back to the
+        // file
+        private VENTSAVED.Model _saved;
+
+        private readonly bool _recalled;
+
+        // Nothing is saved until the window has finished filling itself:
+        // a save from halfway through would write an empty links list
+        // over the one that was remembered
+        private bool _ready;
+
+        private bool _saveFailed;
+
+        // WHERE THE MODEL LIVES, so every local copy of one central -
+        // and every Revit version - finds the same set-up:
+        //
+        //   - an ACC model: its model GUID (the path names the hub and
+        //     project, which can be renamed under it);
+        //   - a workshared model: its CENTRAL, not the local file, which
+        //     is a different file for every person and every day;
+        //   - otherwise the file itself.
+        //
+        // Document.CreationGUID would be neater but only exists from 2024,
+        // and a key that differed between versions would split one
+        // project's set-up in two.
+        private static string ModelKey(Document doc)
+        {
+            try
+            {
+                if (doc.IsModelInCloud)
+                {
+                    ModelPath cloud = doc.GetCloudModelPath();
+
+                    if (cloud != null)
+                        return "cloud:" + cloud.GetModelGUID().ToString("D");
+                }
+
+                if (doc.IsWorkshared)
+                {
+                    ModelPath central = doc.GetWorksharingCentralModelPath();
+
+                    string visible = central == null
+                        ? string.Empty
+                        : ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
+
+                    if (!string.IsNullOrEmpty(visible))
+                        return "central:" + visible.Trim().ToLowerInvariant();
+                }
+
+                if (!string.IsNullOrEmpty(doc.PathName))
+                    return "file:" + System.IO.Path.GetFullPath(doc.PathName).ToLowerInvariant();
+            }
+            catch
+            {
+                // Unreadable is the same as never saved
+            }
+
+            return null;
+        }
+
+        // What does not depend on the links. The links themselves are
+        // settled in LoadLinks, which has the list to resolve them
+        // against.
+        private static void Restore(VENTSAVED.Model saved)
+        {
+            VENTSETTINGS.EndcapReachMm = saved == null
+                ? VENTSETTINGS.DefaultEndcapReachMm
+                : saved.ReachMm;
+
+            VENTSETTINGS.CountFixtures = saved == null || saved.CountFixtures;
+
+            VENTSETTINGS.FixtureFamilies.Clear();
+
+            if (saved != null)
+                VENTSETTINGS.FixtureFamilies.UnionWith(saved.FixtureFamilies);
+
+            // Read from the window at the press; never carried over
+            VENTSETTINGS.FreshSystemTypeIds.Clear();
+            VENTSETTINGS.ExtractSystemTypeIds.Clear();
+
+            // Element ids of ANOTHER model's links mean nothing here
+            VENTSETTINGS.FixtureSources.Clear();
+            VENTSETTINGS.ApartmentLinkIds.Clear();
+        }
+
+        private static VENTSAVED.LinkRef Ref(Tick link)
+        {
+            return new VENTSAVED.LinkRef { Id = link.Id, Label = link.Label ?? string.Empty };
+        }
+
+        // The set-up as the window shows it now
+        private VENTSAVED.Model Capture()
+        {
+            var now = new VENTSAVED.Model
+            {
+                Key = _modelKey ?? string.Empty,
+                Title = _docTitle,
+                When = DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+                Fresh = Chosen(_fresh, VENTSETTINGS.LooksFresh),
+                Extract = Chosen(_extract, VENTSETTINGS.LooksExtract),
+                ReachMm = ReachInBox(),
+                CountFixtures = VENTSETTINGS.CountFixtures,
+                FixtureFamilies = VENTSETTINGS.FixtureFamilies
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+            };
+
+            now.RoomLinks = _links.Where(l => l.IsOn).Select(Ref).ToList();
+
+            now.Apartments = _links.Where(l => VENTSETTINGS.ApartmentLinkIds.Contains(l.Id)).Select(Ref).ToList();
+
+            foreach (long id in VENTSETTINGS.FixtureSources.OrderBy(i => i))
+            {
+                Tick link = _links.FirstOrDefault(l => l.Id == id);
+
+                now.FixtureSources.Add(id == 0
+                    ? new VENTSAVED.LinkRef { Id = 0, Label = "This model" }
+                    : link != null ? Ref(link) : new VENTSAVED.LinkRef { Id = id });
+            }
+
+            // A link not loaded right now keeps what was chosen for it
+            if (_saved != null)
+            {
+                List<VENTSAVED.LinkRef> loaded = _links.Select(Ref).ToList();
+
+                VENTSAVED.KeepUnloaded(now.RoomLinks, _saved.RoomLinks, loaded);
+                VENTSAVED.KeepUnloaded(now.Apartments, _saved.Apartments, loaded);
+                VENTSAVED.KeepUnloaded(now.FixtureSources, _saved.FixtureSources, loaded);
+            }
+
+            return now;
+        }
+
+        // The ticks as names, for VENTSAVED.ChoiceOf
+        private static List<string> Chosen(IEnumerable<Tick> ticks, Func<string, bool> names)
+        {
+            return VENTSAVED.ChoiceOf(
+                ticks.Select(t => new KeyValuePair<string, bool>(t.Name, t.IsOn)), names);
+        }
+
+        // What is typed in the reach box, or what is in force
+        private double ReachInBox()
+        {
+            double mm;
+
+            return TxtEndcapReach != null && double.TryParse(TxtEndcapReach.Text, out mm) && mm > 0
+                ? mm
+                : VENTSETTINGS.EndcapReachMm;
+        }
+
+        // Called on every change. A file that cannot be written says so
+        // once and is not a reason to stop anything.
+        private void SaveSettings()
+        {
+            if (!_ready)
+                return;
+
+            _saved = Capture();
+
+            if (string.IsNullOrEmpty(_modelKey))
+                return;
+
+            if (!VENTSAVED.Remember(_saved) && !_saveFailed)
+            {
+                _saveFailed = true;
+
+                Status("This model's set-up could not be saved to " + VENTSAVED.DefaultPath +
+                       " - it applies until AUTOVENT is closed.", false);
+            }
         }
 
         // One ticked row. WPF binds to it, so a tick changes the model
@@ -210,6 +402,17 @@ namespace ATKINSMEC
 
             ChkFixtures.IsChecked = VENTSETTINGS.CountFixtures;
             ShowFixtures();
+
+            // Saving starts only now that the window holds the whole
+            // set-up - see _ready
+            _ready = true;
+
+            if (_recalled)
+            {
+                Status("Set up as this model was last left" +
+                       (string.IsNullOrEmpty(_saved.When) ? "" : " (" + _saved.When + ")") +
+                       ": the ticked links, Apartments, system types, endcap reach and fixtures.", false);
+            }
         }
 
         // ==================================================
@@ -233,6 +436,7 @@ namespace ATKINSMEC
         {
             VENTSETTINGS.CountFixtures = ChkFixtures.IsChecked == true;
             ShowFixtures();
+            SaveSettings();
         }
 
         // Reading the links' fixture families from a button, as the
@@ -261,10 +465,16 @@ namespace ATKINSMEC
             }
 
             ShowFixtures();
+            SaveSettings();
         }
 
         private void LoadLinks()
         {
+            // A Refresh keeps what is ticked now: take it before the
+            // list is emptied, then settle it against the new list below
+            if (_ready)
+                _saved = Capture();
+
             _links.Clear();
 
             List<RVTLINKSELECTION.LinkItem> links =
@@ -275,8 +485,29 @@ namespace ATKINSMEC
             List<VENTLEVELMAP.Storey> storeys =
                 RVTLINKSELECTION.GetHostLevels(_doc);
 
-            // A placement that has gone is no longer an apartments link
-            VENTSETTINGS.ApartmentLinkIds.IntersectWith(links.Select(l => l.Id).ToList());
+            // WHAT WAS CHOSEN FOR THESE LINKS, settled against the links
+            // loaded now - by id, then by a label naming just one of them
+            // (VENTSAVED.Resolve). A link that has gone is simply not
+            // ticked; it is still remembered (Capture keeps it).
+            var loaded = links
+                .Select(l => new VENTSAVED.LinkRef { Id = l.Id, Label = l.ToString() })
+                .ToList();
+
+            var roomLinks = new HashSet<long>();
+
+            VENTSETTINGS.ApartmentLinkIds.Clear();
+            VENTSETTINGS.FixtureSources.Clear();
+
+            if (_saved != null)
+            {
+                roomLinks = VENTSAVED.Resolve(_saved.RoomLinks, loaded);
+
+                VENTSETTINGS.ApartmentLinkIds.UnionWith(VENTSAVED.Resolve(_saved.Apartments, loaded));
+
+                VENTSETTINGS.FixtureSources.UnionWith(VENTSAVED.Resolve(
+                    _saved.FixtureSources,
+                    loaded.Concat(new[] { new VENTSAVED.LinkRef { Id = 0, Label = "This model" } })));
+            }
 
             foreach (RVTLINKSELECTION.LinkItem link in links)
             {
@@ -287,10 +518,16 @@ namespace ATKINSMEC
                     Id = link.Id,
                     Label = link.ToString(),
                     Span = RVTLINKSELECTION.LevelSpan(_doc, link.Id, storeys),
+                    IsOn = roomLinks.Contains(link.Id),
                     IsApartments = VENTSETTINGS.ApartmentLinkIds.Contains(link.Id)
                 };
 
-                tick.Toggled = RefreshLevels;
+                tick.Toggled = () =>
+                {
+                    RefreshLevels();
+                    SaveSettings();
+                };
+
                 tick.ApartmentsToggled = ApartmentsToggled;
 
                 _links.Add(tick);
@@ -332,6 +569,8 @@ namespace ATKINSMEC
                        : "Rooms of interior models standing inside the apartments, on the same level of " +
                          "this model, are listed and exported under their apartment.",
                    false);
+
+            SaveSettings();
         }
 
         // What the apartment ticks found: each placement's own line says
@@ -485,8 +724,17 @@ namespace ATKINSMEC
             List<VENTSETTINGS.SystemTypeItem> types =
                 REVITROOMS.AirSystemTypes(_doc);
 
-            int freshGuess = 0;
-            int extractGuess = 0;
+            // WHAT THIS MODEL WAS LAST RUN WITH, where a choice was made
+            // (VENTSAVED: null means it followed the names). Ticked by
+            // name; a remembered type the model no longer has is passed
+            // over.
+            var freshChosen = _saved != null && _saved.Fresh != null
+                ? new HashSet<string>(_saved.Fresh, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+            var extractChosen = _saved != null && _saved.Extract != null
+                ? new HashSet<string>(_saved.Extract, StringComparer.OrdinalIgnoreCase)
+                : null;
 
             foreach (VENTSETTINGS.SystemTypeItem type in types)
             {
@@ -494,40 +742,57 @@ namespace ATKINSMEC
 
                 _systemTypeIds[name] = type.Id;
 
-                bool looksFresh = VENTSETTINGS.LooksFresh(name);
-                bool looksExtract = VENTSETTINGS.LooksExtract(name);
-
-                _fresh.Add(new Tick
+                var fresh = new Tick
                 {
                     Name = name,
                     Label = name,
-                    IsOn = looksFresh
-                });
+                    IsOn = freshChosen != null
+                        ? freshChosen.Contains(name)
+                        : VENTSETTINGS.LooksFresh(name)
+                };
 
-                _extract.Add(new Tick
+                var extract = new Tick
                 {
                     Name = name,
                     Label = name,
-                    IsOn = looksExtract
-                });
+                    IsOn = extractChosen != null
+                        ? extractChosen.Contains(name)
+                        : VENTSETTINGS.LooksExtract(name)
+                };
 
-                if (looksFresh)
-                    freshGuess++;
+                // After the first tick is set, so filling is not saving
+                fresh.Toggled = SystemTypeToggled;
+                extract.Toggled = SystemTypeToggled;
 
-                if (looksExtract)
-                    extractGuess++;
+                _fresh.Add(fresh);
+                _extract.Add(extract);
             }
+
+            CountSystemTypes();
+        }
+
+        private void SystemTypeToggled()
+        {
+            CountSystemTypes();
+            SaveSettings();
+        }
+
+        // The headings count what is TICKED - which is the name guess
+        // until somebody changes it, and what they chose after
+        private void CountSystemTypes()
+        {
+            int types = _fresh.Count;
 
             // Short enough to fit the heading, because the render
             // showed both of these truncated with a longer wording
-            TxtFreshTypes.Text = types.Count == 0
+            TxtFreshTypes.Text = types == 0
                 ? "Fresh air  -  no system types"
-                : "Fresh air  -  " + freshGuess + " of " + types.Count;
+                : "Fresh air  -  " + _fresh.Count(t => t.IsOn) + " of " + types;
 
-            TxtExtractTypes.Text = types.Count == 0
+            TxtExtractTypes.Text = types == 0
                 ? "Extract / exhaust  -  none"
-                : "Extract / exhaust  -  " + extractGuess +
-                  " of " + types.Count;
+                : "Extract / exhaust  -  " + _extract.Count(t => t.IsOn) +
+                  " of " + types;
         }
 
         private void ReadSystemTypes()
@@ -1348,6 +1613,9 @@ namespace ATKINSMEC
             // cannot be picked up by a run somebody started before it
             ReadSystemTypes();
 
+            // ...and remembered for this model, as they were run
+            SaveSettings();
+
             int left = RVTLINKSELECTION.ExcludedRooms.Count;
 
             Status("Running on " + linkIds.Count + " model(s), " +
@@ -1596,6 +1864,10 @@ namespace ATKINSMEC
         // the button finds a dead one in the static
         protected override void OnClosed(EventArgs e)
         {
+            // The reach box and anything not yet saved by a change -
+            // a closed window is the last chance
+            SaveSettings();
+
             base.OnClosed(e);
 
             Command.Window = null;

@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSAVED.cs" />
   </ItemGroup>
 
 </Project>

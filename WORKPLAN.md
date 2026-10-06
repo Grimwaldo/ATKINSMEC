@@ -1,5 +1,35 @@
 # Work plan — state and next steps
 
+## Under git, harnesses in the repo, AUTOVENT remembers each model - 2026-10-06
+
+At the user's request, after a review of what was worth worrying about.
+
+**Version control.** The project is now a git repository (`main`, no
+remote; identity set for this repository only, `core.autocrlf false`).
+It had none before, so history starts here.
+
+**`tests\`.** The harnesses moved out of the session scratchpad, which
+Windows had been cleaning. The lost ones were rebuilt from the session
+transcripts. `tests\run-all.ps1` runs the 16 current ones - **all pass**.
+Kept but stale (older recoveries, out of step): `roomtest` (4 checks
+fail), `fittingtest` (1), `geomtest` (asserts nothing), `nwcpreview`
+(does not build). `chwjointtest` came back with 55 of 64 checks,
+`nwcsettingstest` with 18 of 38. `aligntest` is lost outright. Worth
+doing, not done: bring the four stale ones back in step, and rewrite
+`aligntest`.
+
+**AUTOVENT remembers each model's set-up** (`VENTSAVED`): the room-link
+ticks, Apartments, fresh/extract system types, endcap reach and fixture
+choices, keyed by the model's central / ACC GUID / file, so every local
+copy and every Revit version shares one. A model never set up gets the
+defaults rather than the last model's leftovers. `ventsettingstest` 79
+(36 new). Built for all six; **all six deployed, hashes match**. **Never
+run in Revit.** Check first: open a workshared local, tick something,
+close, reopen from a different local of the same central - the status
+bar should say the set-up was restored.
+
+The installer still predates all of this - rebuild before handing out.
+
 ## AUTOVENT: apartments from SEVERAL architects' models, interior placements found per floor - 2026-10-06
 
 At the user's request: apartments can come from more than one linked
