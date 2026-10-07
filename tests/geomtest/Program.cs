@@ -333,6 +333,79 @@ internal static class Program
                 SPRINKLERLAYOUT.StandsInRoom(M(4), M(8), floor, floor));
         }
 
+        // ---- an irregular room: Live/Work Unit 205 -------------------------
+        // Traced from the user's screenshot (2026-10-07), inner finish line,
+        // scale estimated from the column grid: about 13.4 x 6.7 m, the
+        // left wall chamfered at the top, the right wall stepped in above
+        // and angled out below. Not to the millimetre - a room of this
+        // SHAPE, not that room.
+        {
+            var unit = Ring(0, 0, 13.40, 0, 11.40, 2.76, 11.40, 6.65, 2.375, 6.65, 0, 2.565);
+
+            SPRINKLERLAYOUT.RoomShape shape = Shape(unit);
+
+            double Reach(SPRINKLERLAYOUT.Result res) =>
+                0.5 * Math.Sqrt(res.SpacingXFt * res.SpacingXFt + res.SpacingYFt * res.SpacingYFt);
+
+            // How many rows (or columns): values within 1 mm are one. Not
+            // rounding to the millimetre - the rows here sit at 4.9875 m,
+            // exactly on a rounding midpoint, and a hair of floating point
+            // either side split one row into two
+            int Distinct(IEnumerable<double> values)
+            {
+                List<double> sorted = values.Select(v => v * 0.3048).OrderBy(v => v).ToList();
+
+                int groups = sorted.Count == 0 ? 0 : 1;
+
+                for (int i = 1; i < sorted.Count; i++)
+                {
+                    if (sorted[i] - sorted[i - 1] > 0.001)
+                        groups++;
+                }
+
+                return groups;
+            }
+
+            // Light hazard: a plain 3 x 2 grid, nothing needing to move
+            SPRINKLERLAYOUT.Result lu = SPRINKLERLAYOUT.Layout(shape, light);
+
+            Check("Live/Work 205 at light hazard: 6 heads in a tidy 3 x 2 grid, none moved",
+                lu.Points.Count == 6 &&
+                Distinct(lu.Points.Select(p => p.X)) == 3 && Distinct(lu.Points.Select(p => p.Y)) == 2 &&
+                lu.Relocated == 0 && lu.WallAdjusted == 0 && lu.Dropped == 0 && lu.Added == 0);
+
+            Check("...every head inside and clear of the angled walls, the room fully reached",
+                Sound(shape, lu) && lu.Coverage >= 0.999);
+
+            Check("...spacing and area per head within light hazard's limits",
+                lu.SpacingXFt <= M(light.MaxSpacingM) + 1e-9 && lu.SpacingYFt <= M(light.MaxSpacingM) + 1e-9 &&
+                lu.SpacingXFt * lu.SpacingYFt <= M(1) * M(1) * light.MaxCoverageM2 + 1e-6);
+
+            // The sharp bottom-right corner is the tightest point: the
+            // farthest floor from any head. It has to stay within reach.
+            double corner = lu.Points.Min(p => Math.Sqrt(Math.Pow(p.X - M(13.40), 2) + Math.Pow(p.Y, 2)));
+
+            Check("...the sharp bottom-right corner is still within reach (" + (corner * 0.3048).ToString("0.00") +
+                  " of " + (Reach(lu) * 0.3048).ToString("0.00") + " m)",
+                corner <= Reach(lu) + 1e-9);
+
+            // Ordinary I: 4 x 2. The top-right grid point falls OUTSIDE the
+            // room, where the right wall steps in, so that head is re-aimed
+            // into the part of its cell that is inside - off its column,
+            // which is outside the room there, but on its row
+            SPRINKLERLAYOUT.Result ou = SPRINKLERLAYOUT.Layout(shape, SPRINKLERRULES.RuleFor(SPRINKLERRULES.Hazard.OrdinaryI));
+
+            Check("Live/Work 205 at ordinary hazard I: 8 heads, the one whose grid point is outside the room re-aimed in",
+                ou.Points.Count == 8 && ou.Relocated == 1 && ou.Dropped == 0);
+
+            Check("...the re-aimed head keeps its row",
+                Distinct(ou.Points.Select(p => p.Y)) == 2);
+
+            Check("...every head sound, the room fully reached, area per head within 12.1 m2",
+                Sound(shape, ou) && ou.Coverage >= 0.999 &&
+                ou.SpacingXFt * ou.SpacingYFt <= M(1) * M(1) * 12.1 + 1e-6);
+        }
+
         // ---- an L-shaped room ---------------------------------------------
         // The cells that only clip the inside corner are lost to the grid;
         // the gap filling has to put the cover back
