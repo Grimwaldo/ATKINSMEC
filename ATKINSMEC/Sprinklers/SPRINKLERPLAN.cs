@@ -221,8 +221,11 @@ namespace ATKINSMEC
                     plan.Shape = SPRINKLERLAYOUT.ExtractShape(room, linkToHost);
 
                     // Re-extract with the nearby walls as obstacles, so a
-                    // head can never end up inside one
-                    List<List<UV>> nearby = WallsNear(walls, plan.Shape);
+                    // head can never end up inside one - only walls that
+                    // stand in this room's storey (SPRINKLERLAYOUT.
+                    // StandsInRoom), not the floors above and below
+                    List<List<UV>> nearby = WallsNear(
+                        walls, plan.Shape, bbox != null, floorZ, ceilingZ);
 
                     plan.WallObstacles = nearby.Count;
 
@@ -354,6 +357,11 @@ namespace ATKINSMEC
             public double MaxX { get; set; }
             public double MinY { get; set; }
             public double MaxY { get; set; }
+
+            // Its height range in this model, when it could be read
+            public bool HasHeight { get; set; }
+            public double MinZ { get; set; }
+            public double MaxZ { get; set; }
         }
 
         private static List<WallRect> CollectWalls(
@@ -390,6 +398,41 @@ namespace ATKINSMEC
                 if (half <= 0)
                     continue;
 
+                // HOW HIGH IT STANDS, in this model: every corner of its
+                // box through the link's transform, so a rotated link
+                // still gives the right range
+                bool hasHeight = false;
+                double minZ = 0;
+                double maxZ = 0;
+
+                try
+                {
+                    BoundingBoxXYZ box = wall.get_BoundingBox(null);
+
+                    if (box != null)
+                    {
+                        minZ = double.MaxValue;
+                        maxZ = double.MinValue;
+
+                        foreach (double x in new[] { box.Min.X, box.Max.X })
+                        foreach (double y in new[] { box.Min.Y, box.Max.Y })
+                        foreach (double z in new[] { box.Min.Z, box.Max.Z })
+                        {
+                            double hz = toHost.OfPoint(new XYZ(x, y, z)).Z;
+
+                            minZ = Math.Min(minZ, hz);
+                            maxZ = Math.Max(maxZ, hz);
+                        }
+
+                        hasHeight = true;
+                    }
+                }
+                catch
+                {
+                    // Unreadable: counted wherever it stands in plan, as
+                    // every wall used to be
+                }
+
                 // Curved walls become a run of straight pieces
                 IList<XYZ> points = location.Curve.Tessellate();
 
@@ -423,7 +466,10 @@ namespace ATKINSMEC
                         MinX = poly.Min(q => q.U),
                         MaxX = poly.Max(q => q.U),
                         MinY = poly.Min(q => q.V),
-                        MaxY = poly.Max(q => q.V)
+                        MaxY = poly.Max(q => q.V),
+                        HasHeight = hasHeight,
+                        MinZ = minZ,
+                        MaxZ = maxZ
                     });
                 }
             }
@@ -434,7 +480,10 @@ namespace ATKINSMEC
         // Only the walls that actually reach this room are worth testing
         private static List<List<UV>> WallsNear(
             List<WallRect> walls,
-            SPRINKLERLAYOUT.RoomShape shape)
+            SPRINKLERLAYOUT.RoomShape shape,
+            bool roomHasHeight,
+            double floorZ,
+            double ceilingZ)
         {
             var result = new List<List<UV>>();
 
@@ -459,6 +508,11 @@ namespace ATKINSMEC
                     wall.MinX > maxX + margin ||
                     wall.MaxY < minY - margin ||
                     wall.MinY > maxY + margin)
+                    continue;
+
+                // On another storey: not in this room, whatever its plan
+                if (roomHasHeight && wall.HasHeight &&
+                    !SPRINKLERLAYOUT.StandsInRoom(wall.MinZ, wall.MaxZ, floorZ, ceilingZ))
                     continue;
 
                 result.Add(wall.Poly);

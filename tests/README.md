@@ -51,6 +51,7 @@ so they run from any clone.
 | `runtest` | CHW run grouping - **mirror** of QACHWRUNS | (mirror) |
 | `ducttest` | Duct spatial index and meeting ends - **mirror** of QADUCTS | (mirror) |
 | `icontest` | The eighteen ribbon icons decode out of the BUILT 2025 DLL - build the add-in first | (reads the DLL) |
+| `geomtest` | SPRINKLERS' layout: spacing and area per head within the hazard, every head inside and clear of walls and columns, a turned and negative-coordinate room laid out the same, minimum spacing, a column or a squeeze on a grid point (the head moved just off it, on its line), walls counted only on the room's own storey, L-shaped, tiny and impossible rooms | SPRINKLERLAYOUT, SPRINKLERRULES - against stand-ins for the Revit types they name (`RevitStub.cs`) |
 
 ## Previews - run by hand, then LOOK at the PNGs
 
@@ -69,9 +70,10 @@ in one of these says nothing about the add-in.
 
 | Harness | State |
 |---|---|
-| `geomtest` | Mirror of SPRINKLERLAYOUT from 2026-08-31; prints a layout, asserts nothing |
 | `nwcpreview` | Predates the worksets picker; does not build |
 
+`geomtest` was here until 2026-10-06 - a copy of the layout that printed a
+head and asserted nothing; it now tests the real code (above).
 `roomtest` and `fittingtest` were here until 2026-10-06. `fittingtest` now
 compiles the real rules (QACHWSHAPE, moved out of QACHWFITTINGS); its one
 failing check had been written against an older, tighter "straight" and

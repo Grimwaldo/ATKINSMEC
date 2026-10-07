@@ -1,5 +1,24 @@
 # Work plan — state and next steps
 
+## SPRINKLERS: heads off their line - 2026-10-07
+
+User-reported twice with screenshots: one head of a room off its line,
+first against the façade, then 345 mm aside. Three faults (CLAUDE.md,
+SPRINKLERS, "A HEAD THAT LANDS IN SOMETHING"):
+
+1. a grid point in a column or wall was skipped and replaced against a
+   wall - now moved to the nearest clear point of its cell (commit 476d811);
+2. that move now prefers the head's own row or column line, within 0.3 m;
+3. walls on the floors above and below counted as obstacles - now only
+   walls standing in the room's own storey count. This was the 345 mm.
+
+`geomtest` 34 checks, all 20 harnesses pass, all six built and deployed
+(hashes match). **Never run in Revit** - re-place the room from the
+screenshots: the circled head should sit in line with the others. If one
+still moves, the add-in is avoiding something real on that storey.
+`nwcpreview` is the one harness still stale. The installer predates all
+of this.
+
 ## SPRINKLERS reads in an API context; the test gaps closed - 2026-10-06
 
 At the user's request (issues 3 and 5 of the review).

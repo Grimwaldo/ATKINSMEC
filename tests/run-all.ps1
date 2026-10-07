@@ -21,9 +21,9 @@ $tests = @(
     'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest', 'geomtest'
 )
 
-# RECOVERED AT AN OLDER VERSION AND OUT OF STEP - see tests\README.md.
-# A mirror of SPRINKLERLAYOUT from 2026-08-31 that prints a layout and
-# asserts nothing. Run by name to look at it.
+# Harnesses kept but not run by default, because they are out of step
+# with the add-in - see tests\README.md. None at present; run one by
+# name to look at it.
 $stale = @()
 
 if ($Only) { $tests = @($tests) + $stale | Where-Object { $Only -contains $_ } }
@@ -60,7 +60,7 @@ foreach ($name in $tests) {
 Write-Host ''
 $results | Format-Table -AutoSize -Wrap
 
-if (-not $Only) {
+if (-not $Only -and $stale.Count -gt 0) {
     Write-Host ("Not run - recovered at an older version, out of step with the add-in: " +
                 ($stale -join ', ') + ". See tests\README.md.") -ForegroundColor DarkYellow
 }

@@ -1339,6 +1339,44 @@ correcting the coordinates alone would have moved those models' heads
 onto the level above. Heads hosted on a ceiling face are untouched -
 Revit decides their level. Never run in Revit.
 
+**A HEAD THAT LANDS IN SOMETHING GOES JUST OFF IT, ON ITS LINE.**
+User-reported twice on 2026-10-07 from a real model - one head of a room
+off its line, first against the façade, then 345 mm aside - and three
+faults were behind it:
+
+1. **A grid point in a HOLE was skipped without a word.** A room-bounding
+   column (Revit cuts it out of the room's boundary) or a wall standing
+   in the room sent the point to `CellCentroid`, and for a hole near the
+   middle of its cell the centroid of the rest of the cell lands straight
+   back IN it - so the cell was dropped, uncounted, and `FillGaps` put a
+   head at the WORST uncovered point instead: against a wall. Now
+   `NearestClear` takes the nearest point of the cell that clears every
+   wall and hole edge; a point SQUEEZED between two holes, which
+   `PushInside` only bounces between, gets the same; and `CellCentroid`
+   takes the nearest in-room sample when its centroid lands in a hole,
+   rather than giving up.
+2. **`NearestClear` prefers the head's own ROW OR COLUMN LINE**, so it
+   stays in line with its neighbours - unless that is more than
+   `AlignAllowanceM` (0.3 m) further than the nearest clear point in any
+   direction, since every extra metre along the line is a metre more
+   spacing to the next head. A thin wall at 45 degrees did NOT test this
+   (the nearest sample happened to lie on a line); a column turned 45
+   degrees does, and was checked to fail with the preference off.
+3. **WALLS WERE OBSTACLES ON EVERY STOREY.** `CollectWalls` read every
+   wall in the link and `WallsNear` kept any whose PLAN outline met the
+   room - so a partition on the floor above or below, invisible in the
+   plan, pushed heads aside. That was the 345 mm. Each wall now carries
+   its height range (every corner of its box through the link's
+   transform) and counts only if `SPRINKLERLAYOUT.StandsInRoom` - it
+   rises more than 300 mm above the room's floor and starts more than
+   300 mm below its ceiling. The 300 mm absorbs walls drawn into the
+   slab from below and down to the ceiling from above. A wall whose box
+   cannot be read, or a room with no height, keeps the old behaviour.
+   **A real bulkhead hanging less than 300 mm below the ceiling is
+   ignored** - the price of the tolerance.
+
+All in `tests/geomtest` (34 checks). **Never run in Revit.**
+
 **THE WINDOW READS THE MODEL ONLY IN AN API CONTEXT** - the AUTOVENT fix
 (`VENTREAD`) applied here on 2026-10-06, at the user's request. It used
 to read every room of the ticked links from the LINK TICK
@@ -3253,6 +3291,7 @@ taskbar now.
 - The matching harness for ALIGN TERMINALS (`tests/aligntest`) was
   lost and has been REWRITTEN against the real `ALIGNMATCH` - see ALIGN
   TERMINALS above.
-- Geometry harness for the sprinkler layout: `tests/geomtest`, a
-  mirror of `SPRINKLERLAYOUT` from 2026-08-31 - **stale**, and it prints
-  a layout rather than asserting anything.
+- Geometry harness for the sprinkler layout: `tests/geomtest` - the
+  REAL `SPRINKLERLAYOUT` and `SPRINKLERRULES`, compiled against
+  stand-ins for the Revit types they name (`RevitStub.cs`). See
+  SPRINKLERS above.

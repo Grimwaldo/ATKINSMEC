@@ -861,8 +861,28 @@ namespace ATKINSMEC
         // 180 mm
         private const int NearSamples = 25;
 
-        // The point of this cell nearest its grid point that clears every
-        // wall and every hole edge - for a grid point that fell in a hole
+        // Along a line it can be finer for the same cost: 1/60 of a 4.5 m
+        // cell is 75 mm
+        private const int LineSamples = 60;
+
+        // How much further a head may go to STAY IN LINE with its
+        // neighbours than it would go to clear the obstacle at all. Not
+        // more: every extra metre along the line is a metre more spacing
+        // to the head beyond it.
+        public const double AlignAllowanceM = 0.3;
+
+        // The point of this cell that clears every wall and every hole
+        // edge, for a grid point that fell in a hole or was squeezed:
+        //
+        //   - ON ITS OWN ROW OR COLUMN LINE if it can be, so it stays in
+        //     line with the heads beside it or above and below it - how a
+        //     designer offsets a head round a column. Only along the one
+        //     line, never both, because the obstacle is in the way;
+        //   - otherwise the nearest clear point in any direction, which
+        //     is what it always did - unless the line's is within
+        //     AlignAllowanceM of it.
+        //
+        // User-reported 2026-10-07 as a head 345 mm off its line.
         private static bool NearestClear(
             Polygon polygon,
             double angle,
@@ -872,11 +892,11 @@ namespace ATKINSMEC
             double clearance,
             out UV point)
         {
-            point = null;
-
             UV target = Rotate(cellCentre, angle);
 
-            double best = double.MaxValue;
+            // ---- anywhere in the cell
+            UV anywhere = null;
+            double bestAnywhere = double.MaxValue;
 
             for (int i = 0; i < NearSamples; i++)
             {
@@ -893,14 +913,51 @@ namespace ATKINSMEC
 
                     double d = Distance(world, target);
 
-                    if (d < best)
+                    if (d < bestAnywhere)
                     {
-                        best = d;
-                        point = world;
+                        bestAnywhere = d;
+                        anywhere = world;
                     }
                 }
             }
 
+            // ---- on its row or its column
+            UV inLine = null;
+            double bestInLine = double.MaxValue;
+
+            for (int k = 0; k < LineSamples; k++)
+            {
+                double f = (k + 0.5) / LineSamples - 0.5;
+
+                foreach (UV local in new[]
+                         {
+                             new UV(cellCentre.U + sx * f, cellCentre.V),
+                             new UV(cellCentre.U, cellCentre.V + sy * f)
+                         })
+                {
+                    UV world = Rotate(local, angle);
+
+                    if (!Inside(polygon, world, clearance))
+                        continue;
+
+                    double d = Distance(world, target);
+
+                    if (d < bestInLine)
+                    {
+                        bestInLine = d;
+                        inLine = world;
+                    }
+                }
+            }
+
+            if (inLine != null &&
+                (anywhere == null || bestInLine <= bestAnywhere + MetresToFeet(AlignAllowanceM)))
+            {
+                point = inLine;
+                return true;
+            }
+
+            point = anywhere;
             return point != null;
         }
 
@@ -1132,6 +1189,39 @@ namespace ATKINSMEC
             roomAreaFt2 = inside * cellArea;
 
             return inside == 0 ? 0 : (double)covered / inside;
+        }
+
+        // ==================================================
+        // Which walls stand in a room
+        // ==================================================
+
+        // A WALL IS AN OBSTACLE ONLY WHERE IT STANDS: its height range has
+        // to reach into the room's, floor to ceiling. Walls used to be
+        // taken from the whole linked model by their PLAN outline alone,
+        // so a partition on the floor above or below - crossing an open
+        // room in plan, invisible in its plan view - pushed heads aside
+        // there. User-reported 2026-10-07: a head 345 mm off its line with
+        // nothing drawn where it should have been.
+        //
+        // 300 mm each way, because levels do not meet cleanly: a wall from
+        // the storey below is often drawn up to this floor's level or into
+        // its slab, and one from the storey above down to the ceiling's
+        // height. No real wall in the room is shorter than that.
+        public const double StoreyToleranceM = 0.3;
+
+        // All in feet, in this model's coordinates
+        public static bool StandsInRoom(
+            double wallMinZ, double wallMaxZ, double floorZ, double ceilingZ)
+        {
+            double tolerance = MetresToFeet(StoreyToleranceM);
+
+            // A room with no height to speak of: every wall it touches
+            // counts, as before
+            if (ceilingZ - floorZ <= 2 * tolerance)
+                return true;
+
+            return wallMaxZ > floorZ + tolerance &&
+                   wallMinZ < ceilingZ - tolerance;
         }
 
         // ==================================================

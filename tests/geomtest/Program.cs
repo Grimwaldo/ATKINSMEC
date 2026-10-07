@@ -253,6 +253,86 @@ internal static class Program
                 rs.Points.Count == 8 && Sound(shape, rs) && rs.Coverage >= 0.999);
         }
 
+        // ---- a dodging head stays in line (user-reported 2026-10-07) --------
+        // Same 9 x 16 m room, grid point (2.25, 10)
+        {
+            var room = Ring(0, 0, 9, 0, 9, 16, 0, 16);
+
+            bool OnALine(XYZ p) =>
+                Math.Abs(p.X - M(2.25)) < 1e-6 || Math.Abs(p.Y - M(10)) < 1e-6;
+
+            XYZ Nearest(SPRINKLERLAYOUT.Result res) => res.Points
+                .OrderBy(p => Math.Pow(p.X - M(2.25), 2) + Math.Pow(p.Y - M(10), 2))
+                .First();
+
+            double Off(XYZ p) =>
+                Math.Sqrt(Math.Pow(p.X - M(2.25), 2) + Math.Pow(p.Y - M(10), 2)) * 0.3048;
+
+            // A 0.6 m column turned 45 degrees - a diamond - on the grid
+            // point. Its nearest clear point is DIAGONAL, off both lines,
+            // about 0.48 m away; along the row or column it is about
+            // 0.64 m, inside the allowance. Checked to FAIL with the
+            // preference switched off. (A thin wall at 45 degrees did not
+            // discriminate: the nearest sample happened to fall on a line.)
+            double h = 0.3 * Math.Sqrt(2);
+
+            var diamond = Ring(2.25 - h, 10, 2.25, 10 - h, 2.25 + h, 10, 2.25, 10 + h);
+
+            SPRINKLERLAYOUT.RoomShape withDiamond = Shape(room, diamond);
+            SPRINKLERLAYOUT.Result ra = SPRINKLERLAYOUT.Layout(withDiamond, light);
+            XYZ moved = Nearest(ra);
+
+            Check("a column turned 45 degrees on a grid point: the head stays on its row or column (" + Off(moved).ToString("0.00") + " m)",
+                OnALine(moved) && Off(moved) <= 1.0 && Sound(withDiamond, ra) && ra.Points.Count == 8);
+
+            // The column from before: straight off one face, so on its line
+            var column = Ring(2.0, 9.75, 2.5, 9.75, 2.5, 10.25, 2.0, 10.25);
+
+            SPRINKLERLAYOUT.Result rk = SPRINKLERLAYOUT.Layout(Shape(room, column), light);
+
+            Check("the column on a grid point: the head stays on its line too",
+                OnALine(Nearest(rk)));
+
+            // A "+" of walls 3 m each way on the grid point: staying in
+            // line would mean sliding past the end of an arm, 1.5 m+ away;
+            // a corner of the cross clears in about 0.35 m. The allowance
+            // keeps it close rather than in line.
+            var across = Ring(0.75, 9.9, 3.75, 9.9, 3.75, 10.1, 0.75, 10.1);
+            var along = Ring(2.15, 8.5, 2.35, 8.5, 2.35, 11.5, 2.15, 11.5);
+
+            SPRINKLERLAYOUT.RoomShape withCross = Shape(room, across, along);
+            SPRINKLERLAYOUT.Result rx2 = SPRINKLERLAYOUT.Layout(withCross, light);
+
+            Check("a cross of walls on a grid point: close by in a corner of it (" + Off(Nearest(rx2)).ToString("0.00") + " m), not slid 1.5 m to stay in line",
+                Off(Nearest(rx2)) <= 0.6 && Sound(withCross, rx2));
+        }
+
+        // ---- walls count only on the room's own storey --------------------
+        // Floor at 0, ceiling at 2.7 m, the next level at 4 m
+        {
+            double floor = 0, ceiling = M(2.7);
+
+            Check("a wall on this storey stands in the room",
+                SPRINKLERLAYOUT.StandsInRoom(0, M(4), floor, ceiling));
+
+            Check("a wall from the storey BELOW does not - even drawn 200 mm into this slab",
+                !SPRINKLERLAYOUT.StandsInRoom(M(-4), 0, floor, ceiling) &&
+                !SPRINKLERLAYOUT.StandsInRoom(M(-4), M(0.2), floor, ceiling));
+
+            Check("a wall from the storey ABOVE does not - nor one that stops just above the ceiling",
+                !SPRINKLERLAYOUT.StandsInRoom(M(4), M(8), floor, ceiling) &&
+                !SPRINKLERLAYOUT.StandsInRoom(M(2.6), M(8), floor, ceiling));
+
+            Check("a shaft wall through several storeys does",
+                SPRINKLERLAYOUT.StandsInRoom(M(-8), M(16), floor, ceiling));
+
+            Check("a 1 m upstand in the room does",
+                SPRINKLERLAYOUT.StandsInRoom(0, M(1.0), floor, ceiling));
+
+            Check("a room with no height to judge by keeps every wall, as before",
+                SPRINKLERLAYOUT.StandsInRoom(M(4), M(8), floor, floor));
+        }
+
         // ---- an L-shaped room ---------------------------------------------
         // The cells that only clip the inside corner are lost to the grid;
         // the gap filling has to put the cover back
