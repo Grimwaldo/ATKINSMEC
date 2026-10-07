@@ -16,6 +16,7 @@
     <Compile Include="Stub.cs" />
     <Compile Include="Tutorial.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELNOTE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELROWS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTEXPORTNOTE.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />

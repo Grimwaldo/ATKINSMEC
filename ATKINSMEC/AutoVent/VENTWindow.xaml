@@ -332,18 +332,41 @@
             <!-- 1. linked models -->
             <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}">
                 <DockPanel>
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
-                        <Border Style="{StaticResource StepNumber}">
+                    <!-- The heading, with the SEARCH BOX beside it: in the
+                         heading row on purpose, because these top cards
+                         set the height of the whole window and a row of
+                         its own would push it past a laptop at 150% -->
+                    <DockPanel DockPanel.Dock="Top" LastChildFill="False">
+                        <Border DockPanel.Dock="Left" Style="{StaticResource StepNumber}">
                             <TextBlock Text="1" Foreground="White" FontSize="11"
                                        FontWeight="Bold"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Text="Linked models"
+                        <TextBlock DockPanel.Dock="Left"
+                                   Text="Linked models"
                                    Style="{StaticResource CardHeading}"
                                    Margin="0,0,0,0"
                                    VerticalAlignment="Center"/>
-                    </StackPanel>
+
+                        <!-- Narrows the list as you type (VENTLINKFILTER).
+                             The hint is a TextBlock over the box: a WPF
+                             TextBox has no placeholder of its own. -->
+                        <Grid DockPanel.Dock="Right" Width="210" VerticalAlignment="Center">
+                            <TextBox x:Name="TxtLinkSearch"
+                                     Padding="6,3"
+                                     VerticalContentAlignment="Center"
+                                     TextChanged="TxtLinkSearch_TextChanged"
+                                     KeyDown="TxtLinkSearch_KeyDown"
+                                     ToolTip="Type part of a model's name - every word must appear, in any order. Esc clears it. Ticked models the search hides still count."/>
+                            <TextBlock x:Name="TxtLinkSearchHint"
+                                       Text="Search linked models"
+                                       Margin="9,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource Muted}"
+                                       IsHitTestVisible="False"/>
+                        </Grid>
+                    </DockPanel>
 
                     <!-- Refresh, and beside it what the apartment ticks
                          found: which interior placements stand inside

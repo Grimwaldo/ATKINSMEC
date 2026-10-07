@@ -34,7 +34,7 @@ so they run from any clone.
 |---|---|---|
 | `officetest` | AUTOVENT export from the office workbook, read back through the real importer and calculated by EPPlus (427 checks) | VENTOFFICE, VENTROWS, VENTSHEET, VENTTEMPLATE |
 | `ventleveltest` | Rooms onto this model's storeys; `Floors`; apartments verified on this model's levels | VENTLEVELMAP, VENTAPARTMENTMAP |
-| `ventsettingstest` | Fresh/extract fallback, endcap reach, the WC/urinal name rule, the AUTOVENT settings file | VENTSETTINGS |
+| `ventsettingstest` | Fresh/extract fallback, endcap reach, the WC/urinal name rule, the AUTOVENT settings file, the linked-models search | VENTSETTINGS, VENTSAVED, VENTLINKFILTER |
 | `levelrowtest` | The levels tree's ticks and picks | VENTLEVELROWS |
 | `ventfcutest` | Splitting a room's air between endcaps - conservation | VENTFCUCHECK |
 | `toggletest` | WPF's click on a third-state tick, through the real `OnClick` | (WPF only) |

@@ -276,7 +276,11 @@ worksheet-name rule, Revit-free),
 `VENTLEVELMAP.cs` (a linked room onto a storey of this model,
 Revit-free), `VENTSETTINGS.cs` (what it used to guess, Revit-free),
 `VENTSAVED.cs` (each model's set-up, remembered between sessions,
-Revit-free), `VENTREAD.cs` (everything the window reads from the model,
+Revit-free), `VENTLINKFILTER.cs` (the search box over the linked
+models: every word typed must appear in the name, any order, any case;
+it filters the list's VIEW only, so a ticked model it hides still counts
+and the card says so - Revit-free, in the heading row so the card is no
+taller), `VENTREAD.cs` (everything the window reads from the model,
 in the constructor or the external event - never from a handler),
 `VENTFCUCHECK.cs` (a room whose units and endcaps disagree,
 Revit-free), `VENTLEVELNOTE.cs` (what the levels card says, Revit-free

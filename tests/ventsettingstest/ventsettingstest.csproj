@@ -12,6 +12,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSAVED.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
   </ItemGroup>
 
 </Project>

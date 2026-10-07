@@ -256,6 +256,28 @@ internal static class Program
             VENTSETTINGS.FamiliesFrom(null, new long[] { 0 }).Count == 0 &&
             VENTSETTINGS.FamiliesFrom(read, null).Count == 0);
 
+        // ---- the search box over the linked models ---------------------
+        const string towerB = "5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 2 : Tower B";
+
+        Check("searching: nothing typed shows every model",
+            VENTLINKFILTER.Matches(towerB, "") && VENTLINKFILTER.Matches(towerB, "   ") &&
+            VENTLINKFILTER.Matches(towerB, null));
+
+        Check("...part of the name finds it, in any case",
+            VENTLINKFILTER.Matches(towerB, "arc-000020") && VENTLINKFILTER.Matches(towerB, "TOWER"));
+
+        Check("...every word must appear, in any order - so the second placement can be picked out",
+            VENTLINKFILTER.Matches(towerB, "tower b") && VENTLINKFILTER.Matches(towerB, "b arc 20") &&
+            !VENTLINKFILTER.Matches("5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 1 : Tower A", "tower b"));
+
+        Check("...a word the name lacks hides it",
+            !VENTLINKFILTER.Matches(towerB, "plumbing") && !VENTLINKFILTER.Matches(null, "arc"));
+
+        Check("...the card says how many show, and that hidden ticked models still count",
+            VENTLINKFILTER.Said(2, 6, 0) == "Showing 2 of 6 linked model(s)." &&
+            VENTLINKFILTER.Said(2, 6, 1).Contains("1 ticked model(s) hidden by the search still count") &&
+            VENTLINKFILTER.Said(0, 6, 0) == "No linked model matches the search.");
+
         Saved();
 
         Console.WriteLine();

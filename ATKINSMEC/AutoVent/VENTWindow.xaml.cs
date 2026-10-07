@@ -688,7 +688,74 @@ namespace ATKINSMEC
                 : links.Count + " loaded link(s). Tick the architectural " +
                   "model(s) to read rooms from; Apartments on one whose rooms are apartments.";
 
+            _linksSaid = TxtLinksInfo.Text;
+
+            // A Refresh keeps the search: the same words narrow the new list
+            ApplyLinkSearch();
+
             RefreshLevels();
+        }
+
+        // ==================================================
+        // Searching the links list (VENTLINKFILTER)
+        // ==================================================
+
+        // What the card says with no search on, put back when it is cleared
+        private string _linksSaid;
+
+        private void TxtLinkSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // Raised while the XAML is still being parsed - the controls
+            // declared after the box are not there yet (the radio trap)
+            if (TxtLinkSearchHint == null || ListLinks == null || TxtLinksInfo == null)
+                return;
+
+            // Visibility in full: Autodesk.Revit.DB has one too
+            TxtLinkSearchHint.Visibility = string.IsNullOrEmpty(TxtLinkSearch.Text)
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
+            ApplyLinkSearch();
+        }
+
+        private void TxtLinkSearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && TxtLinkSearch.Text.Length > 0)
+            {
+                TxtLinkSearch.Clear();
+                e.Handled = true;
+            }
+        }
+
+        // ONLY WHAT IS SHOWN. The filter sits on the list's view, not on the
+        // links: a ticked link the search hides is still in _links, still
+        // ticked, and still read by every run - and the card says so.
+        private void ApplyLinkSearch()
+        {
+            string query = TxtLinkSearch == null ? string.Empty : TxtLinkSearch.Text;
+
+            ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(_links);
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                view.Filter = null;
+
+                if (_linksSaid != null)
+                    TxtLinksInfo.Text = _linksSaid;
+
+                return;
+            }
+
+            view.Filter = item =>
+            {
+                var link = item as Tick;
+                return link != null && VENTLINKFILTER.Matches(link.Label, query);
+            };
+
+            int shown = _links.Count(l => VENTLINKFILTER.Matches(l.Label, query));
+            int hiddenTicked = _links.Count(l => l.IsOn && !VENTLINKFILTER.Matches(l.Label, query));
+
+            TxtLinksInfo.Text = VENTLINKFILTER.Said(shown, _links.Count, hiddenTicked);
         }
 
         // ==================================================

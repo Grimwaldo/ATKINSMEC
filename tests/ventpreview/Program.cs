@@ -68,6 +68,20 @@ namespace ventpreview
             Shoot(window, Path.Combine(folder, "autovent-links-apt.png"));
             Shoot(window, Path.Combine(folder, "autovent-links-apt-1.5x.png"), 1.5);
 
+            // The search box narrowing the list: "tower" leaves the two
+            // tower placements and hides the ticked podium model - which
+            // the card has to say still counts
+            window.SearchLinks("tower");
+
+            window.UpdateLayout();
+
+            Shoot(window, Path.Combine(folder, "autovent-links-search.png"));
+            Shoot(window, Path.Combine(folder, "autovent-links-search-1.5x.png"), 1.5);
+
+            window.SearchLinks("");
+
+            window.UpdateLayout();
+
             // The worst case for the levels card: a sheet naming ten
             // levels this model has not got
             window.Levels(9, 2, 1, 12, 2, "B1_BASEMENT", "B2_BASEMENT",

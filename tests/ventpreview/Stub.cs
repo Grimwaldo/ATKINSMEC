@@ -84,6 +84,42 @@ namespace ATKINSMEC
             return level;
         }
 
+        // The search box, filtering with the REAL rule (VENTLINKFILTER), as
+        // VENTWindow.ApplyLinkSearch does
+        private void TxtLinkSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (TxtLinkSearchHint == null || ListLinks == null || ListLinks.ItemsSource == null)
+                return;
+
+            string query = TxtLinkSearch.Text;
+
+            TxtLinkSearchHint.Visibility = string.IsNullOrEmpty(query)
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
+            var all = ((System.Collections.IEnumerable)ListLinks.ItemsSource).Cast<Tick>().ToList();
+
+            System.Windows.Data.CollectionViewSource.GetDefaultView(ListLinks.ItemsSource).Filter =
+                string.IsNullOrWhiteSpace(query)
+                    ? (Predicate<object>)null
+                    : o => VENTLINKFILTER.Matches(((Tick)o).Label, query);
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                TxtLinksInfo.Text = VENTLINKFILTER.Said(
+                    all.Count(l => VENTLINKFILTER.Matches(l.Label, query)),
+                    all.Count,
+                    all.Count(l => l.IsOn && !VENTLINKFILTER.Matches(l.Label, query)));
+            }
+        }
+
+        private void TxtLinkSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
+
+        public void SearchLinks(string text)
+        {
+            TxtLinkSearch.Text = text;
+        }
+
         // The links list scrolled to its end, where the interior
         // placements are
         public void ScrollLinks()
