@@ -191,6 +191,7 @@ namespace ATKINSMEC
         private void btnTickAll_Click(object sender, EventArgs e) { }
         private void btnTickNone_Click(object sender, EventArgs e) { }
         private void btnJobSettings_Click(object sender, EventArgs e) { }
+        private void btnJobWorksets_Click(object sender, EventArgs e) { }
         private void btnBrowse_Click(object sender, EventArgs e) { }
         private void btnExport_Click(object sender, EventArgs e) { }
         private void btnStop_Click(object sender, EventArgs e) { }

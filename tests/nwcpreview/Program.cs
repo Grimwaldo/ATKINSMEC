@@ -82,18 +82,26 @@ namespace nwcpreview
 
             // ---- the new workset picker ----
 
-            var available = new System.Collections.Generic.List<string>
+            // Worksets are picked by name AND UniqueId now (WORKSETPICK).
+            // The picks include one RENAMED in the model since it was
+            // picked (same id, old name) and one the model no longer has,
+            // so the render shows both of the picker's labels for them.
+            ATKINSMEC.WORKSETPICK W(string name, int n) =>
+                new ATKINSMEC.WORKSETPICK(name, "00000000-0000-0000-0000-" + n.ToString("000000000000"));
+
+            var available = new System.Collections.Generic.List<ATKINSMEC.WORKSETPICK>
             {
-                "Workset1", "Shared Levels and Grids",
-                "MEP - Ductwork", "MEP - Pipework",
-                "MEP - Equipment", "MEP - Containment",
-                "Links - Architecture", "Links - Structure"
+                W("Workset1", 1), W("Shared Levels and Grids", 2),
+                W("MEP - Ductwork", 3), W("MEP - Pipework", 4),
+                W("MEP - Plant and Equipment", 5), W("MEP - Containment", 6),
+                W("Links - Architecture", 7), W("Links - Structure", 8)
             };
 
-            var picked = new System.Collections.Generic.List<string>
+            var picked = new System.Collections.Generic.List<ATKINSMEC.WORKSETPICK>
             {
-                "MEP - Ductwork", "MEP - Pipework",
-                "MEP - Equipment", "Fire - Sprinklers"
+                W("MEP - Ductwork", 3), W("MEP - Pipework", 4),
+                W("MEP - Equipment", 5),          // renamed since
+                W("Fire - Sprinklers", 9)         // no longer in the model
             };
 
             using (var ws = new ATKINSMEC.NWCWORKSETForm(
@@ -108,9 +116,9 @@ namespace nwcpreview
             // A model that is not workshared at all
             using (var ws = new ATKINSMEC.NWCWORKSETForm(
                        "1234-ATK-ZZ-XX-M3-A-0001",
-                       new System.Collections.Generic.List<string>(),
+                       new System.Collections.Generic.List<ATKINSMEC.WORKSETPICK>(),
                        string.Empty,
-                       new System.Collections.Generic.List<string>()))
+                       new System.Collections.Generic.List<ATKINSMEC.WORKSETPICK>()))
             {
                 ws.Show();
 

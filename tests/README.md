@@ -68,9 +68,9 @@ so they run from any clone.
 Recovered at an older version and out of step with the add-in. A failure
 in one of these says nothing about the add-in.
 
-| Harness | State |
-|---|---|
-| `nwcpreview` | Predates the worksets picker; does not build |
+None at present. `nwcpreview` was here until 2026-10-07 - it predated the
+worksets picker and did not build; it now renders all the NWC BATCH
+windows again, the picker with a renamed and a missing workset.
 
 `geomtest` was here until 2026-10-06 - a copy of the layout that printed a
 head and asserted nothing; it now tests the real code (above).
