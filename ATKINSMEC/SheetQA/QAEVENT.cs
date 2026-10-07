@@ -38,6 +38,11 @@ namespace ATKINSMEC
 
         public Request Action { get; set; }
 
+        // The model the window was opened on, set by the command that
+        // opened it: nothing is done in any other (SAMEDOC)
+        public Document Home { get; set; }
+        public string HomeTitle { get; set; }
+
         public QAForm Form { get; set; }
 
         // Inputs
@@ -57,6 +62,22 @@ namespace ATKINSMEC
         {
             try
             {
+                // NOT IN SOME OTHER MODEL (SAMEDOC). The live markers repaint
+                // on their own whenever a model changes, so a repaint that
+                // finds another model in front just waits - a message every
+                // time would be unbearable
+                string wrong = Action == Request.None
+                    ? null
+                    : SAMEDOC.Problem(app, Home, HomeTitle);
+
+                if (wrong != null)
+                {
+                    if (Action != Request.Repaint && Form != null && !Form.IsDisposed)
+                        Form.ReportError(wrong);
+
+                    return;
+                }
+
                 switch (Action)
                 {
                     case Request.Refresh:

@@ -21,6 +21,11 @@ namespace ATKINSMEC
 
         public Request Action { get; set; }
 
+        // The model the window was opened on, set by the command that
+        // opened it: nothing is done in any other (SAMEDOC)
+        public Document Home { get; set; }
+        public string HomeTitle { get; set; }
+
         public SPRINKLERForm Form { get; set; }
 
         // ListRooms
@@ -63,6 +68,21 @@ namespace ATKINSMEC
 
             try
             {
+                // NOT IN SOME OTHER MODEL (SAMEDOC): the window's ids belong
+                // to its own model, and in another one they are other
+                // elements or nothing
+                string wrong = Action == Request.None
+                    ? null
+                    : SAMEDOC.Problem(app, Home, HomeTitle);
+
+                if (wrong != null)
+                {
+                    if (Form != null && !Form.IsDisposed)
+                        Form.ReportError(wrong);
+
+                    return;
+                }
+
                 switch (Action)
                 {
                     case Request.ListRooms:

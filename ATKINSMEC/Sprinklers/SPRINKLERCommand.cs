@@ -37,6 +37,10 @@ namespace ATKINSMEC
             Form = new SPRINKLERForm(doc, Handler, Event);
             Handler.Form = Form;
 
+            // The window's model: nothing is done in any other (SAMEDOC)
+            Handler.Home = doc;
+            Handler.HomeTitle = doc.Title;
+
             Form.Show();
 
             return Result.Succeeded;

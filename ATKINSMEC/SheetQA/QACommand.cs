@@ -53,6 +53,10 @@ namespace ATKINSMEC
                 Event);
             Handler.Form = Form;
 
+            // The window's model: nothing is done in any other (SAMEDOC)
+            Handler.Home = uiDoc.Document;
+            Handler.HomeTitle = uiDoc.Document.Title;
+
             Form.Show();
 
             return Result.Succeeded;

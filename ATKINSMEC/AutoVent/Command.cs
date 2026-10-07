@@ -51,7 +51,13 @@ namespace ATKINSMEC
                 return Result.Succeeded;
             }
 
-            extEventHan = new ExtEventHan();
+            extEventHan = new ExtEventHan
+            {
+                // The window's model: nothing is done in any other (SAMEDOC)
+                Home = Doc,
+                HomeTitle = Doc.Title
+            };
+
             ExtEvent = ExternalEvent.Create(extEventHan);
 
             Window = new VENTWindow(Doc, Doc.Title);

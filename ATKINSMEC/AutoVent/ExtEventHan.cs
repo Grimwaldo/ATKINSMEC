@@ -32,6 +32,11 @@ namespace ATKINSMEC
         // Asks raised before the event runs are merged into one.
         private VENTREAD.Ask _reads;
 
+        // The model the window was opened on, set by Command when it opens
+        // the window
+        public Document Home { get; set; }
+        public string HomeTitle { get; set; }
+
         public void Read(VENTREAD.Ask ask)
         {
             if (ask == null || !ask.Any)
@@ -69,6 +74,26 @@ namespace ATKINSMEC
 
             if (request == 0)
                 return;
+
+            // NOT IN SOME OTHER MODEL. The run, the export and Show in plan
+            // all act on the model in front, and the window's rooms, links
+            // and ids belong to its own (SAMEDOC)
+            string wrong = SAMEDOC.Problem(app, Home, HomeTitle);
+
+            if (wrong != null)
+            {
+                if (Command.Window != null)
+                    Command.Window.Shown(wrong);
+
+                // A run or an export was asked for in so many words - a
+                // status line alone is too easy to miss
+                // Revit's: .NET 5 and up have a WinForms TaskDialog too, and
+                // this file uses System.Windows.Forms
+                if (request != 3)
+                    Autodesk.Revit.UI.TaskDialog.Show("AUTOVENT", wrong);
+
+                return;
+            }
 
             Document doc =
                 app.ActiveUIDocument.Document;

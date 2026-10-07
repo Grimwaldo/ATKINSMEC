@@ -3080,6 +3080,23 @@ taskbar now.
   latent crash. The modeless four keep the form, handler and event in
   statics on the command so they survive it returning, and clear the
   static in `OnFormClosed`.
+- **A MODELESS WINDOW ACTS ONLY ON THE MODEL IT WAS OPENED ON**
+  (`Shared/SAMEDOC.cs`, 2026-10-07). Every handler used to work on
+  `app.ActiveUIDocument` - whatever model was in FRONT when Revit ran
+  the event - with element ids collected in the window's own model. Open
+  SHEET QA on A, switch to B, press Fix, and the fix ran in B on ids that
+  are other elements there, or nothing; a QA fix creates and deletes.
+  Now the command gives the handler its window's model (`Handler.Home`,
+  `HomeTitle`, set beside `Handler.Form`), and the handler asks
+  `SAMEDOC.Problem` before ANY request: wrong model in front, model
+  closed, or none open, it does nothing and the window says which,
+  through the same method it reports errors with (`ReportError`,
+  `Trouble`, AUTOVENT's status line plus a dialog for a run or export).
+  SHEET QA's `Repaint` waits silently - the live markers ask for one on
+  every change of any model. `Document.Equals` is Revit's own "same open
+  document" test. **A new modeless window needs both halves**: `Home` set
+  in its command, and the check at the top of its handler's `Execute`.
+  Not runnable outside Revit, so untested; never run in Revit.
 - **Subscribing to a Revit event is itself an API call.**
   `app.DocumentChanged += ...` from a modeless form's own button or
   checkbox handler throws *"Revit is currently not within an API
