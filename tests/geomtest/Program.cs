@@ -197,6 +197,62 @@ internal static class Program
         Check("the column's area is not counted as room (" + rp.FreeAreaM2.ToString("0.00") + " m2)",
             Math.Abs(rp.FreeAreaM2 - (64 - 0.36)) < 0.64 && rp.FreeAreaM2 < 64 - 0.1);
 
+        // ---- a column ON a grid point (user-reported 2026-10-07) ----------
+        // 9 x 16 m at light hazard is a 2 x 4 grid, 4.5 x 4.0 m: heads at
+        // x 2.25 / 6.75, y 2 / 6 / 10 / 14. A 0.5 m column sits exactly on
+        // (2.25, 10). Reported as one head of a room coming out "like
+        // this one" - off its column of heads, against the wall.
+        {
+            var room = Ring(0, 0, 9, 0, 9, 16, 0, 16);
+            var column = Ring(2.0, 9.75, 2.5, 9.75, 2.5, 10.25, 2.0, 10.25);
+
+            SPRINKLERLAYOUT.RoomShape shape = Shape(room, column);
+            SPRINKLERLAYOUT.Result rc = SPRINKLERLAYOUT.Layout(shape, light);
+
+            foreach (XYZ p in rc.Points)
+                Console.WriteLine("        head at (" + (p.X * 0.3048).ToString("0.00") + ", " + (p.Y * 0.3048).ToString("0.00") + ") m");
+
+            XYZ nearest = rc.Points
+                .OrderBy(p => Math.Pow(p.X - M(2.25), 2) + Math.Pow(p.Y - M(10), 2))
+                .FirstOrDefault();
+
+            double off = nearest == null
+                ? double.MaxValue
+                : Math.Sqrt(Math.Pow(nearest.X - M(2.25), 2) + Math.Pow(nearest.Y - M(10), 2)) * 0.3048;
+
+            Check("a column on a grid point: the head is moved just off the column (" + off.ToString("0.00") + " m), not away to a wall",
+                off <= 1.0);
+
+            Check("...still 8 heads, all sound, the room fully reached",
+                rc.Points.Count == 8 && Sound(shape, rc) && rc.Coverage >= 0.999);
+        }
+
+        // ---- a grid point squeezed between two columns -------------------
+        // The same room; two columns 0.2 m apart either side of the grid
+        // point (2.25, 10) - it is in neither, but nearer than the 150 mm
+        // clearance to both, so walking it off one face walks it onto the
+        // other
+        {
+            var room = Ring(0, 0, 9, 0, 9, 16, 0, 16);
+            var west = Ring(1.65, 9.7, 2.15, 9.7, 2.15, 10.3, 1.65, 10.3);
+            var east = Ring(2.35, 9.7, 2.85, 9.7, 2.85, 10.3, 2.35, 10.3);
+
+            SPRINKLERLAYOUT.RoomShape shape = Shape(room, west, east);
+            SPRINKLERLAYOUT.Result rs = SPRINKLERLAYOUT.Layout(shape, light);
+
+            XYZ nearest = rs.Points
+                .OrderBy(p => Math.Pow(p.X - M(2.25), 2) + Math.Pow(p.Y - M(10), 2))
+                .First();
+
+            double off = Math.Sqrt(Math.Pow(nearest.X - M(2.25), 2) + Math.Pow(nearest.Y - M(10), 2)) * 0.3048;
+
+            Check("a grid point squeezed between two columns: moved clear of both, still near (" + off.ToString("0.00") + " m)",
+                off <= 1.0 && rs.Dropped == 0);
+
+            Check("...still 8 heads, all sound, the room fully reached",
+                rs.Points.Count == 8 && Sound(shape, rs) && rs.Coverage >= 0.999);
+        }
+
         // ---- an L-shaped room ---------------------------------------------
         // The cells that only clip the inside corner are lost to the grid;
         // the gap filling has to put the cover back

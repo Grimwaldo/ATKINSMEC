@@ -221,6 +221,32 @@ namespace ATKINSMEC
                     {
                         candidate = world;
                     }
+                    else if (InRing(polygon.Outer, world) &&
+                             NearestClear(
+                                 polygon,
+                                 angle,
+                                 local,
+                                 sx,
+                                 sy,
+                                 wallClearance,
+                                 out candidate))
+                    {
+                        // IN A HOLE - a column, or a wall standing in the
+                        // room; a column on the grid line is the everyday
+                        // case. The head goes just off it, as near its
+                        // grid point as the clearance allows: where a
+                        // designer would put it.
+                        //
+                        // This used to go to CellCentroid below, and for a
+                        // column near the middle of its cell the centroid
+                        // of the rest of the cell lands straight back IN
+                        // the column. The cell was then skipped without a
+                        // word, and the gap filling put a head at the
+                        // worst uncovered point instead - against a wall.
+                        // User-reported 2026-10-07 as one head of a room
+                        // coming out off its row, by the wall.
+                        fromCell = true;
+                    }
                     else
                     {
                         // The cell straddles a wall: aim for the middle of
@@ -249,8 +275,25 @@ namespace ATKINSMEC
                             out placed,
                             out moved))
                     {
-                        dropped++;
-                        continue;
+                        // Squeezed - between two columns, or a column and
+                        // a wall - so walking it off the nearest face only
+                        // walks it onto the next. The nearest clear point
+                        // of its own cell, rather than dropping it and
+                        // letting the gap filling put one against a wall.
+                        if (!NearestClear(
+                                polygon,
+                                angle,
+                                local,
+                                sx,
+                                sy,
+                                wallClearance,
+                                out placed))
+                        {
+                            dropped++;
+                            continue;
+                        }
+
+                        moved = true;
                     }
 
                     points.Add(placed);
@@ -774,7 +817,7 @@ namespace ATKINSMEC
 
             double sumU = 0;
             double sumV = 0;
-            int hits = 0;
+            var hits = new List<UV>();
 
             for (int i = 0; i < CellSamples; i++)
             {
@@ -791,22 +834,74 @@ namespace ATKINSMEC
 
                     sumU += world.U;
                     sumV += world.V;
-                    hits++;
+                    hits.Add(world);
                 }
             }
 
             // Ignore a cell that barely clips the room
-            if (hits < CellSamples * CellSamples * 0.12)
+            if (hits.Count < CellSamples * CellSamples * 0.12)
                 return false;
 
-            var candidate = new UV(sumU / hits, sumV / hits);
+            var candidate = new UV(sumU / hits.Count, sumV / hits.Count);
 
-            // The centroid of a concave sliver can land outside the room
+            // THE CENTROID OF A CONCAVE SLIVER CAN LAND OUTSIDE THE ROOM, or
+            // in a hole. That used to give up on the cell - silently, so
+            // the gap filling replaced it with a head against a wall - and
+            // a cell with this much room in it deserves its head. The part
+            // of the room nearest the centroid instead.
             if (!Contains(polygon, candidate))
-                return false;
+                candidate = hits.OrderBy(h => Distance(h, candidate)).First();
 
             centroid = candidate;
             return true;
+        }
+
+        // Finer than CellSamples: this one decides where the head ends up,
+        // not merely which way the cell leans - 1/25 of a 4.5 m cell is
+        // 180 mm
+        private const int NearSamples = 25;
+
+        // The point of this cell nearest its grid point that clears every
+        // wall and every hole edge - for a grid point that fell in a hole
+        private static bool NearestClear(
+            Polygon polygon,
+            double angle,
+            UV cellCentre,
+            double sx,
+            double sy,
+            double clearance,
+            out UV point)
+        {
+            point = null;
+
+            UV target = Rotate(cellCentre, angle);
+
+            double best = double.MaxValue;
+
+            for (int i = 0; i < NearSamples; i++)
+            {
+                for (int j = 0; j < NearSamples; j++)
+                {
+                    UV local = new UV(
+                        cellCentre.U + sx * ((i + 0.5) / NearSamples - 0.5),
+                        cellCentre.V + sy * ((j + 0.5) / NearSamples - 0.5));
+
+                    UV world = Rotate(local, angle);
+
+                    if (!Inside(polygon, world, clearance))
+                        continue;
+
+                    double d = Distance(world, target);
+
+                    if (d < best)
+                    {
+                        best = d;
+                        point = world;
+                    }
+                }
+            }
+
+            return point != null;
         }
 
         private static bool InteriorPoint(
