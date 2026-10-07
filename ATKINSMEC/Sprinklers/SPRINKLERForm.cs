@@ -558,6 +558,8 @@ namespace ATKINSMEC
 
                 dgvRooms.Rows[row].Tag = plan;
 
+                dgvRooms.Rows[row].Cells[Col("colNote")].ToolTipText = NoteTip(plan.Note);
+
                 if (!plan.HazardRecognised)
                 {
                     dgvRooms.Rows[row].Cells[Col("colHazard")].Style.BackColor =
@@ -587,6 +589,38 @@ namespace ATKINSMEC
 
             UpdateTotals();
             UpdateSetAllLabel();
+        }
+
+        // THE NOTES, one per line and each with what it means. The cell
+        // wraps and the column takes the window's spare width, but four
+        // notes and their reasons are more than any cell has room for -
+        // it used to be a fixed 140 px that cut them off mid-word.
+        private static string NoteTip(string note)
+        {
+            if (string.IsNullOrEmpty(note))
+                return string.Empty;
+
+            var lines = new List<string>();
+
+            foreach (string part in note.Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string why =
+                    part.EndsWith("pulled into the room")
+                        ? "its grid point fell outside the room, or in a column or wall, so it went to the nearest clear spot of its cell"
+                    : part.EndsWith("set off the wall")
+                        ? "it was nearer a wall than the clearance allows, so it was moved out"
+                    : part.EndsWith("added to close gaps")
+                        ? "the grid left part of the room out of reach, so heads were added there"
+                    : part.Contains("dropped")
+                        ? "its cell had no clear spot left for it"
+                    : part == "no ceiling found"
+                        ? "no ceiling over this room in the linked model - heads go at the fallback height below"
+                    : null;
+
+                lines.Add(why == null ? part : part + " - " + why);
+            }
+
+            return string.Join(Environment.NewLine, lines);
         }
 
         private void UpdateTotals()

@@ -230,6 +230,7 @@ namespace ATKINSMEC
             this.dgvRooms.AllowUserToAddRows = false;
             this.dgvRooms.AllowUserToDeleteRows = false;
             this.dgvRooms.AllowUserToResizeRows = false;
+            this.dgvRooms.AutoSizeRowsMode = System.Windows.Forms.DataGridViewAutoSizeRowsMode.AllCells;
             this.dgvRooms.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             this.dgvRooms.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this.colUse,
@@ -313,6 +314,9 @@ namespace ATKINSMEC
             this.colNote.Name = "colNote";
             this.colNote.ReadOnly = true;
             this.colNote.Width = 140;
+            this.colNote.MinimumWidth = 140;
+            this.colNote.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+            this.colNote.DefaultCellStyle.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
             this.colShow.HeaderText = "";
             this.colShow.Name = "colShow";
             this.colShow.Text = "Show";
