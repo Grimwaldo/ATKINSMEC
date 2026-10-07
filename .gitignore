@@ -25,3 +25,6 @@ tests/**/*.png
 tests/video/frames/
 tests/video/stills/
 *.log
+
+# Claude Code MCP servers - the paths in it are specific to this PC
+.mcp.json

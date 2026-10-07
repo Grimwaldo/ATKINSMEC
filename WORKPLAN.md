@@ -1,5 +1,72 @@
 # Work plan — state and next steps
 
+## NEXT: an AUTOVENT video presentation, recorded in Camtasia with Revit open - planned 2026-10-07
+
+**The user wants a video of AUTOVENT working inside Revit, recorded with
+Camtasia, with Claude driving it.** Claude has no desktop control of its
+own (only the terminal and the browser pane), so a Windows desktop MCP
+server was set up for this:
+
+- **`windows-mcp`** (CursorTouch/Windows-MCP, on Windows UI Automation:
+  screenshots, the UI tree with element names, click, type, launch apps).
+  Configured in **`.mcp.json` at the repository root** - command
+  `C:\Users\moham\.local\bin\uvx.exe`, args `windows-mcp serve`. The
+  file is in `.gitignore` (the path is this PC's). `uv` is installed;
+  Python is 3.14 (it needs 3.13+). The `claude` CLI is NOT on this PC's
+  PATH - the desktop app runs Claude Code internally - which is why the
+  file, not `claude mcp add`.
+- **First thing in the new session: check the tools loaded** (take a
+  desktop screenshot). If not, the user adds the server in the app's own
+  MCP settings with the same command and arguments. The app may ask to
+  approve the project's server once.
+- **It has full system access** - use it only for what the user asks.
+  **The user must not touch mouse or keyboard while it drives**, and
+  Camtasia records whatever happens on screen, so every move is in the
+  video.
+
+**Software:** Camtasia **2026 (26.2.2)** at `C:\Program Files\TechSmith\
+Camtasia` - no public automation API, so it is driven through its UI.
+Revit **2025** is the one open. Its add-in folder holds the build from
+03:28 on 2026-10-07: every AUTOVENT change is in it, only the later
+SPRINKLERS fixes and the wrong-model guard are not. Redeploy
+(`build-all.ps1` with Revit closed) before recording if anything else is
+shown.
+
+**Model:** the host the user has open is **"Snowdon Towers Sample HVAC"**
+(Autodesk's sample), linked to Snowdon Towers Sample Architectural,
+Electrical, Facades, Plumbing and Site - links and rooms on L2 and up.
+**The airflow run WRITES to air terminals: never save the sample after
+it, or work on a detached copy.**
+
+**Shot list** (one take per shot, so a retake is cheap; Revit maximised,
+Camtasia Recorder full screen at 1920x1080, cursor highlight on):
+
+1. Title card (prepared beforehand - see below).
+2. ATKINS > Mechanical > AUTOVENT opens the window over the model.
+3. **Linked models**: tick Snowdon Towers Sample Architectural; point out
+   the second line (which of this model's levels it covers) and the
+   Apartments tick beside each link (say what it is for; the sample has
+   no IND model, so do not tick it).
+4. **Levels tree**: the counts against each level, open one, show its
+   rooms, untick a room, pick several (Ctrl/Shift), **Show in plan**.
+5. **Export tab**: "A new workbook, from the office template" - export,
+   then show the workbook in Excel for a few seconds (office layout, one
+   blue row per level, room names/numbers/areas filled, formulas kept).
+6. **Import** that workbook back (card 2) - the levels it matches.
+7. **Assign tab**: the fresh / extract system-type ticks and the endcap
+   reach - what each is for.
+8. **Run** - the status line, then a terminal's Flow in Properties, and
+   `Desktop\ATKINSMEC_debug_log.txt` briefly.
+9. Close and reopen AUTOVENT - "Set up as this model was last left".
+10. End card.
+
+**Around the recording, Claude can prepare without the MCP server:**
+title and end cards (PNG, 1920x1080), a caption file (.srt) timed to the
+shots for Camtasia to import, and music composed from scratch as for the
+old tutorial (`tests/video/music.py` - no licence needed). Editing in
+Camtasia's timeline by clicking is slow and fiddly; the user trims
+pauses, or Claude does it if asked.
+
 ## SPRINKLERS: heads off their line - 2026-10-07
 
 User-reported twice with screenshots: one head of a room off its line,
