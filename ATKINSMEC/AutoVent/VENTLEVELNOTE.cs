@@ -90,9 +90,11 @@ namespace ATKINSMEC
 
         // outsideOn: where the rooms in no apartment were, "LEVEL 04A 160";
         // log: the file that says what each room was found in
+        // spread: apartments that took rooms from more than one interior
+        // placement - an architect's room drawn across several apartments
         public static string ApartmentsTip(
             string sources, IList<string> pairings, int otherStorey,
-            int outside, string outsideOn, string log)
+            int outside, string outsideOn, IList<string> spread, string log)
         {
             var text = new StringBuilder("Apartments from " + sources + ".");
 
@@ -124,11 +126,23 @@ namespace ATKINSMEC
                     .Append("tick Apartments on it - or the two models do not line up there.");
             }
 
+            if (spread != null && spread.Count > 0)
+            {
+                text.Append("\nCHECK - took rooms from more than one interior placement, so probably drawn across ")
+                    .Append("several apartments:");
+
+                foreach (string line in spread)
+                    text.Append("\n    ").Append(line);
+            }
+
             text.Append("\nThe interior models are the placements the keyword names, or those ticked level by ")
                 .Append("level (Interior models...); one not ticked on the links list gives only the rooms inside apartments.");
 
-            if (!string.IsNullOrEmpty(log) && (outside > 0 || otherStorey > 0 || pairings == null || pairings.Count == 0))
-                text.Append("\nWhat each room was found in: ").Append(log);
+            if (!string.IsNullOrEmpty(log) &&
+                (outside > 0 || otherStorey > 0 || pairings == null || pairings.Count == 0 || (spread != null && spread.Count > 0)))
+            {
+                text.Append("\nWhat each room was found in, and what the other models have there: ").Append(log);
+            }
 
             return text.ToString();
         }

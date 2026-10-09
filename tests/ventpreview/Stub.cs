@@ -175,7 +175,9 @@ namespace ATKINSMEC
                 {
                     "IND-000030.rvt : 1  ->  ARC-000020.rvt : 1 : Tower A apartments on L04_LEVEL 04 to L10_LEVEL 10",
                     "IND-000030.rvt : 2  ->  ARC-000020.rvt : 2 : Tower B apartments on L11_LEVEL 11 to L20_LEVEL 20"
-                }, 0, 24, "L21_LEVEL 21 24", @"C:\Users\someone\Desktop\ATKINSMEC_apartments_log.txt");
+                }, 0, 24, "L21_LEVEL 21 24",
+                new System.Collections.Generic.List<string> { "2BDR-A1 (TA-03-09) - rooms of 4 placements" },
+                @"C:\Users\someone\Desktop\ATKINSMEC_apartments_log.txt");
 
             TxtLinksInfo.Text =
                 "6 loaded link(s). Tick the architectural model(s) to " +

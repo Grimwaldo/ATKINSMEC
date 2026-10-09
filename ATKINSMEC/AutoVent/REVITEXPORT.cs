@@ -537,8 +537,21 @@ namespace ATKINSMEC
                         ") and are not in the sheet.";
             }
 
-            if (map.OtherStorey > 0 || map.Outside > 0 || inside == 0)
-                said += "\r\n    What each room was found in: " + VENTAPTLOG.Where;
+            // One architect's room taking several interior placements' rooms
+            // is drawn across several apartments - the groups are wrong
+            List<string> spread = map.DescribeSpread();
+
+            if (spread.Count > 0)
+            {
+                said += "\r\n    CHECK: " + spread.Count + " apartment(s) took rooms from more than one interior " +
+                        "placement - the architect's room probably runs across several apartments:";
+
+                foreach (string line in spread)
+                    said += "\r\n        " + line;
+            }
+
+            if (map.OtherStorey > 0 || map.Outside > 0 || inside == 0 || spread.Count > 0)
+                said += "\r\n    What each room was found in, and what the other models have there: " + VENTAPTLOG.Where;
 
             return said;
         }

@@ -67,6 +67,39 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: the apartments log, read - the architect's rooms are the problem - 2026-10-09 (evening)
+
+User re-exported `LEVEL 04A` with Apartments on `ARC-000010` AND
+`ARC-000100`: *"there should be 9 apartments in the level, but only 3
+... were exported and 2 of them showing no rooms ... while 2BDR-A1
+showing rooms from other apartments"*. `Desktop\ATKINSMEC_apartments_log.txt`
+(16:59) answers all three:
+
+- `ARC-000100` has **57 rooms in the whole model**; on `LEVEL 04A` only
+  `2BDR-A2` (TA-03-04, 477 m2), `1BDR-C` (TA-03-06) and `2BDR-A1`
+  (TA-03-09) are apartments. `ARC-000010` has only cores there.
+- `2BDR-A1` took 28 rooms from tiers 259, 262, 263 and 264 - one room
+  drawn across several apartments. `2BDR-A2` and `1BDR-C` took none.
+- 80 of 111 interior rooms stood in no room of either model on that
+  level. Tier 266 (`IND-000109`, the core: lift lobby, corridors) stood
+  in `ARC-000010` cores on `LEVEL 05A` - counted as another level.
+- So the add-in reads the models correctly; the nine apartments are not
+  drawn as rooms in either ticked model on that level.
+
+Done: an apartment taking rooms from more than one interior placement
+is named (export report, airflow log, tooltip); the log now asks every
+other loaded model with rooms what stands at the interior rooms, so the
+next run says whether `ARC-000150` (Tower A, not ticked) or any other
+model has the nine apartments. `ventleveltest` +3 (mutation-checked).
+Deployed to all but 2024 (Revit 2024 open).
+
+**NEXT**: re-export once with the new DLL (close Revit 2024 first, run
+`build-all.ps1`), read the "What OTHER models have" section. If no model
+has the apartments as rooms, the choices are the architect's (add the
+rooms) or a new rule - e.g. an apartment per interior placement, which
+does NOT fit this job as it stands (tiers 262/263/264 hold two
+apartments' worth of rooms each: 22, 14, 18).
+
 ## AUTOVENT: interior rooms in no apartment - counted, logged, asked higher - 2026-10-09
 
 User, from the first real job (kifaf, `HVC-000100`, Revit 2024): *"the

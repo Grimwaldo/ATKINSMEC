@@ -67,6 +67,37 @@ namespace ATKINSMEC
             public int Outside;
             public SortedDictionary<int, int> OutsideOn = new SortedDictionary<int, int>();
 
+            // WHICH INTERIOR PLACEMENTS EACH APARTMENT TOOK ROOMS FROM, and
+            // the apartment itself, by its key. One apartment taking rooms
+            // from SEVERAL placements is the sign of an architect's room
+            // drawn across several apartments - user-reported on the first
+            // real job as "2BDR-A1 showing rooms from other apartments":
+            // one 2BDR-A1 room held the rooms of four interior placements.
+            // An interior model placed once per floor gives MANY apartments
+            // from ONE placement, which is fine; the other way round is not.
+            public Dictionary<string, HashSet<long>> PlacementsIn = new Dictionary<string, HashSet<long>>();
+            public Dictionary<string, Apartment> Apartments = new Dictionary<string, Apartment>();
+
+            // The apartments that took rooms from more than one placement,
+            // by name then number
+            public List<Apartment> Spread()
+            {
+                return PlacementsIn
+                    .Where(p => p.Value.Count > 1 && Apartments.ContainsKey(p.Key))
+                    .Select(p => Apartments[p.Key])
+                    .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(a => a.Number, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            // "2BDR-A1 (TA-03-09) - 4 placements", for the window and the report
+            public List<string> DescribeSpread()
+            {
+                return Spread()
+                    .Select(a => a.Name + " (" + a.Number + ") - rooms of " + PlacementsIn[a.Key].Count + " placements")
+                    .ToList();
+            }
+
             public List<VENTLEVELMAP.Storey> Storeys = new List<VENTLEVELMAP.Storey>();
             public Dictionary<long, string> Labels = new Dictionary<long, string>();
 
@@ -130,6 +161,17 @@ namespace ATKINSMEC
                     ByRoom[roomKey] = candidate.Apartment;
                     Holding.Add(candidate.Apartment.Key);
                     FoundIn.Add(placement);
+
+                    HashSet<long> from;
+
+                    if (!PlacementsIn.TryGetValue(candidate.Apartment.Key, out from))
+                    {
+                        from = new HashSet<long>();
+                        PlacementsIn.Add(candidate.Apartment.Key, from);
+                    }
+
+                    from.Add(placement);
+                    Apartments[candidate.Apartment.Key] = candidate.Apartment;
 
                     Dictionary<long, SortedSet<int>> bySource;
 

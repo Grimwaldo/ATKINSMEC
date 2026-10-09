@@ -396,6 +396,34 @@ internal static class Program
             Check("the label names every apartments model",
                 map.Label == "ARC : 1 : Tower A, ARC : 2 : Tower B");
 
+            // ONE APARTMENT, ROOMS FROM SEVERAL PLACEMENTS - user-reported
+            // as "2BDR-A1 showing rooms from other apartments": one
+            // architect's room ran across four apartments and took the
+            // rooms of four interior placements. Not refused (it cannot be
+            // told from a real case for sure), but named.
+            {
+                var spreadMap = new VENTAPARTMENTS.Map { Storeys = tower };
+                var a1 = Apt(ArcA, 409, "2BDR-A1");
+                var a2 = Apt(ArcA, 404, "2BDR-A2");
+
+                spreadMap.Settle(Ind1, "301:21", 4, new[] { From(ArcA, a1, 14.0) });
+                spreadMap.Settle(Ind1, "301:22", 4, new[] { From(ArcA, a1, 14.0) });
+                spreadMap.Settle(Ind1, "301:23", 4, new[] { From(ArcA, a2, 14.0) });
+                spreadMap.Settle(Ind2, "302:21", 4, new[] { From(ArcA, a2, 14.0) });
+
+                Check("one placement giving rooms to several apartments is NOT flagged - an interior model per floor",
+                    spreadMap.PlacementsIn[a1.Key].Count == 1 && !spreadMap.Spread().Contains(a1));
+
+                Check("an apartment taking rooms from two placements IS flagged, by name and number",
+                    spreadMap.Spread().Count == 1 && spreadMap.Spread()[0] == a2 &&
+                    spreadMap.DescribeSpread().SequenceEqual(new[] { "2BDR-A2 (404) - rooms of 2 placements" }));
+
+                spreadMap.Settle(Ind2, "302:22", 4, new VENTAPARTMENTS.Candidate[0]);
+
+                Check("...and a room in no apartment takes part in no apartment's count",
+                    spreadMap.PlacementsIn.Count == 2 && spreadMap.Spread().Count == 1);
+            }
+
             var none = new VENTAPARTMENTS.Map();
 
             Check("no apartments models: off, and reads exactly the ticked links",

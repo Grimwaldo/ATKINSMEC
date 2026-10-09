@@ -139,6 +139,9 @@ namespace ATKINSMEC
 
                 if (apartments.Outside > 0)
                     L($"   {apartments.Outside} interior room(s) stood in NO apartment - not grouped, and given no airflow; why is in {VENTAPTLOG.Where}");
+
+                foreach (string line in apartments.DescribeSpread())
+                    L($"   CHECK: {line} - an architect's room across several apartments?");
             }
 
             // The ticked links, then every interior placement found holding

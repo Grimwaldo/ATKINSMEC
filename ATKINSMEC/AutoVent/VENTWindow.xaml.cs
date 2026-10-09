@@ -1013,6 +1013,7 @@ namespace ATKINSMEC
                     map.Label, map.Describe(), map.OtherStorey, map.Outside,
                     string.Join(", ", map.OutsideOn.Select(o =>
                         (o.Key >= 0 && o.Key < map.Storeys.Count ? map.Storeys[o.Key].Name : "?") + " " + o.Value)),
+                    map.DescribeSpread(),
                     VENTAPTLOG.Where);
         }
 

@@ -113,6 +113,8 @@ namespace ATKINSMEC
             // (VENTINTERIOR). An empty keyword, not chosen, is every
             // placement - the way it worked before.
             var skipped = new List<string>();
+            var searched = new HashSet<long>();
+            var probes = new List<Probe>();
 
             foreach (RevitLinkInstance link in new FilteredElementCollector(doc)
                          .OfClass(typeof(RevitLinkInstance))
@@ -145,6 +147,8 @@ namespace ATKINSMEC
                 }
 
                 Transform toHost = link.GetTotalTransform();
+
+                searched.Add(linkId);
 
                 var tallies = new SortedDictionary<int, Tally>();
                 int below = 0, failed = 0;
@@ -183,6 +187,9 @@ namespace ATKINSMEC
                     }
 
                     tally.Add(map, sources, room, seen);
+
+                    if (seen.Fate != Fate.NotPicked && seen.HostPoints.Count > 0)
+                        probes.Add(new Probe { Storey = seen.Storey, Placement = linkId, Points = seen.HostPoints });
                 }
 
                 LogPlacement(map, doc, link, label, tallies, below, failed);
@@ -195,8 +202,22 @@ namespace ATKINSMEC
                 : skipped.Count + " placement(s) are not interior models " +
                   (chosen ? "on any level (Interior models...)" : "by the keyword \"" + keyword + "\"") + ":");
 
-            foreach (string label in skipped.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
-                VENTAPTLOG.Say("   " + label);
+            // The same label placed many times is one line with a count
+            foreach (IGrouping<string, string> label in skipped
+                         .GroupBy(s => s, StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                VENTAPTLOG.Say("   " + label.Key + (label.Count() > 1 ? "   x" + label.Count() : string.Empty));
+            }
+
+            try
+            {
+                LogOthers(doc, map, probes, searched, keyword);
+            }
+            catch (Exception ex)
+            {
+                VENTAPTLOG.Say("The other models could not be asked: " + ex.GetType().Name + " - " + ex.Message);
+            }
 
             VENTAPTLOG.Head("Result");
             VENTAPTLOG.Say(map.Holding.Count + " apartment(s) hold " + map.ByRoom.Count + " interior room(s).");
@@ -205,6 +226,156 @@ namespace ATKINSMEC
 
             foreach (string line in map.Describe())
                 VENTAPTLOG.Say("   " + line);
+
+            List<string> spread = map.DescribeSpread();
+
+            if (spread.Count > 0)
+            {
+                VENTAPTLOG.Say(spread.Count + " apartment(s) took rooms from MORE THAN ONE interior placement - " +
+                               "an architect's room drawn across several apartments?");
+
+                foreach (string line in spread)
+                    VENTAPTLOG.Say("   " + line);
+            }
+        }
+
+        // One searched interior room, as the other models are asked about it
+        private class Probe
+        {
+            public int Storey;
+            public long Placement;
+            public List<XYZ> Points;          // this model's coordinates, in the order asked
+        }
+
+        // WHAT EVERY OTHER LOADED MODEL HAS WHERE THE INTERIOR ROOMS STAND.
+        // The first real job had apartments ticked on two architects'
+        // models, and on the level exported one held 3 apartment rooms and
+        // the other none - the nine apartments were somewhere else. This
+        // asks every other model with rooms (not an apartments model, not
+        // an interior placement, not one the keyword names) at the same
+        // points, so the log says WHICH model has them. A sample of up to
+        // 40 rooms per level, spread over the placements; read only.
+        private static void LogOthers(Document doc, Map map, List<Probe> probes, HashSet<long> searched, string keyword)
+        {
+            VENTAPTLOG.Head("What OTHER models have where the interior rooms stand");
+
+            if (probes.Count == 0)
+            {
+                VENTAPTLOG.Say("No interior room was searched.");
+                return;
+            }
+
+            const int PerLevel = 40;
+
+            var sample = new List<Probe>();
+
+            foreach (IGrouping<int, Probe> level in probes.GroupBy(p => p.Storey).OrderBy(g => g.Key))
+            {
+                List<Probe> all = level.ToList();
+
+                for (int i = 0; i < Math.Min(PerLevel, all.Count); i++)
+                    sample.Add(all[(int)((long)i * all.Count / Math.Min(PerLevel, all.Count))]);
+            }
+
+            var asked = sample.GroupBy(p => p.Storey).ToDictionary(g => g.Key, g => g.Count());
+
+            VENTAPTLOG.Say(sample.Count + " interior room(s) asked of every other loaded model that has rooms:");
+
+            var nothing = new List<string>();
+
+            foreach (RevitLinkInstance link in new FilteredElementCollector(doc)
+                         .OfClass(typeof(RevitLinkInstance))
+                         .Cast<RevitLinkInstance>()
+                         .OrderBy(l => l.Id.ToValue()))
+            {
+                long id = link.Id.ToValue();
+
+                if (map.Sources.Contains(id) || searched.Contains(id))
+                    continue;
+
+                string label = map.LabelOf(id);
+
+                if (!string.IsNullOrWhiteSpace(keyword) && VENTLINKFILTER.Matches(label, keyword))
+                    continue;
+
+                Document linked = link.GetLinkDocument();
+
+                if (linked == null)
+                    continue;
+
+                if (new FilteredElementCollector(linked)
+                        .OfCategory(BuiltInCategory.OST_Rooms)
+                        .WhereElementIsNotElementType()
+                        .FirstElement() == null)
+                    continue;
+
+                Transform into = link.GetTotalTransform().Inverse;
+
+                var found = new SortedDictionary<int, Dictionary<string, int>>();
+                var hits = new Dictionary<int, int>();
+
+                foreach (Probe probe in sample)
+                {
+                    Room room = null;
+
+                    foreach (XYZ point in probe.Points)
+                    {
+                        Room at = linked.GetRoomAtPoint(into.OfPoint(point));
+
+                        if (at != null && at.Area > 0)
+                        {
+                            room = at;
+                            break;
+                        }
+                    }
+
+                    if (room == null)
+                        continue;
+
+                    string what = Describe(room);
+
+                    int on = VENTLEVELMAP.StoreyOf(map.Storeys, RVTLINKSELECTION.HostElevationOf(link, linked, room));
+
+                    if (on != probe.Storey)
+                        what += " on " + StoreyName(map, on);
+
+                    Dictionary<string, int> names;
+
+                    if (!found.TryGetValue(probe.Storey, out names))
+                    {
+                        names = new Dictionary<string, int>();
+                        found.Add(probe.Storey, names);
+                    }
+
+                    int n;
+                    names.TryGetValue(what, out n);
+                    names[what] = n + 1;
+
+                    hits.TryGetValue(probe.Storey, out n);
+                    hits[probe.Storey] = n + 1;
+                }
+
+                if (found.Count == 0)
+                {
+                    nothing.Add(label);
+                    continue;
+                }
+
+                VENTAPTLOG.Say(label + " [" + id + "]");
+
+                foreach (KeyValuePair<int, Dictionary<string, int>> level in found)
+                {
+                    VENTAPTLOG.Say("   " + StoreyName(map, level.Key) + ": " + hits[level.Key] + " of " +
+                                   asked[level.Key] + " inside one of its rooms - " + string.Join(", ", level.Value
+                                       .OrderByDescending(v => v.Value)
+                                       .ThenBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
+                                       .Take(16)
+                                       .Select(v => v.Value > 1 ? v.Key + " x" + v.Value : v.Key)));
+                }
+            }
+
+            if (nothing.Count > 0)
+                VENTAPTLOG.Say("No room at those points in: " + string.Join(", ", nothing));
         }
 
         private class Source
@@ -259,6 +430,7 @@ namespace ATKINSMEC
             public Fate Fate;
             public double Floor;                   // this model's internal Z
             public XYZ Point;                      // where it was first asked, this model's coordinates
+            public List<XYZ> HostPoints = new List<XYZ>();   // every point asked, this model's coordinates
             public Candidate Joined;
             public List<Candidate> Candidates = new List<Candidate>();
         }
@@ -291,7 +463,8 @@ namespace ATKINSMEC
 
             List<XYZ> points = PointsOf(room);
 
-            seen.Point = points.Count == 0 ? null : toHost.OfPoint(points[0]);
+            seen.HostPoints = points.Select(p => toHost.OfPoint(p)).ToList();
+            seen.Point = seen.HostPoints.Count == 0 ? null : seen.HostPoints[0];
 
             // What each apartments model says about this room - the
             // decision is Map.Settle's, verified on THIS model's levels
@@ -552,9 +725,11 @@ namespace ATKINSMEC
             return (name == null ? string.Empty : name.AsString() ?? string.Empty) + " (" + (room.Number ?? string.Empty) + ")";
         }
 
-        // FOR A ROOM FOUND IN NOTHING: is it inside an apartments-model room
-        // IN PLAN? Then the two models' heights do not overlap there. If not,
-        // there is simply no room of that model where it stands.
+        // FOR A ROOM FOUND IN NOTHING: does an apartments model have a room
+        // on the SAME level whose box covers it in plan? Then the two
+        // models' heights do not overlap there. If not, that model simply
+        // has no room on that level where it stands. (A box, not the room's
+        // outline: an L-shaped room's box covers more than the room.)
         private static string Near(Map map, List<Source> sources, Seen seen)
         {
             if (seen.Point == null)
@@ -565,18 +740,16 @@ namespace ATKINSMEC
             foreach (Source source in sources)
             {
                 Footprint over = (source.Rooms ?? new List<Footprint>())
-                    .Where(r => r.Min != null &&
+                    .Where(r => r.Min != null && r.Storey == seen.Storey &&
                                 seen.Point.X >= r.Min.X && seen.Point.X <= r.Max.X &&
                                 seen.Point.Y >= r.Min.Y && seen.Point.Y <= r.Max.Y)
-                    .OrderBy(r => Math.Abs(r.Min.Z - seen.Floor))
-                    .ThenBy(r => (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y))
+                    .OrderBy(r => (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y))
                     .FirstOrDefault();
 
                 said.Add(over == null
-                    ? map.LabelOf(source.Id) + " has no room over that point in plan"
-                    : "in plan within " + over.Name + " (" + over.Number + ") of " + map.LabelOf(source.Id) +
-                      " on " + StoreyName(map, over.Storey) + ", which spans " + VENTAPTLOG.M(over.Min.Z) +
-                      " to " + VENTAPTLOG.M(over.Max.Z));
+                    ? map.LabelOf(source.Id) + " has no room on this level there"
+                    : "the box of " + over.Name + " (" + over.Number + ") of " + map.LabelOf(source.Id) +
+                      " covers it in plan, spanning " + VENTAPTLOG.M(over.Min.Z) + " to " + VENTAPTLOG.M(over.Max.Z));
             }
 
             return string.Join("; ", said);

@@ -1088,13 +1088,28 @@ Tower 2 and MLCP have no apartments.
       from a finished floor more than 150 mm above the interior model's.
       The old points come first, unchanged; the same-storey rule still
       decides whether a higher answer counts.
-    - **What the first real export suggests, not yet confirmed**: on 10/7,
-      before the keyword, `ARC-000010`'s corridor TA-03-31 "held" a room
-      `2BDR-A2` (TA-03-04, 477 m2) from some other placement - an
-      apartment-type name, so the Tower A apartments are probably in
-      `ARC-000100` or `ARC-000150` (both linked to the host, both full of
-      `2BDR-`/`1BDR-` names), and `ARC-000010` looks like the cores. The
-      log on the next run settles it.
+    - **WHAT THE LOG PROVED ON THE FIRST REAL JOB** (kifaf, `LEVEL 04A`,
+      apartments ticked on `ARC-000010` and `ARC-000100`): the add-in was
+      reading the models correctly; **the architect's rooms are not one
+      per apartment**. `ARC-000010` has only cores on that level;
+      `ARC-000100` has 57 rooms in the whole model and, on `LEVEL 04A`,
+      three apartment rooms where the user expects nine - `2BDR-A2` of
+      477 m2, `1BDR-C` and a `2BDR-A1` that took 28 rooms from FOUR
+      interior placements ("2BDR-A1 showing rooms from other
+      apartments"). 80 of the 111 interior rooms stood in no room of
+      either model on that level.
+    - **An apartment that takes rooms from more than one interior
+      placement is now NAMED** (`Map.PlacementsIn`, `Spread`,
+      `DescribeSpread`) in the export report, the airflow log and the
+      links-card tooltip. Not refused: one interior model placed per
+      floor legitimately gives many apartments from one placement, and
+      the other way round cannot be ruled out for every office.
+    - **The log asks every OTHER loaded model** (not an apartments model,
+      not an interior placement, not one the keyword names, and only one
+      with rooms) what stands at up to 40 interior rooms per level, so it
+      says which model - if any - has the apartments drawn there.
+      `Near` now looks at the room's OWN level only: a box on another
+      level was noise.
   - **an UNTICKED placement gives only the rooms inside apartments**
     (`Map.Takes`); a ticked one gives all its rooms as before.
     `Map.RoomLinks` is the ticked links then the placements found, and
