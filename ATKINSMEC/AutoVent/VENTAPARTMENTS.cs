@@ -37,11 +37,18 @@ namespace ATKINSMEC
     // the levels tree, the export, the airflow write and the fixture count
     // all build it the same way from the same setting.
     //
+    // EVERY BUILD WRITES ITSELF DOWN (VENTAPTLOG, Desktop\ATKINSMEC_
+    // apartments_log.txt): what each apartments model has on each level,
+    // and what each interior room was found in - so a run that groups
+    // nothing says why.
+    //
     // The decision and the record are in VENTAPARTMENTMAP.cs, Revit-free;
     // this half only asks the model.
     public static partial class VENTAPARTMENTS
     {
-        public static Map Build(Document doc)
+        // purpose: what the map is for, for the log - the levels list, the
+        // export or the airflow write
+        public static Map Build(Document doc, string purpose)
         {
             var map = new Map();
 
@@ -50,6 +57,27 @@ namespace ATKINSMEC
 
             map.Storeys = RVTLINKSELECTION.GetHostLevels(doc);
             map.Labels = RVTLINKSELECTION.LinkLabels(doc);
+
+            VENTAPTLOG.Start(purpose, Title(doc));
+
+            try
+            {
+                Build(doc, map);
+            }
+            finally
+            {
+                VENTAPTLOG.Save();
+            }
+
+            return map;
+        }
+
+        private static void Build(Document doc, Map map)
+        {
+            string keyword = VENTSETTINGS.InteriorKeyword;
+            bool chosen = VENTSETTINGS.InteriorChosen;
+
+            LogSettings(map, keyword, chosen);
 
             // ---- the apartment links that can be read
             var sources = new List<Source>();
@@ -63,17 +91,28 @@ namespace ATKINSMEC
                     sources.Add(source);
                     map.Sources.Add(id);
                 }
+                else
+                {
+                    VENTAPTLOG.Say("Apartments model " + map.LabelOf(id) + " [" + id + "] is NOT LOADED - not read.");
+                }
             }
 
             if (sources.Count == 0 || map.Storeys.Count == 0)
-                return map;
+            {
+                VENTAPTLOG.Say(sources.Count == 0
+                    ? "No apartments model could be read - nothing to group."
+                    : "This model has no levels - nothing to group.");
+                return;
+            }
+
+            foreach (Source source in sources)
+                LogSource(map, source);
 
             // ---- the INTERIOR placements, searched for rooms inside them:
             // those the keyword names, or the user ticked level by level
             // (VENTINTERIOR). An empty keyword, not chosen, is every
             // placement - the way it worked before.
-            string keyword = VENTSETTINGS.InteriorKeyword;
-            bool chosen = VENTSETTINGS.InteriorChosen;
+            var skipped = new List<string>();
 
             foreach (RevitLinkInstance link in new FilteredElementCollector(doc)
                          .OfClass(typeof(RevitLinkInstance))
@@ -91,14 +130,24 @@ namespace ATKINSMEC
                 if (chosen
                         ? !VENTSETTINGS.InteriorPicks.Values.Any(set => set != null && set.Contains(linkId))
                         : !VENTLINKFILTER.Matches(label, keyword))
+                {
+                    skipped.Add(label);
                     continue;
+                }
 
                 Document linked = link.GetLinkDocument();
 
                 if (linked == null)
+                {
+                    VENTAPTLOG.Head("Interior placement " + label + " [" + linkId + "]");
+                    VENTAPTLOG.Say("NOT LOADED - not searched.");
                     continue;
+                }
 
                 Transform toHost = link.GetTotalTransform();
+
+                var tallies = new SortedDictionary<int, Tally>();
+                int below = 0, failed = 0;
 
                 foreach (Room room in new FilteredElementCollector(linked)
                              .OfCategory(BuiltInCategory.OST_Rooms)
@@ -106,18 +155,56 @@ namespace ATKINSMEC
                              .Cast<Room>()
                              .Where(r => r.Area > 0))
                 {
+                    Seen seen;
+
                     try
                     {
-                        Place(map, sources, link, linked, toHost, room);
+                        seen = Place(map, sources, link, linked, toHost, room);
                     }
                     catch
                     {
                         // a room that cannot be placed stays an ordinary one
+                        failed++;
+                        continue;
                     }
+
+                    if (seen.Storey < 0)
+                    {
+                        below++;
+                        continue;
+                    }
+
+                    Tally tally;
+
+                    if (!tallies.TryGetValue(seen.Storey, out tally))
+                    {
+                        tally = new Tally();
+                        tallies.Add(seen.Storey, tally);
+                    }
+
+                    tally.Add(map, sources, room, seen);
                 }
+
+                LogPlacement(map, doc, link, label, tallies, below, failed);
             }
 
-            return map;
+            VENTAPTLOG.Head("Not searched");
+
+            VENTAPTLOG.Say(skipped.Count == 0
+                ? "Every other placement was searched."
+                : skipped.Count + " placement(s) are not interior models " +
+                  (chosen ? "on any level (Interior models...)" : "by the keyword \"" + keyword + "\"") + ":");
+
+            foreach (string label in skipped.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
+                VENTAPTLOG.Say("   " + label);
+
+            VENTAPTLOG.Head("Result");
+            VENTAPTLOG.Say(map.Holding.Count + " apartment(s) hold " + map.ByRoom.Count + " interior room(s).");
+            VENTAPTLOG.Say(map.OtherStorey + " interior room(s) stood inside an apartment on ANOTHER level - not grouped.");
+            VENTAPTLOG.Say(map.Outside + " interior room(s) stood in NO apartment - not grouped, and in no run.");
+
+            foreach (string line in map.Describe())
+                VENTAPTLOG.Say("   " + line);
         }
 
         private class Source
@@ -126,6 +213,22 @@ namespace ATKINSMEC
             public RevitLinkInstance Link;
             public Document Doc;
             public Transform Into;
+            public Transform ToHost;
+
+            // Every room of it, in this model's coordinates - read only for
+            // the log, to say what a room found in nothing was NEAR
+            public List<Footprint> Rooms;
+        }
+
+        // An apartments model's room as the log needs it: its box in THIS
+        // model's coordinates and the storey its floor is on
+        private class Footprint
+        {
+            public string Name = string.Empty;
+            public string Number = string.Empty;
+            public int Storey = -1;
+            public XYZ Min;
+            public XYZ Max;
         }
 
         private static Source Read(Document doc, long id)
@@ -133,44 +236,75 @@ namespace ATKINSMEC
             var link = doc.GetElement(REVITCOMPAT.NewId(id)) as RevitLinkInstance;
             Document linked = link == null ? null : link.GetLinkDocument();
 
-            return linked == null
-                ? null
-                : new Source { Id = id, Link = link, Doc = linked, Into = link.GetTotalTransform().Inverse };
+            if (linked == null)
+                return null;
+
+            Transform toHost = link.GetTotalTransform();
+
+            return new Source { Id = id, Link = link, Doc = linked, Into = toHost.Inverse, ToHost = toHost };
         }
 
-        private static void Place(
+        // What became of one interior room
+        private enum Fate
+        {
+            NotPicked,      // its placement is not an interior model on this storey
+            Joined,         // inside an apartment on the same storey
+            Elsewhere,      // inside apartments, but only on other storeys
+            Outside         // inside no apartment at all
+        }
+
+        private class Seen
+        {
+            public int Storey = -1;
+            public Fate Fate;
+            public double Floor;                   // this model's internal Z
+            public XYZ Point;                      // where it was first asked, this model's coordinates
+            public Candidate Joined;
+            public List<Candidate> Candidates = new List<Candidate>();
+        }
+
+        private static Seen Place(
             Map map, List<Source> sources,
             RevitLinkInstance link, Document linked, Transform toHost, Room room)
         {
-            int storey = VENTLEVELMAP.StoreyOf(
-                map.Storeys, RVTLINKSELECTION.HostElevationOf(link, linked, room));
+            var seen = new Seen
+            {
+                Floor = RVTLINKSELECTION.HostElevationOf(link, linked, room)
+            };
+
+            seen.Storey = VENTLEVELMAP.StoreyOf(map.Storeys, seen.Floor);
 
             // Below every level of this model: in no band, so in no
             // apartment either - the export leaves it out anyway
-            if (storey < 0)
-                return;
+            if (seen.Storey < 0)
+                return seen;
 
             // An interior model ON THIS STOREY? A placement ticked on L04
             // only gives its L04 rooms - VENTINTERIOR.Allowed
             if (!VENTINTERIOR.Allowed(
-                    map.Storeys[storey].Name, link.Id.ToValue(), map.LabelOf(link.Id.ToValue()),
+                    map.Storeys[seen.Storey].Name, link.Id.ToValue(), map.LabelOf(link.Id.ToValue()),
                     VENTSETTINGS.InteriorKeyword, VENTSETTINGS.InteriorChosen, VENTSETTINGS.InteriorPicks))
-                return;
+            {
+                seen.Fate = Fate.NotPicked;
+                return seen;
+            }
+
+            List<XYZ> points = PointsOf(room);
+
+            seen.Point = points.Count == 0 ? null : toHost.OfPoint(points[0]);
 
             // What each apartments model says about this room - the
             // decision is Map.Settle's, verified on THIS model's levels
-            var candidates = new List<Candidate>();
-
             foreach (Source source in sources)
             {
-                Room apartment = ApartmentOf(room, toHost, source);
+                Room apartment = ApartmentOf(points, toHost, source);
 
                 if (apartment == null)
                     continue;
 
                 Parameter name = apartment.get_Parameter(BuiltInParameter.ROOM_NAME);
 
-                candidates.Add(new Candidate
+                seen.Candidates.Add(new Candidate
                 {
                     Source = source.Id,
                     Storey = VENTLEVELMAP.StoreyOf(
@@ -184,38 +318,71 @@ namespace ATKINSMEC
                 });
             }
 
-            map.Settle(
+            seen.Joined = map.Settle(
                 link.Id.ToValue(),
                 RVTLINKSELECTION.RoomKey(link.Id.ToValue(), room.Id.ToValue()),
-                storey,
-                candidates);
+                seen.Storey,
+                seen.Candidates);
+
+            seen.Fate = seen.Joined != null
+                ? Fate.Joined
+                : seen.Candidates.Count > 0 ? Fate.Elsewhere : Fate.Outside;
+
+            return seen;
         }
 
-        // The apartment a room stands in: asked at the room's own point
-        // (where it was placed, which Revit keeps inside it) and, failing
-        // that, the middle of its box - 150 mm above its floor, inside the
-        // volume rather than on the boundary
-        private static Room ApartmentOf(Room room, Transform toHost, Source source)
+        // WHERE A ROOM IS ASKED ABOUT, in its own model's coordinates, in
+        // order: its own point (where it was placed, which Revit keeps
+        // inside it), then the middle of its box - each first 150 mm above
+        // its floor, inside the volume rather than on the boundary.
+        //
+        // THEN HIGHER, 1.0 m and 1.5 m up. GetRoomAtPoint answers only
+        // inside a room's VOLUME, and two models' floors need not agree:
+        // an architect's apartment drawn from finished floor level holds
+        // nothing 150 mm above an interior model drawn from the slab 200
+        // mm lower. Higher points find it; the same-storey rule
+        // (Map.Settle) still decides whether it counts, so a point that
+        // reaches the floor above cannot put a room under it.
+        private static List<XYZ> PointsOf(Room room)
         {
-            const double Up = 0.5;
+            const double Low = 0.5;                      // 152 mm
+            double[] higher = { 1.0 / 0.3048, 1.5 / 0.3048 };
 
-            var points = new List<XYZ>();
+            var plan = new List<XYZ>();
 
             var location = room.Location as LocationPoint;
+            BoundingBoxXYZ box = room.get_BoundingBox(null);
 
             if (location != null)
-                points.Add(location.Point + new XYZ(0, 0, Up));
-
-            BoundingBoxXYZ box = room.get_BoundingBox(null);
+                plan.Add(location.Point);
 
             if (box != null)
             {
-                points.Add(new XYZ(
+                plan.Add(new XYZ(
                     (box.Min.X + box.Max.X) / 2,
                     (box.Min.Y + box.Max.Y) / 2,
-                    box.Min.Z + Up));
+                    box.Min.Z));
             }
 
+            var points = new List<XYZ>();
+
+            // Exactly what was always asked, first
+            foreach (XYZ p in plan)
+                points.Add(new XYZ(p.X, p.Y, p.Z + Low));
+
+            double floor = box != null ? box.Min.Z : location != null ? location.Point.Z : 0;
+
+            foreach (double up in higher)
+            {
+                foreach (XYZ p in plan)
+                    points.Add(new XYZ(p.X, p.Y, floor + up));
+            }
+
+            return points;
+        }
+
+        private static Room ApartmentOf(List<XYZ> points, Transform toHost, Source source)
+        {
             foreach (XYZ point in points)
             {
                 Room found = source.Doc.GetRoomAtPoint(source.Into.OfPoint(toHost.OfPoint(point)));
@@ -225,6 +392,292 @@ namespace ATKINSMEC
             }
 
             return null;
+        }
+
+        // ==================================================
+        // The log
+        // ==================================================
+
+        private static string Title(Document doc)
+        {
+            try
+            {
+                return "Model: " + doc.Title;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static void LogSettings(Map map, string keyword, bool chosen)
+        {
+            VENTAPTLOG.Head("Set-up");
+
+            VENTAPTLOG.Say("Apartments from: " + string.Join(", ",
+                VENTSETTINGS.ApartmentLinkIds.OrderBy(i => i).Select(i => map.LabelOf(i) + " [" + i + "]")));
+
+            VENTAPTLOG.Say("Interior models: keyword \"" + (keyword ?? string.Empty) + "\"" +
+                           (string.IsNullOrWhiteSpace(keyword) ? " (every placement)" : string.Empty) +
+                           (chosen ? " - but CHOSEN level by level, the keyword no longer decides:" : " - not chosen by hand."));
+
+            if (chosen)
+            {
+                foreach (KeyValuePair<string, HashSet<long>> pick in VENTSETTINGS.InteriorPicks
+                             .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    VENTAPTLOG.Say("   " + pick.Key + ": " + (pick.Value == null || pick.Value.Count == 0
+                        ? "none"
+                        : string.Join(", ", pick.Value.OrderBy(i => i).Select(i => map.LabelOf(i) + " [" + i + "]"))));
+                }
+            }
+
+            VENTAPTLOG.Head("Levels of this model (internal height)");
+
+            for (int i = 0; i < map.Storeys.Count; i++)
+                VENTAPTLOG.Say("   " + map.Storeys[i].Name + "   " + VENTAPTLOG.M(map.Storeys[i].Elevation));
+        }
+
+        // Every room of an apartments model, level by level - so a level
+        // with only corridors and stairs on it shows up as exactly that
+        private static void LogSource(Map map, Source source)
+        {
+            VENTAPTLOG.Head("Apartments model " + map.LabelOf(source.Id) + " [" + source.Id + "]");
+            VENTAPTLOG.Say("Origin in this model " + Where(source.ToHost.Origin) + Nested(source.Link));
+
+            source.Rooms = new List<Footprint>();
+
+            try
+            {
+                foreach (Room room in new FilteredElementCollector(source.Doc)
+                             .OfCategory(BuiltInCategory.OST_Rooms)
+                             .WhereElementIsNotElementType()
+                             .Cast<Room>()
+                             .Where(r => r.Area > 0))
+                {
+                    Parameter name = room.get_Parameter(BuiltInParameter.ROOM_NAME);
+
+                    var print = new Footprint
+                    {
+                        Name = name == null ? string.Empty : name.AsString() ?? string.Empty,
+                        Number = room.Number ?? string.Empty,
+                        Storey = VENTLEVELMAP.StoreyOf(
+                            map.Storeys, RVTLINKSELECTION.HostElevationOf(source.Link, source.Doc, room))
+                    };
+
+                    BoundingBoxXYZ box = room.get_BoundingBox(null);
+
+                    if (box != null)
+                        Box(box, source.ToHost, out print.Min, out print.Max);
+
+                    source.Rooms.Add(print);
+                }
+            }
+            catch (Exception ex)
+            {
+                VENTAPTLOG.Say("Its rooms could not all be read: " + ex.GetType().Name + " - " + ex.Message);
+            }
+
+            VENTAPTLOG.Say(source.Rooms.Count + " room(s). By this model's levels:");
+
+            foreach (IGrouping<int, Footprint> storey in source.Rooms.GroupBy(r => r.Storey).OrderBy(g => g.Key))
+            {
+                string names = string.Join(", ", storey
+                    .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(g => g.Count())
+                    .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                    .Take(14)
+                    .Select(g => g.Count() > 1 ? g.Key + " x" + g.Count() : g.Key));
+
+                VENTAPTLOG.Say("   " + StoreyName(map, storey.Key) + ": " + storey.Count() + " - " + names);
+            }
+        }
+
+        // What one placement's rooms were found in, level by level
+        private class Tally
+        {
+            public int Rooms, Joined, Elsewhere, Outside;
+            public bool Picked = true;
+            public readonly List<string> Examples = new List<string>();
+            public readonly Dictionary<string, int> Apartments = new Dictionary<string, int>();
+
+            public void Add(Map map, List<Source> sources, Room room, Seen seen)
+            {
+                Rooms++;
+
+                string it = Describe(room);
+
+                switch (seen.Fate)
+                {
+                    case Fate.NotPicked:
+                        Picked = false;
+                        return;
+
+                    case Fate.Joined:
+                        Joined++;
+
+                        string apt = seen.Joined.Apartment.Name + " (" + seen.Joined.Apartment.Number + ")";
+                        int n;
+                        Apartments.TryGetValue(apt, out n);
+                        Apartments[apt] = n + 1;
+                        return;
+
+                    case Fate.Elsewhere:
+                        Elsewhere++;
+
+                        if (Examples.Count < 4)
+                        {
+                            Examples.Add(it + " floor " + VENTAPTLOG.M(seen.Floor) + " - inside " + string.Join(", ",
+                                seen.Candidates.Select(c => c.Apartment.Name + " (" + c.Apartment.Number + ") on " +
+                                                            StoreyName(map, c.Storey))));
+                        }
+
+                        return;
+
+                    default:
+                        Outside++;
+
+                        if (Examples.Count < 4)
+                            Examples.Add(it + " floor " + VENTAPTLOG.M(seen.Floor) + " - in NO room; " + Near(map, sources, seen));
+
+                        return;
+                }
+            }
+        }
+
+        private static string Describe(Room room)
+        {
+            Parameter name = room.get_Parameter(BuiltInParameter.ROOM_NAME);
+
+            return (name == null ? string.Empty : name.AsString() ?? string.Empty) + " (" + (room.Number ?? string.Empty) + ")";
+        }
+
+        // FOR A ROOM FOUND IN NOTHING: is it inside an apartments-model room
+        // IN PLAN? Then the two models' heights do not overlap there. If not,
+        // there is simply no room of that model where it stands.
+        private static string Near(Map map, List<Source> sources, Seen seen)
+        {
+            if (seen.Point == null)
+                return "it has no point to ask at";
+
+            var said = new List<string>();
+
+            foreach (Source source in sources)
+            {
+                Footprint over = (source.Rooms ?? new List<Footprint>())
+                    .Where(r => r.Min != null &&
+                                seen.Point.X >= r.Min.X && seen.Point.X <= r.Max.X &&
+                                seen.Point.Y >= r.Min.Y && seen.Point.Y <= r.Max.Y)
+                    .OrderBy(r => Math.Abs(r.Min.Z - seen.Floor))
+                    .ThenBy(r => (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y))
+                    .FirstOrDefault();
+
+                said.Add(over == null
+                    ? map.LabelOf(source.Id) + " has no room over that point in plan"
+                    : "in plan within " + over.Name + " (" + over.Number + ") of " + map.LabelOf(source.Id) +
+                      " on " + StoreyName(map, over.Storey) + ", which spans " + VENTAPTLOG.M(over.Min.Z) +
+                      " to " + VENTAPTLOG.M(over.Max.Z));
+            }
+
+            return string.Join("; ", said);
+        }
+
+        private static void LogPlacement(
+            Map map, Document doc, RevitLinkInstance link, string label,
+            SortedDictionary<int, Tally> tallies, int below, int failed)
+        {
+            VENTAPTLOG.Head("Interior placement " + label + " [" + link.Id.ToValue() + "]");
+
+            try
+            {
+                VENTAPTLOG.Say("Origin in this model " + Where(link.GetTotalTransform().Origin) + Nested(link));
+            }
+            catch
+            {
+            }
+
+            if (tallies.Count == 0)
+                VENTAPTLOG.Say("No room of it is on a level of this model.");
+
+            foreach (KeyValuePair<int, Tally> at in tallies)
+            {
+                Tally t = at.Value;
+
+                string head = "   " + StoreyName(map, at.Key) + ": " + t.Rooms + " room(s) - ";
+
+                if (!t.Picked)
+                {
+                    VENTAPTLOG.Say(head + "not an interior model on this level, not searched");
+                    continue;
+                }
+
+                VENTAPTLOG.Say(head + t.Joined + " in an apartment, " + t.Elsewhere + " in one on another level, " +
+                               t.Outside + " in none");
+
+                if (t.Apartments.Count > 0)
+                {
+                    VENTAPTLOG.Say("      into " + string.Join(", ", t.Apartments
+                        .OrderByDescending(a => a.Value)
+                        .Take(8)
+                        .Select(a => a.Key + " x" + a.Value)));
+                }
+
+                foreach (string example in t.Examples)
+                    VENTAPTLOG.Say("      e.g. " + example);
+            }
+
+            if (below > 0)
+                VENTAPTLOG.Say("   " + below + " room(s) below every level of this model - in no band.");
+
+            if (failed > 0)
+                VENTAPTLOG.Say("   " + failed + " room(s) could not be placed at all.");
+        }
+
+        private static string StoreyName(Map map, int storey)
+        {
+            return storey >= 0 && storey < map.Storeys.Count ? map.Storeys[storey].Name : "below every level";
+        }
+
+        private static string Where(XYZ p)
+        {
+            return p == null
+                ? "?"
+                : "(" + VENTAPTLOG.M(p.X) + ", " + VENTAPTLOG.M(p.Y) + ", " + VENTAPTLOG.M(p.Z) + ")";
+        }
+
+        private static string Nested(RevitLinkInstance link)
+        {
+            try
+            {
+                var type = link.Document.GetElement(link.GetTypeId()) as RevitLinkType;
+
+                return type != null && type.IsNestedLink ? " - NESTED inside another link" : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        // A box through a transform: every corner, since a rotated link
+        // turns an axis-aligned box into one that is not
+        private static void Box(BoundingBoxXYZ box, Transform t, out XYZ min, out XYZ max)
+        {
+            double x0 = double.MaxValue, y0 = double.MaxValue, z0 = double.MaxValue;
+            double x1 = double.MinValue, y1 = double.MinValue, z1 = double.MinValue;
+
+            foreach (double x in new[] { box.Min.X, box.Max.X })
+            foreach (double y in new[] { box.Min.Y, box.Max.Y })
+            foreach (double z in new[] { box.Min.Z, box.Max.Z })
+            {
+                XYZ p = t.OfPoint(new XYZ(x, y, z));
+
+                x0 = Math.Min(x0, p.X); y0 = Math.Min(y0, p.Y); z0 = Math.Min(z0, p.Z);
+                x1 = Math.Max(x1, p.X); y1 = Math.Max(y1, p.Y); z1 = Math.Max(z1, p.Z);
+            }
+
+            min = new XYZ(x0, y0, z0);
+            max = new XYZ(x1, y1, z1);
         }
     }
 }

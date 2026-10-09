@@ -168,14 +168,14 @@ namespace ATKINSMEC
             ListLinks.ItemsSource = links;
 
             // The REAL wording, fed what that job would find
-            TxtApartments.Text = VENTLEVELNOTE.Apartments(2, 2, 136, 408, 0);
+            TxtApartments.Text = VENTLEVELNOTE.Apartments(2, 2, 136, 408, 0, 24);
             TxtApartments.ToolTip = VENTLEVELNOTE.ApartmentsTip(
                 "ARC-000020.rvt : 1 : Tower A, ARC-000020.rvt : 2 : Tower B",
                 new System.Collections.Generic.List<string>
                 {
                     "IND-000030.rvt : 1  ->  ARC-000020.rvt : 1 : Tower A apartments on L04_LEVEL 04 to L10_LEVEL 10",
                     "IND-000030.rvt : 2  ->  ARC-000020.rvt : 2 : Tower B apartments on L11_LEVEL 11 to L20_LEVEL 20"
-                }, 0);
+                }, 0, 24, "L21_LEVEL 21 24", @"C:\Users\someone\Desktop\ATKINSMEC_apartments_log.txt");
 
             TxtLinksInfo.Text =
                 "6 loaded link(s). Tick the architectural model(s) to " +

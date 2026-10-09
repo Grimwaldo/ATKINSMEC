@@ -1002,12 +1002,18 @@ namespace ATKINSMEC
                 map == null ? 0 : map.Pairs.Count,
                 map == null ? 0 : map.Holding.Count,
                 map == null ? 0 : map.ByRoom.Count,
-                map == null ? 0 : map.OtherStorey);
+                map == null ? 0 : map.OtherStorey,
+                map == null ? 0 : map.Outside);
 
             TxtApartments.ToolTip = map == null || !map.On
                 ? "Tick Apartments on an architect's model whose rooms are apartments. The interior " +
-                  "models' rooms inside them are found in every placement, on the same level of this model."
-                : VENTLEVELNOTE.ApartmentsTip(map.Label, map.Describe(), map.OtherStorey);
+                  "models' rooms inside them are found on the same level of this model - the interior " +
+                  "models are named by a keyword, or ticked level by level (Interior models...)."
+                : VENTLEVELNOTE.ApartmentsTip(
+                    map.Label, map.Describe(), map.OtherStorey, map.Outside,
+                    string.Join(", ", map.OutsideOn.Select(o =>
+                        (o.Key >= 0 && o.Key < map.Storeys.Count ? map.Storeys[o.Key].Name : "?") + " " + o.Value)),
+                    VENTAPTLOG.Where);
         }
 
         private List<long> TickedLinks()

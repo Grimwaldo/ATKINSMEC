@@ -57,6 +57,16 @@ namespace ATKINSMEC
             // storey of this model - not grouped, and counted once each
             public int OtherStorey;
 
+            // ROOMS OF AN INTERIOR MODEL THAT STOOD IN NO APARTMENT AT ALL -
+            // searched on their storey, and no apartments model had a room
+            // there. They are in no run (an interior placement gives only
+            // the rooms inside apartments), so they are COUNTED rather than
+            // dropped in silence: user-reported as "the apartments rooms
+            // from IND model are not exported", with nothing on screen to
+            // say why. By storey (index into Storeys) as well as in all.
+            public int Outside;
+            public SortedDictionary<int, int> OutsideOn = new SortedDictionary<int, int>();
+
             public List<VENTLEVELMAP.Storey> Storeys = new List<VENTLEVELMAP.Storey>();
             public Dictionary<long, string> Labels = new Dictionary<long, string>();
 
@@ -97,15 +107,16 @@ namespace ATKINSMEC
             //
             // The first model with an apartment on the right storey wins.
             // A room that stood inside apartments only on other storeys is
-            // counted ONCE, however many models said so.
+            // counted ONCE, however many models said so; one that stood in
+            // none at all is counted as Outside.
             public Candidate Settle(long placement, string roomKey, int roomStorey, IEnumerable<Candidate> candidates)
             {
-                if (roomStorey < 0 || candidates == null)
+                if (roomStorey < 0)
                     return null;
 
                 bool elsewhere = false;
 
-                foreach (Candidate candidate in candidates)
+                foreach (Candidate candidate in candidates ?? Enumerable.Empty<Candidate>())
                 {
                     if (candidate == null || candidate.Apartment == null)
                         continue;
@@ -142,7 +153,17 @@ namespace ATKINSMEC
                 }
 
                 if (elsewhere)
+                {
                     OtherStorey++;
+                }
+                else
+                {
+                    Outside++;
+
+                    int n;
+                    OutsideOn.TryGetValue(roomStorey, out n);
+                    OutsideOn[roomStorey] = n + 1;
+                }
 
                 return null;
             }

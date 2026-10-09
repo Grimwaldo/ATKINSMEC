@@ -192,7 +192,7 @@ namespace ATKINSMEC
 
                 try
                 {
-                    answer.Apartments = VENTAPARTMENTS.Build(doc);
+                    answer.Apartments = VENTAPARTMENTS.Build(doc, "the levels list");
                 }
                 catch (Exception ex)
                 {

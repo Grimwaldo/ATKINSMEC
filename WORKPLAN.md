@@ -67,6 +67,37 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: interior rooms in no apartment - counted, logged, asked higher - 2026-10-09
+
+User, from the first real job (kifaf, `HVC-000100`, Revit 2024): *"the
+apartments rooms from IND model are not exported in the excel sheet
+under the apartment from the arch model"*. Their set-up: Apartments on
+`ARC-000010` only; seven IND tier placements ticked on `LEVEL 04A`.
+`Desktop\vent kifaf.xlsx` (16:31) has `LEVEL 04A` with `ARC-000010`'s 28
+core rooms (corridors, stairs, lobbies, risers for both towers) and NO
+apartment and NO IND room. Nothing on screen said why.
+
+- **Cause not confirmed - the model cannot be read from here.** Most
+  likely the apartments are not in `ARC-000010` at all: on 10/7 (before
+  the keyword) its corridor TA-03-31 "held" a `2BDR-A2` room (TA-03-04,
+  477 m2) from another placement. The host links `ARC-000100` and
+  `ARC-000150` (Tower A) as well, both full of `2BDR-`/`1BDR-` names.
+  Second candidate: the IND floors sit more than 150 mm below the ARC
+  apartments' volumes, where the point used to be asked.
+- **Done**: interior rooms in no apartment are counted (`Map.Outside`,
+  by level) and said on the links card, its tooltip, the export report
+  and the airflow log; `Desktop\ATKINSMEC_apartments_log.txt` on every
+  map build says, per level, what each apartments model has and what
+  each interior room was found in (and, for one in none, whether it is
+  inside an apartment in plan but outside its height); the apartment is
+  now also asked for 1.0 m and 1.5 m above the room's floor.
+- `ventleveltest` +5 checks (mutation-checked); all 20 harnesses pass;
+  all six built and deployed, hash-checked (Revit was closed).
+- **NEXT**: the user re-exports in Revit; read the apartments log. If it
+  shows `ARC-000010` with no apartments on `LEVEL 04A`, the answer is
+  to tick Apartments on the Tower A ARC model (and untick its row if
+  its core rooms duplicate `ARC-000010`'s).
+
 ## AUTOVENT: interior models by keyword, ticked level by level - 2026-10-09
 
 User: *"instead of identifying IND model where their rooms sit, you can

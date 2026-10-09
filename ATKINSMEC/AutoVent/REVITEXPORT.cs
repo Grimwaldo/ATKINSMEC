@@ -349,7 +349,7 @@ namespace ATKINSMEC
             // an apartments link - see VENTAPARTMENTS. Built first: the
             // fixture count below must not give a WC to the apartment
             // when the toilet it stands in is the room with the row.
-            apartments = VENTAPARTMENTS.Build(doc2);
+            apartments = VENTAPARTMENTS.Build(doc2, "the export");
 
             // The ticked links, and every interior placement a room inside
             // an apartment was found in - ticked or not
@@ -527,6 +527,18 @@ namespace ATKINSMEC
                 said += "\r\n    " + map.OtherStorey + " room(s) stood inside an apartment on ANOTHER " +
                         "level of this model, and were not put under it.";
             }
+
+            // Never silent: an interior room in no apartment is in no sheet
+            if (map.Outside > 0)
+            {
+                said += "\r\n    " + map.Outside + " room(s) of the interior models stood in NO apartment (" +
+                        string.Join(", ", map.OutsideOn.Select(o =>
+                            (o.Key >= 0 && o.Key < map.Storeys.Count ? map.Storeys[o.Key].Name : "?") + " " + o.Value)) +
+                        ") and are not in the sheet.";
+            }
+
+            if (map.OtherStorey > 0 || map.Outside > 0 || inside == 0)
+                said += "\r\n    What each room was found in: " + VENTAPTLOG.Where;
 
             return said;
         }

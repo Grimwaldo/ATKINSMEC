@@ -64,25 +64,35 @@ namespace ATKINSMEC
         // The line beside Refresh on the links card: what the Apartments
         // ticks found. Short - it shares a row with a button in half the
         // window; the tooltip has the pairings in full.
+        //
+        // outside: interior rooms that stood in NO apartment - said here
+        // too, because they are in no run and nothing else would show it
         public static string Apartments(
-            int sources, int placements, int apartments, int rooms, int otherStorey)
+            int sources, int placements, int apartments, int rooms, int otherStorey, int outside)
         {
             if (sources <= 0)
                 return string.Empty;
 
             if (rooms <= 0)
             {
-                return otherStorey > 0
-                    ? "Apartments: rooms inside only on other levels - hover."
-                    : "Apartments: no interior rooms found inside them.";
+                return outside > 0
+                    ? "Apartments: " + outside + " interior room(s), none inside an apartment - hover."
+                    : otherStorey > 0
+                        ? "Apartments: rooms inside only on other levels - hover."
+                        : "Apartments: no interior rooms found inside them.";
             }
 
             return apartments + " apartment(s) hold " + rooms + " room(s), from " +
                    placements + " placement(s)" +
-                   (otherStorey > 0 ? ", " + otherStorey + " skipped" : string.Empty) + ".";
+                   (otherStorey > 0 ? ", " + otherStorey + " skipped" : string.Empty) +
+                   (outside > 0 ? ", " + outside + " in none" : string.Empty) + ".";
         }
 
-        public static string ApartmentsTip(string sources, IList<string> pairings, int otherStorey)
+        // outsideOn: where the rooms in no apartment were, "LEVEL 04A 160";
+        // log: the file that says what each room was found in
+        public static string ApartmentsTip(
+            string sources, IList<string> pairings, int otherStorey,
+            int outside, string outsideOn, string log)
         {
             var text = new StringBuilder("Apartments from " + sources + ".");
 
@@ -105,8 +115,20 @@ namespace ATKINSMEC
                     .Append("and were not put under it - a placement on the wrong floor, or a double-height apartment.");
             }
 
-            text.Append("\nEvery loaded placement is searched, ticked or not; an unticked one gives only ")
-                .Append("the rooms inside apartments.");
+            if (outside > 0)
+            {
+                text.Append("\n").Append(outside)
+                    .Append(" room(s) of the interior models stood in NO apartment")
+                    .Append(string.IsNullOrEmpty(outsideOn) ? string.Empty : " (" + outsideOn + ")")
+                    .Append(" and are in no run. Either the apartments are drawn in another architect's model - ")
+                    .Append("tick Apartments on it - or the two models do not line up there.");
+            }
+
+            text.Append("\nThe interior models are the placements the keyword names, or those ticked level by ")
+                .Append("level (Interior models...); one not ticked on the links list gives only the rooms inside apartments.");
+
+            if (!string.IsNullOrEmpty(log) && (outside > 0 || otherStorey > 0 || pairings == null || pairings.Count == 0))
+                text.Append("\nWhat each room was found in: ").Append(log);
 
             return text.ToString();
         }

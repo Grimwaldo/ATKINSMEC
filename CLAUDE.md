@@ -292,7 +292,8 @@ counted into rooms) + `VENTFIXTUREDIALOG.cs` (which models and families,
 Revit-free, built in code), `VENTAPARTMENTS.cs` (asking the models
 which interior room stands in which apartment) + `VENTAPARTMENTMAP.cs`
 (deciding it, the same-storey rule and the record - Revit-free, the
-other half of the same partial class), `VENTSHOW.cs` ("Show in
+other half of the same partial class) + `VENTAPTLOG.cs` (what the map
+found and why, `Desktop\ATKINSMEC_apartments_log.txt`), `VENTSHOW.cs` ("Show in
 plan" for the rooms picked in the levels list), `VENTLEVELROWS.cs` (the
 level and room rows of the levels tree, their ticks and the rules for
 picking several - `Picks` - Revit-free).
@@ -1056,6 +1057,44 @@ Tower 2 and MLCP have no apartments.
       trip - mutation-checked); rendered at 1x and 1.5x by
       `tests/ventpreview` (`autovent-interiors*.png`). **Never run in
       Revit.**
+  - **AN INTERIOR ROOM IN NO APARTMENT USED TO VANISH WITHOUT A WORD.**
+    User-reported on the first real job (2026-10-09, kifaf, HVC-000100):
+    *"the apartments rooms from IND model are not exported in the excel
+    sheet under the apartment from the arch model"*. The export had
+    `LEVEL 04A` with `ARC-000010`'s 28 core rooms and not one room of the
+    seven IND placements ticked there, and nothing anywhere said why. An
+    interior placement gives only the rooms inside apartments (`Takes`),
+    so a room `GetRoomAtPoint` found in nothing was simply never read.
+    Now:
+    - **`Map.Outside` / `OutsideOn`** (in `Settle`, Revit-free, tested in
+      `ventleveltest`) count them per storey, and the links-card line,
+      its tooltip, the export report and the airflow log all say how
+      many and where;
+    - **`VENTAPTLOG` writes `Desktop\ATKINSMEC_apartments_log.txt` on
+      every build of the map** (levels list, export, airflow write -
+      whichever ran last owns it): this model's levels, every
+      apartments model's rooms PER LEVEL with their names (a level with
+      only corridors and stairs shows as exactly that), and per interior
+      placement per level how many rooms joined, stood in an apartment
+      on another level, or in none - with examples, and **for a room in
+      none, whether it lies inside an apartments-model room IN PLAN and
+      that room's height range**. That is the difference between "the
+      apartments are in another architect's model" and "the two models'
+      floors do not line up". Also each placement's origin and whether
+      it is a NESTED link. **Read it before theorising.**
+    - **The apartment is asked for at 150 mm, then 1.0 m and 1.5 m above
+      the interior room's floor** (`PointsOf`). `GetRoomAtPoint` answers
+      only inside a room's VOLUME, so 150 mm missed every apartment drawn
+      from a finished floor more than 150 mm above the interior model's.
+      The old points come first, unchanged; the same-storey rule still
+      decides whether a higher answer counts.
+    - **What the first real export suggests, not yet confirmed**: on 10/7,
+      before the keyword, `ARC-000010`'s corridor TA-03-31 "held" a room
+      `2BDR-A2` (TA-03-04, 477 m2) from some other placement - an
+      apartment-type name, so the Tower A apartments are probably in
+      `ARC-000100` or `ARC-000150` (both linked to the host, both full of
+      `2BDR-`/`1BDR-` names), and `ARC-000010` looks like the cores. The
+      log on the next run settles it.
   - **an UNTICKED placement gives only the rooms inside apartments**
     (`Map.Takes`); a ticked one gives all its rooms as before.
     `Map.RoomLinks` is the ticked links then the placements found, and
@@ -3351,7 +3390,8 @@ taskbar now.
   wrong conclusions came from this. Prefer compiling, or scan the DLL
   bytes.
 - AUTOVENT writes `ATKINSMEC_debug_log.txt` to the Desktop on every run —
-  the fastest way to diagnose it.
+  the fastest way to diagnose it - and `ATKINSMEC_apartments_log.txt`
+  every time the apartments map is built.
 - A WinForm with no Revit types in it (e.g. `CHWHELPForm`) can be
   previewed without Revit: a scratch `net8.0-windows` WinExe that
   `<Compile Include=`s the form's two files, calls `Show()` then

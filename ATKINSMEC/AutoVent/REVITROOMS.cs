@@ -122,7 +122,7 @@ namespace ATKINSMEC
             // the apartment (architect's model), at the same floor - and
             // a tie goes to whichever link came first. The bedroom has the
             // sheet row; the apartment has none. See VENTAPARTMENTS.
-            VENTAPARTMENTS.Map apartments = VENTAPARTMENTS.Build(doc2);
+            VENTAPARTMENTS.Map apartments = VENTAPARTMENTS.Build(doc2, "the airflow write");
 
             var ticked = new HashSet<long>(selectedLinkIds);
 
@@ -136,6 +136,9 @@ namespace ATKINSMEC
 
                 if (apartments.OtherStorey > 0)
                     L($"   {apartments.OtherStorey} room(s) stood inside an apartment on another level of this model - not grouped");
+
+                if (apartments.Outside > 0)
+                    L($"   {apartments.Outside} interior room(s) stood in NO apartment - not grouped, and given no airflow; why is in {VENTAPTLOG.Where}");
             }
 
             // The ticked links, then every interior placement found holding

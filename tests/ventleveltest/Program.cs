@@ -338,6 +338,31 @@ internal static class Program
             Check("a room below every level of this model joins nothing, and is not counted",
                 got == null && map.Of("301:4") == null && map.OtherStorey == 2);
 
+            Check("...nor is it, or the duplex, counted as standing in NO apartment",
+                map.Outside == 0 && map.OutsideOn.Count == 0);
+
+            // IN NO APARTMENT AT ALL - user-reported as interior rooms that
+            // "are not exported", with nothing on screen to say why. Not
+            // grouped, not read - and COUNTED, by storey.
+            got = map.Settle(Ind1, "301:5", StoreyAt(14.0), new VENTAPARTMENTS.Candidate[0]);
+
+            Check("a room no apartments model has a room around joins nothing",
+                got == null && map.Of("301:5") == null && !map.Takes(Ind1, "301:5", new long[] { ArcA }));
+
+            Check("...and is counted as in NO apartment, on its own storey - not as another level",
+                map.Outside == 1 && map.OutsideOn.Count == 1 && map.OutsideOn[StoreyAt(14.0)] == 1 &&
+                map.OtherStorey == 2);
+
+            map.Settle(Ind2, "302:5", StoreyAt(17.5), null);
+            map.Settle(Ind2, "302:6", StoreyAt(17.5),
+                new[] { new VENTAPARTMENTS.Candidate { Source = ArcA, Apartment = null, Storey = StoreyAt(17.5) } });
+
+            Check("no answers, or answers naming no apartment, count the same way",
+                map.Outside == 3 && map.OutsideOn[StoreyAt(17.5)] == 2 && map.OtherStorey == 2);
+
+            Check("...and a room in no apartment pairs its placement with nothing",
+                !map.Pairs.ContainsKey(Ind1) || !map.Pairs[Ind1].Values.Any(s => s.Contains(StoreyAt(17.5))));
+
             // The same interior model placed again, higher up, inside the
             // other tower's apartments - each placement is its own pairing
             for (int floor = 5; floor <= 7; floor++)
@@ -375,7 +400,7 @@ internal static class Program
 
             Check("no apartments models: off, and reads exactly the ticked links",
                 !none.On && none.RoomLinks(ticked).SequenceEqual(ticked)
-                && none.Settle(1, "1:1", 0, null) == null);
+                && none.Settle(1, "1:1", 0, null) == null && none.Outside == 1);
         }
 
         // ---- RoomsOn: the levels list, from rooms already read ----------
