@@ -103,6 +103,8 @@ namespace ventpreview
 
             Fixtures(folder);
 
+            Interiors(folder);
+
             window.ShowAssign();
 
             // And bigger, since it resizes
@@ -162,6 +164,89 @@ namespace ventpreview
             Shoot(dialog, Path.Combine(folder, "autovent-fixtures-1.5x.png"), 1.5);
 
             dialog.Close();
+        }
+
+        // The Interior models... dialog over a tower whose interior model
+        // is placed once per floor, plus a second interior model on two
+        // floors and an MEP model the keyword passes over - at 1x and 1.5x.
+        // Then a choice made by hand: one placement unticked on one level.
+        private static void Interiors(string folder)
+        {
+            const double M = 1 / 0.3048;
+
+            var storeys = new System.Collections.Generic.List<ATKINSMEC.VENTLEVELMAP.Storey>();
+
+            string[] levels = { "GR_GROUND FLOOR", "L01_LEVEL 01", "L02_LEVEL 02", "L03_LEVEL 03", "L04_LEVEL 04", "RF_ROOF" };
+
+            for (int i = 0; i < levels.Length; i++)
+                storeys.Add(new ATKINSMEC.VENTLEVELMAP.Storey { Name = levels[i], Elevation = i * 4 * M });
+
+            var links = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<long, string>>();
+            var floors = new System.Collections.Generic.Dictionary<long, System.Collections.Generic.List<double>>();
+
+            void Placement(long id, string label, params int[] roomsPerStorey)
+            {
+                links.Add(new System.Collections.Generic.KeyValuePair<long, string>(id, label));
+
+                var its = new System.Collections.Generic.List<double>();
+
+                for (int s = 0; s < roomsPerStorey.Length; s++)
+                    for (int r = 0; r < roomsPerStorey[s]; r++)
+                        its.Add(s * 4 * M);
+
+                floors[id] = its;
+            }
+
+            Placement(11, "5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 1 : Tower A", 30, 30, 30, 30, 30);
+            Placement(21, "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 1", 0, 24);
+            Placement(22, "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 2", 0, 0, 24);
+            Placement(23, "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 3", 0, 0, 0, 24);
+            Placement(24, "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 4", 0, 0, 0, 0, 22);
+            Placement(31, "5232535-ATR-TWR-ZZZ-3DM-IND-000040.rvt : 1 : Penthouse", 0, 0, 0, 6, 9);
+            Placement(41, "5232535-ATR-TWR-ZZZ-3DM-MEP-000050.rvt", 2, 2, 2, 2, 2);
+
+            ATKINSMEC.VENTSETTINGS.InteriorKeyword = "IND";
+            ATKINSMEC.VENTSETTINGS.InteriorChosen = false;
+            ATKINSMEC.VENTSETTINGS.InteriorPicks.Clear();
+
+            Window Open()
+            {
+                var dialog = new ATKINSMEC.VENTINTERIORDIALOG(links, floors, storeys, new long[] { 11 })
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -4000,
+                    Top = -4000
+                };
+
+                dialog.Show();
+                dialog.UpdateLayout();
+
+                return dialog;
+            }
+
+            Window first = Open();
+
+            Shoot(first, Path.Combine(folder, "autovent-interiors.png"));
+            Shoot(first, Path.Combine(folder, "autovent-interiors-1.5x.png"), 1.5);
+
+            first.Close();
+
+            // As it reopens after somebody unticked the penthouse model on L03
+            ATKINSMEC.VENTSETTINGS.InteriorChosen = true;
+            ATKINSMEC.VENTSETTINGS.InteriorPicks["L01_LEVEL 01"] = new System.Collections.Generic.HashSet<long> { 21 };
+            ATKINSMEC.VENTSETTINGS.InteriorPicks["L02_LEVEL 02"] = new System.Collections.Generic.HashSet<long> { 22 };
+            ATKINSMEC.VENTSETTINGS.InteriorPicks["L03_LEVEL 03"] = new System.Collections.Generic.HashSet<long> { 23 };
+            ATKINSMEC.VENTSETTINGS.InteriorPicks["L04_LEVEL 04"] = new System.Collections.Generic.HashSet<long> { 24, 31 };
+
+            Window chosen = Open();
+
+            Shoot(chosen, Path.Combine(folder, "autovent-interiors-chosen.png"));
+
+            chosen.Close();
+
+            ATKINSMEC.VENTSETTINGS.InteriorKeyword = ATKINSMEC.VENTSETTINGS.DefaultInteriorKeyword;
+            ATKINSMEC.VENTSETTINGS.InteriorChosen = false;
+            ATKINSMEC.VENTSETTINGS.InteriorPicks.Clear();
         }
 
         private static void Shoot(Window window, string path, double scale)

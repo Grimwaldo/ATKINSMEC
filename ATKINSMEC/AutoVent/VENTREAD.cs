@@ -92,11 +92,17 @@ namespace ATKINSMEC
             public List<string> Trouble = new List<string>();
         }
 
-        // The Apartments ticks as one string, to tell a map built for
-        // them from one built for others
-        public static string ApartmentsKey(IEnumerable<long> sources)
+        // What a map is built for, as one string, to tell it from one built
+        // for something else: the Apartments ticks, AND which placements are
+        // interior models (VENTINTERIOR) - a new keyword or a changed pick
+        // builds the map again
+        public static string ApartmentsKey()
         {
-            return string.Join(",", (sources ?? Enumerable.Empty<long>()).OrderBy(i => i));
+            return VENTINTERIOR.Key(
+                VENTSETTINGS.ApartmentLinkIds,
+                VENTSETTINGS.InteriorKeyword,
+                VENTSETTINGS.InteriorChosen,
+                VENTSETTINGS.InteriorPicks);
         }
 
         public static Answer Do(Document doc, Ask ask)
@@ -121,7 +127,7 @@ namespace ATKINSMEC
                 if (ask.Apartments)
                 {
                     answer.Apartments = new VENTAPARTMENTS.Map();
-                    answer.ApartmentsFor = ApartmentsKey(VENTSETTINGS.ApartmentLinkIds);
+                    answer.ApartmentsFor = ApartmentsKey();
                 }
 
                 if (ask.Fixtures)
@@ -182,7 +188,7 @@ namespace ATKINSMEC
 
             if (ask.Apartments)
             {
-                answer.ApartmentsFor = ApartmentsKey(VENTSETTINGS.ApartmentLinkIds);
+                answer.ApartmentsFor = ApartmentsKey();
 
                 try
                 {

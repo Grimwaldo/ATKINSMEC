@@ -278,6 +278,8 @@ internal static class Program
             VENTLINKFILTER.Said(2, 6, 1).Contains("1 ticked model(s) hidden by the search still count") &&
             VENTLINKFILTER.Said(0, 6, 0) == "No linked model matches the search.");
 
+        Interior();
+
         Saved();
 
         Console.WriteLine();
@@ -286,6 +288,183 @@ internal static class Program
             : _failed + " check(s) FAILED");
 
         return _failed == 0 ? 0 : 1;
+    }
+
+    // ==================================================================
+    // VENTINTERIOR - which placements are interior (IND) models, found
+    // by a keyword and ticked level by level of THIS model.
+    // ==================================================================
+
+    private static void Interior()
+    {
+        Console.WriteLine();
+        Console.WriteLine("VENTINTERIOR - interior models by keyword, level by level");
+
+        const double M = 1 / 0.3048;   // feet in a metre
+
+        // This model's levels: GR at 0, L01 at 4 m, L02 at 8 m
+        var storeys = new System.Collections.Generic.List<VENTLEVELMAP.Storey>
+        {
+            new VENTLEVELMAP.Storey { Name = "GR_GROUND FLOOR", Elevation = 0 },
+            new VENTLEVELMAP.Storey { Name = "L01_LEVEL 01", Elevation = 4 * M },
+            new VENTLEVELMAP.Storey { Name = "L02_LEVEL 02", Elevation = 8 * M }
+        };
+
+        var links = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<long, string>>();
+
+        void Link(long id, string label)
+        {
+            links.Add(new System.Collections.Generic.KeyValuePair<long, string>(id, label));
+        }
+
+        Link(11, "ATR-TWR-ARC-000010.rvt");            // the apartments model
+        Link(22, "ATR-TWR-IND-000030.rvt : 2");        // placed on L01 (and one room on L02)
+        Link(21, "ATR-TWR-IND-000030.rvt : 1");        // placed on GR
+        Link(23, "ATR-TWR-MEP-000040.rvt");            // not an interior model
+        Link(24, "ATR-TWR-IND-000050.rvt");            // never read: no rooms known
+        Link(25, "ATR-TWR-IND-000060.rvt");            // below every level
+
+        var floors = new System.Collections.Generic.Dictionary<long, System.Collections.Generic.List<double>>
+        {
+            [11] = new System.Collections.Generic.List<double> { 0, 4 * M, 8 * M },
+            [21] = new System.Collections.Generic.List<double> { 0, 0.1 },
+            // 274 mm below L01 is still L01 (the 300 mm allowance)
+            [22] = new System.Collections.Generic.List<double> { 4 * M, 4 * M, 4 * M - 0.9, 8 * M + 0.2 },
+            [23] = new System.Collections.Generic.List<double> { 4 * M },
+            [25] = new System.Collections.Generic.List<double> { -6 * M }
+        };
+
+        var exclude = new[] { 11L };
+
+        var found = VENTINTERIOR.Find(links, floors, storeys, "IND", exclude);
+
+        Check("the keyword finds each IND placement on each level it has rooms on - three",
+            found.Count == 3);
+
+        Check("...lowest level first: GR has placement 1 with its 2 rooms",
+            found.Count == 3 && found[0].StoreyName == "GR_GROUND FLOOR" && found[0].LinkId == 21 && found[0].Rooms == 2);
+
+        Check("...L01 has placement 2 with 3 rooms - one 274 mm low still counts there",
+            found.Count == 3 && found[1].StoreyName == "L01_LEVEL 01" && found[1].LinkId == 22 && found[1].Rooms == 3);
+
+        Check("...and placement 2's one room on L02 offers it on L02 as well",
+            found.Count == 3 && found[2].StoreyName == "L02_LEVEL 02" && found[2].LinkId == 22 && found[2].Rooms == 1);
+
+        Check("a placement never read, or with rooms only below every level, is not offered",
+            !found.Exists(f => f.LinkId == 24 || f.LinkId == 25));
+
+        Check("a model whose name lacks the keyword is not offered",
+            !found.Exists(f => f.LinkId == 23));
+
+        var every = VENTINTERIOR.Find(links, floors, storeys, "", exclude);
+
+        Check("an EMPTY keyword offers every placement with rooms - the old behaviour",
+            every.Exists(f => f.LinkId == 23) && every.Count == 4);
+
+        Check("...but never the apartments model itself",
+            !every.Exists(f => f.LinkId == 11));
+
+        Check("the keyword is matched in any case, and by every word",
+            VENTINTERIOR.Find(links, floors, storeys, "ind 000030", exclude).Count == 3 &&
+            VENTINTERIOR.Find(links, floors, storeys, "ind : 1", exclude).Count == 1);
+
+        var shuffled = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<long, string>>(links);
+        shuffled.Reverse();
+
+        var again = VENTINTERIOR.Find(shuffled, floors, storeys, "IND", exclude);
+
+        Check("the order the links come in changes nothing",
+            again.Count == 3 && again[0].LinkId == 21 && again[1].LinkId == 22 && again[2].LinkId == 22);
+
+        Check("nothing read is nothing found, not a crash",
+            VENTINTERIOR.Find(null, floors, storeys, "IND", exclude).Count == 0 &&
+            VENTINTERIOR.Find(links, null, storeys, "IND", null).Count == 0 &&
+            VENTINTERIOR.Find(links, floors, null, "IND", null).Count == 0);
+
+        // ---- what the run searches: Allowed ---------------------------
+        Check("following the keyword: a matching placement is searched on every level",
+            VENTINTERIOR.Allowed("GR_GROUND FLOOR", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", false, null) &&
+            VENTINTERIOR.Allowed("L02_LEVEL 02", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", false, null));
+
+        Check("...and one that does not match is not",
+            !VENTINTERIOR.Allowed("L01_LEVEL 01", 23, "ATR-TWR-MEP-000040.rvt", "IND", false, null));
+
+        Check("...an empty keyword searches everything, as before",
+            VENTINTERIOR.Allowed("L01_LEVEL 01", 23, "ATR-TWR-MEP-000040.rvt", "", false, null));
+
+        var picks = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<long>>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["L01_LEVEL 01"] = new System.Collections.Generic.HashSet<long> { 22, 23 },
+            ["GR_GROUND FLOOR"] = new System.Collections.Generic.HashSet<long>()
+        };
+
+        Check("chosen: a placement ticked on L01 is searched on L01",
+            VENTINTERIOR.Allowed("L01_LEVEL 01", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", true, picks));
+
+        Check("...but NOT on L02, where it was not ticked - though its name matches",
+            !VENTINTERIOR.Allowed("L02_LEVEL 02", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", true, picks));
+
+        Check("...a placement ticked by hand counts though the keyword would not find it",
+            VENTINTERIOR.Allowed("L01_LEVEL 01", 23, "ATR-TWR-MEP-000040.rvt", "IND", true, picks));
+
+        Check("...a level where NONE was ticked searches none",
+            !VENTINTERIOR.Allowed("GR_GROUND FLOOR", 21, "ATR-TWR-IND-000030.rvt : 1", "IND", true, picks));
+
+        Check("...and chosen with no picks at all searches nothing - no crash",
+            !VENTINTERIOR.Allowed("L01_LEVEL 01", 22, "IND", "IND", true, null));
+
+        // ---- what OK keeps: Choice -------------------------------------
+        System.Collections.Generic.KeyValuePair<string, long> T(string storey, long id)
+        {
+            return new System.Collections.Generic.KeyValuePair<string, long>(storey, id);
+        }
+
+        Check("everything found still ticked is NOT a choice - it follows the keyword (null)",
+            VENTINTERIOR.Choice(found, new[] { T("L02_LEVEL 02", 22), T("gr_ground floor", 21), T("L01_LEVEL 01", 22) }) == null);
+
+        var choice = VENTINTERIOR.Choice(found, new[] { T("GR_GROUND FLOOR", 21), T("L01_LEVEL 01", 22) });
+
+        Check("one unticked makes it a choice of exactly the rest",
+            choice != null && choice.Count == 2 &&
+            choice["GR_GROUND FLOOR"].Contains(21) && choice["L01_LEVEL 01"].Contains(22) &&
+            !choice.ContainsKey("L02_LEVEL 02"));
+
+        Check("...so the placement unticked on L02 is no longer searched there",
+            choice != null &&
+            !VENTINTERIOR.Allowed("L02_LEVEL 02", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", true, choice) &&
+            VENTINTERIOR.Allowed("L01_LEVEL 01", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", true, choice));
+
+        choice = VENTINTERIOR.Choice(found, new System.Collections.Generic.KeyValuePair<string, long>[0]);
+
+        Check("nothing ticked is a choice too - of NONE, not 'follow'",
+            choice != null && choice.Count == 0);
+
+        // ---- the apartments map is built again when any of it changes ---
+        string follow = VENTINTERIOR.Key(new long[] { 12, 11 }, "IND", false, null);
+
+        Check("the map's key ignores the order of the apartment links and the keyword's case",
+            follow == VENTINTERIOR.Key(new long[] { 11, 12 }, " ind ", false, picks));
+
+        Check("...but a new keyword is a new key",
+            follow != VENTINTERIOR.Key(new long[] { 11, 12 }, "IND TWR", false, null));
+
+        Check("...and so is a choice, and a different choice",
+            follow != VENTINTERIOR.Key(new long[] { 11, 12 }, "IND", true, picks) &&
+            VENTINTERIOR.Key(new long[] { 11, 12 }, "IND", true, picks) !=
+            VENTINTERIOR.Key(new long[] { 11, 12 }, "IND", true, VENTINTERIOR.Choice(found, new[] { T("GR_GROUND FLOOR", 21) })));
+
+        Check("...while the same picks in another order are the same key",
+            VENTINTERIOR.Key(new long[] { 11 }, "IND", true, picks) ==
+            VENTINTERIOR.Key(new long[] { 11 }, "IND", true,
+                new System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<long>>
+                {
+                    ["gr_ground floor"] = new System.Collections.Generic.HashSet<long>(),
+                    ["L01_LEVEL 01"] = new System.Collections.Generic.HashSet<long> { 23, 22 }
+                }));
+
+        Check("the default keyword is IND",
+            VENTSETTINGS.DefaultInteriorKeyword == "IND" && !VENTSETTINGS.InteriorChosen);
     }
 
     // ==================================================================
@@ -371,6 +550,54 @@ internal static class Program
 
             Check("a model never given a fixture switch counts fixtures, as the default does",
                 p.CountFixtures);
+
+            // ---- the interior models: keyword and picks per level ---------
+            var picked = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\tower.rvt",
+                InteriorKeyword = "IND TWR",
+                InteriorPicks = new System.Collections.Generic.List<VENTSAVED.InteriorPick>
+                {
+                    new VENTSAVED.InteriorPick { Storey = "GR_GROUND FLOOR", Link = L(2002, "IND-000030.rvt : 1") },
+                    new VENTSAVED.InteriorPick { Storey = "L01_LEVEL 01", Link = L(2003, "IND-000030.rvt : 2") },
+                    new VENTSAVED.InteriorPick { Storey = "L01_LEVEL 01", Link = L(2004, "IND-000040.rvt") }
+                }
+            };
+
+            var none = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\none.rvt",
+                InteriorKeyword = "",                                                   // every placement
+                InteriorPicks = new System.Collections.Generic.List<VENTSAVED.InteriorPick>()   // chose NONE
+            };
+
+            var plain = new VENTSAVED.Model { Key = "file:c:\\jobs\\plain.rvt" };
+
+            var trip = VENTSAVED.Parse(VENTSAVED.Compose(new[] { picked, none, plain }));
+
+            Check("the interior keyword and the picks survive, each on its own level with its label",
+                trip.Count == 3 && trip[0].InteriorKeyword == "IND TWR" &&
+                trip[0].InteriorPicks != null && trip[0].InteriorPicks.Count == 3 &&
+                trip[0].InteriorPicks[0].Storey == "GR_GROUND FLOOR" && trip[0].InteriorPicks[0].Link.Id == 2002 &&
+                trip[0].InteriorPicks[2].Storey == "L01_LEVEL 01" && trip[0].InteriorPicks[2].Link.Label == "IND-000040.rvt");
+
+            Check("an EMPTY keyword (every placement) is kept apart from no keyword (the default)",
+                trip.Count == 3 && trip[1].InteriorKeyword == "" && trip[2].InteriorKeyword == null);
+
+            Check("CHOSE NONE is kept apart from FOLLOW THE KEYWORD",
+                trip.Count == 3 && trip[1].InteriorPicks != null && trip[1].InteriorPicks.Count == 0 &&
+                trip[2].InteriorPicks == null);
+
+            Check("...and a model's picks do not leak onto the next",
+                trip.Count == 3 && trip[1].InteriorPicks.Count == 0 && trip[2].InteriorPicks == null);
+
+            Check("an interior line with no level or a nonsense id is passed over",
+                VENTSAVED.Parse("model\tk\ninteriorchosen\ninterior\t\t5\tx\ninterior\tL01\tfar\tx\ninterior\tL01\t7\ty\n")[0]
+                    .InteriorPicks is var bad &&
+                bad != null && bad.Count == 1 && bad[0].Link.Id == 7);
+
+            Check("...and bad lines alone do not turn 'follow the keyword' into a choice",
+                VENTSAVED.Parse("model\tk\ninterior\t\t5\tx\n")[0].InteriorPicks == null);
 
             // ---- what the file must survive -------------------------------
             var awkward = new VENTSAVED.Model

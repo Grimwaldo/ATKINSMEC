@@ -280,7 +280,9 @@ Revit-free), `VENTLINKFILTER.cs` (the search box over the linked
 models: every word typed must appear in the name, any order, any case;
 it filters the list's VIEW only, so a ticked model it hides still counts
 and the card says so - Revit-free, in the heading row so the card is no
-taller), `VENTREAD.cs` (everything the window reads from the model,
+taller), `VENTINTERIOR.cs` (which placements are interior models, by
+keyword and per level, Revit-free) + `VENTINTERIORDIALOG.cs` (the
+"Interior models..." dialog, built in code, Revit-free), `VENTREAD.cs` (everything the window reads from the model,
 in the constructor or the external event - never from a handler),
 `VENTFCUCHECK.cs` (a room whose units and endcaps disagree,
 Revit-free), `VENTLEVELNOTE.cs` (what the levels card says, Revit-free
@@ -1001,13 +1003,59 @@ Tower 2 and MLCP have no apartments.
     - an architect's model has corridors and lobbies as well - and the
     row can be unticked afterwards: its rooms then only group the
     others;
-  - **`VENTAPARTMENTS.Build(doc)` takes no link ids**: it searches EVERY
-    loaded placement but the apartment ones, because an interior model
-    is typically placed once per band of floors, each placement its
-    own link instance, and nobody should have to tick fourteen of them.
-    For each room it asks every apartments model which of its rooms is
-    there (`Document.GetRoomAtPoint` at the room's own point, then the
-    middle of its box, through both transforms - VENTFIXTURES' move);
+  - **`VENTAPARTMENTS.Build(doc)` takes no link ids**: it searches the
+    loaded placements that are INTERIOR MODELS (below), never the
+    apartment ones, because an interior model is typically placed once
+    per band of floors, each placement its own link instance, and nobody
+    should have to tick fourteen of them on the links list. For each
+    room it asks every apartments model which of its rooms is there
+    (`Document.GetRoomAtPoint` at the room's own point, then the middle
+    of its box, through both transforms - VENTFIXTURES' move);
+  - **WHICH PLACEMENTS ARE INTERIOR MODELS: A KEYWORD, THEN TICKS LEVEL
+    BY LEVEL** (`VENTINTERIOR`, Revit-free, and the **Interior
+    models...** button beside Refresh, `VENTINTERIORDIALOG`), at the
+    user's request (2026-10-09): *"instead of identifying IND model where
+    their rooms sit, you can identify the instance links in each level
+    defined by keyword from user, and the user selects the links found
+    in each level"*. It used to search EVERY loaded placement.
+    - **The keyword** (`VENTSETTINGS.InteriorKeyword`, default `IND`)
+      names the candidates by VENTLINKFILTER's rule - every word in the
+      label, any order, any case. **Empty = every placement**, which is
+      exactly the old behaviour, kept as the fallback.
+    - **The dialog lists each candidate under every level of THIS model
+      where it has ROOMS** (`VENTINTERIOR.Find`: each room's floor by
+      `HostElevationOf` + `VENTLEVELMAP.StoreyOf` - the rule the map
+      itself places rooms by, so a placement is offered on exactly the
+      levels the run will search it on). The keyword filters live.
+    - **Ticks still saying "everything found" are NOT a choice**
+      (`VENTINTERIOR.Choice` returns null, `InteriorChosen` false): the
+      keyword keeps deciding, so a placement linked later is picked up.
+      Once a tick is changed the exact picks are kept per level -
+      `InteriorPicks`, level name -> placement ids - **"none" included**.
+      The rule `VENTSETTINGS`' system-type lists and the Fixtures dialog
+      already follow: opening a dialog never changes a run.
+    - **A pick is per LEVEL** (`VENTINTERIOR.Allowed`, asked in
+      `VENTAPARTMENTS.Place` per room): a placement ticked on L04 gives
+      only its L04 rooms; a level whose placements were all unticked
+      searches none. Chosen, a ticked placement counts whatever its name.
+    - **The dialog cannot read the model** - it is modal, and an
+      external event does not run under a modal dialog - so the button
+      first asks VENTREAD for the rooms of every loaded placement not
+      read yet and opens the dialog when they arrive (`Take`), the
+      Fixtures dialog's pattern. Refresh cancels a pending open.
+    - **`VENTREAD.ApartmentsKey()` now carries the keyword and the
+      picks** (`VENTINTERIOR.Key`), so changing either builds the map
+      again; the key ignores order and case.
+    - **Remembered per model** (VENTSAVED): `interiorkeyword` (absent =
+      the default; written empty for "every placement") and
+      `interiorchosen` + one `interior <level> <id> <label>` line per
+      pick, resolved id-first then by a unique label like every other
+      link list, a placement not loaded now kept for when it returns.
+    - Tested in `tests/ventsettingstest` (finding, the 300 mm allowance,
+      what the run searches, what OK keeps, the key, and the file round
+      trip - mutation-checked); rendered at 1x and 1.5x by
+      `tests/ventpreview` (`autovent-interiors*.png`). **Never run in
+      Revit.**
   - **an UNTICKED placement gives only the rooms inside apartments**
     (`Map.Takes`); a ticked one gives all its rooms as before.
     `Map.RoomLinks` is the ticked links then the placements found, and

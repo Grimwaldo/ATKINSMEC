@@ -21,6 +21,9 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTEXPORTNOTE.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIXTUREDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIOR.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIORDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELMAP.cs" />
     <Page Include="..\..\ATKINSMEC\AutoVent\VENTWindow.xaml">
       <Link>VENTWindow.xaml</Link>
       <Generator>MSBuild:Compile</Generator>

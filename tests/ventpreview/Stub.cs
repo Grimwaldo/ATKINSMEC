@@ -344,6 +344,7 @@ namespace ATKINSMEC
 
         private void Window_Loaded(object sender, RoutedEventArgs e) { }
         private void BtnRefreshLinks_Click(object sender, RoutedEventArgs e) { }
+        private void BtnInteriors_Click(object sender, RoutedEventArgs e) { }
         private void BtnImport_Click(object sender, RoutedEventArgs e) { }
         private void CboWorksheet_SelectionChanged(
             object sender, SelectionChangedEventArgs e) { }

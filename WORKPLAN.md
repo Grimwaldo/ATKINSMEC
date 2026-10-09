@@ -26,11 +26,11 @@ server was set up for this:
 
 **Software:** Camtasia **2026 (26.2.2)** at `C:\Program Files\TechSmith\
 Camtasia` - no public automation API, so it is driven through its UI.
-Revit **2025** is the one open. Its add-in folder holds the build from
-03:28 on 2026-10-07: every AUTOVENT change is in it, only the later
-SPRINKLERS fixes and the wrong-model guard are not. Redeploy
-(`build-all.ps1` with Revit closed) before recording if anything else is
-shown.
+Revit **2025** was the one open. Its add-in folder now holds the build of
+2026-10-09 (hash-checked): everything, the links search box and the
+Interior models dialog included. Revit **2024** was open that day instead,
+so ITS folder is the stale one - redeploy (`build-all.ps1` with Revit
+closed) before recording in whichever version is used.
 
 **Model:** the host the user has open is **"Snowdon Towers Sample HVAC"**
 (Autodesk's sample), linked to Snowdon Towers Sample Architectural,
@@ -66,6 +66,33 @@ shots for Camtasia to import, and music composed from scratch as for the
 old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
+
+## AUTOVENT: interior models by keyword, ticked level by level - 2026-10-09
+
+User: *"instead of identifying IND model where their rooms sit, you can
+identify the instance links in each level defined by keyword from user,
+and the user selects the links found in each level"*. Before, every
+loaded placement was searched for rooms standing inside an apartment.
+
+- **Interior models...** button beside Refresh on the links card opens
+  `VENTINTERIORDIALOG`: a keyword box (default `IND`, filters live; empty
+  = every placement, the old behaviour) and, under each level of THIS
+  model, the matching placements that have rooms there, with the count.
+- Everything found starts ticked and is kept as "follow the keyword"
+  until a tick is changed; then the exact picks per level are stored,
+  "none" included. A pick on L04 searches only that placement's L04
+  rooms (`VENTINTERIOR.Allowed` in `VENTAPARTMENTS.Place`).
+- Remembered per model in `autovent_settings.txt` (`interiorkeyword`,
+  `interiorchosen`, `interior <level> <id> <label>`).
+- Verified: `ventsettingstest` 122 checks (mutation-checked), all 20
+  harnesses pass, built for all six, the dialog and the window rendered
+  at 1x and 1.5x. Deployed to 2022, 2023, 2025, 2026 and 2027 and checked
+  by hash; **2024 was locked by two open Revit 2024 sessions** and is
+  stale.
+- **Never run in Revit.** Worth checking in a real model: that the
+  levels a placement is listed under match where its rooms really are,
+  and that unticking one on a level takes its rooms out from under the
+  apartments there (the levels tree shows it at once).
 
 ## SPRINKLERS: heads off their line - 2026-10-07
 

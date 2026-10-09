@@ -379,6 +379,16 @@
                                 Content="Refresh"
                                 Click="BtnRefreshLinks_Click"/>
 
+                        <!-- Which placements are interior (IND) models,
+                             level by level - VENTINTERIORDIALOG -->
+                        <Button x:Name="BtnInteriors"
+                                DockPanel.Dock="Left"
+                                Style="{StaticResource FlatButton}"
+                                Margin="8,0,0,0"
+                                Content="Interior models..."
+                                ToolTip="Which linked models are interior (IND) models, found by a keyword and ticked level by level"
+                                Click="BtnInteriors_Click"/>
+
                         <TextBlock x:Name="TxtApartments"
                                    Margin="12,0,0,0"
                                    VerticalAlignment="Center"

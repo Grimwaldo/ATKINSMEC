@@ -68,6 +68,19 @@ namespace ATKINSMEC
             // Empty = the defaults, exactly as VENTSETTINGS has them
             public List<LinkRef> FixtureSources = new List<LinkRef>();
             public List<string> FixtureFamilies = new List<string>();
+
+            // The interior models (VENTINTERIOR). The keyword: null = the
+            // default ("IND"); "" = every placement. The picks: NULL =
+            // follow the keyword; an empty list = chose none.
+            public string InteriorKeyword;
+            public List<InteriorPick> InteriorPicks;
+        }
+
+        // One placement ticked as an interior model on one storey
+        public class InteriorPick
+        {
+            public string Storey = string.Empty;
+            public LinkRef Link = new LinkRef();
         }
 
         public static string DefaultPath
@@ -296,6 +309,20 @@ namespace ATKINSMEC
 
                 foreach (string name in m.FixtureFamilies)
                     Line(text, "fixturefamily", name);
+
+                if (m.InteriorKeyword != null)
+                    Line(text, "interiorkeyword", m.InteriorKeyword);
+
+                if (m.InteriorPicks != null)
+                {
+                    Line(text, "interiorchosen");
+
+                    foreach (InteriorPick pick in m.InteriorPicks)
+                    {
+                        Line(text, "interior", pick.Storey,
+                             pick.Link.Id.ToString(CultureInfo.InvariantCulture), pick.Link.Label);
+                    }
+                }
             }
 
             return text.ToString();
@@ -319,6 +346,7 @@ namespace ATKINSMEC
                 string tag = f[0].Trim().ToLowerInvariant();
                 string a = f.Length > 1 ? f[1] : string.Empty;
                 string b = f.Length > 2 ? f[2] : string.Empty;
+                string c = f.Length > 3 ? f[3] : string.Empty;
 
                 if (tag == "model")
                 {
@@ -390,6 +418,29 @@ namespace ATKINSMEC
                     case "fixturefamily":
                         if (a.Trim().Length > 0)
                             m.FixtureFamilies.Add(a.Trim());
+                        break;
+
+                    case "interiorkeyword":
+                        m.InteriorKeyword = a;
+                        break;
+
+                    case "interiorchosen":
+                        m.InteriorPicks = m.InteriorPicks ?? new List<InteriorPick>();
+                        break;
+
+                    case "interior":
+                        long pickId;
+
+                        if (a.Length > 0 &&
+                            long.TryParse(b.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out pickId))
+                        {
+                            (m.InteriorPicks = m.InteriorPicks ?? new List<InteriorPick>()).Add(new InteriorPick
+                            {
+                                Storey = a,
+                                Link = new LinkRef { Id = pickId, Label = c }
+                            });
+                        }
+
                         break;
 
                     // Anything else is from a later version: kept out

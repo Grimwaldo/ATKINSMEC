@@ -162,6 +162,13 @@ namespace ATKINSMEC
                 // modal dialog there would hold Revit's API context open
                 Dispatcher.BeginInvoke(new Action(OpenFixtures));
             }
+
+            if (_openInteriors && InteriorCandidates().All(_roomsOf.ContainsKey))
+            {
+                _openInteriors = false;
+
+                Dispatcher.BeginInvoke(new Action(OpenInteriors));
+            }
         }
 
         // Asks the external event for what is missing. The levels list is
@@ -188,7 +195,7 @@ namespace ATKINSMEC
         {
             var ask = new VENTREAD.Ask();
 
-            string key = VENTREAD.ApartmentsKey(VENTSETTINGS.ApartmentLinkIds);
+            string key = VENTREAD.ApartmentsKey();
 
             bool wantMap = VENTSETTINGS.ApartmentLinkIds.Count > 0;
 
@@ -304,6 +311,15 @@ namespace ATKINSMEC
             // Element ids of ANOTHER model's links mean nothing here
             VENTSETTINGS.FixtureSources.Clear();
             VENTSETTINGS.ApartmentLinkIds.Clear();
+
+            // The interior models: the keyword now, the picks once the
+            // links are known (ShowLinks) - they name placements
+            VENTSETTINGS.InteriorKeyword = saved == null || saved.InteriorKeyword == null
+                ? VENTSETTINGS.DefaultInteriorKeyword
+                : saved.InteriorKeyword;
+
+            VENTSETTINGS.InteriorChosen = saved != null && saved.InteriorPicks != null;
+            VENTSETTINGS.InteriorPicks.Clear();
         }
 
         private static VENTSAVED.LinkRef Ref(Tick link)
@@ -341,6 +357,14 @@ namespace ATKINSMEC
                     : link != null ? Ref(link) : new VENTSAVED.LinkRef { Id = id });
             }
 
+            // The default keyword is remembered as no keyword, so a change
+            // of default reaches a model nobody set up
+            now.InteriorKeyword = VENTSETTINGS.InteriorKeyword == VENTSETTINGS.DefaultInteriorKeyword
+                ? null
+                : VENTSETTINGS.InteriorKeyword;
+
+            now.InteriorPicks = VENTSETTINGS.InteriorChosen ? InteriorPicksNow() : null;
+
             // A link not loaded right now keeps what was chosen for it
             if (_saved != null)
             {
@@ -352,6 +376,48 @@ namespace ATKINSMEC
             }
 
             return now;
+        }
+
+        // The interior picks as they stand, each placement named by id AND
+        // label (VENTSAVED.Resolve) - plus any remembered for a placement
+        // not loaded right now, as KeepUnloaded does for the other lists
+        private List<VENTSAVED.InteriorPick> InteriorPicksNow()
+        {
+            var picks = new List<VENTSAVED.InteriorPick>();
+
+            foreach (KeyValuePair<string, HashSet<long>> storey in VENTSETTINGS.InteriorPicks
+                         .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (long id in (storey.Value ?? new HashSet<long>()).OrderBy(i => i))
+                {
+                    Tick link = _links.FirstOrDefault(l => l.Id == id);
+
+                    picks.Add(new VENTSAVED.InteriorPick
+                    {
+                        Storey = storey.Key,
+                        Link = link != null ? Ref(link) : new VENTSAVED.LinkRef { Id = id }
+                    });
+                }
+            }
+
+            if (_saved != null && _saved.InteriorPicks != null)
+            {
+                List<VENTSAVED.LinkRef> loaded = _links.Select(Ref).ToList();
+
+                foreach (VENTSAVED.InteriorPick before in _saved.InteriorPicks)
+                {
+                    if (before == null || before.Link == null || before.Link.Id == 0)
+                        continue;
+
+                    bool here = VENTSAVED.Resolve(new[] { before.Link }, loaded).Count > 0;
+
+                    if (!here && !picks.Any(p => p.Link.Id == before.Link.Id &&
+                                                 string.Equals(p.Storey, before.Storey, StringComparison.OrdinalIgnoreCase)))
+                        picks.Add(before);
+                }
+            }
+
+            return picks;
         }
 
         // The ticks as names, for VENTSAVED.ChoiceOf
@@ -659,6 +725,21 @@ namespace ATKINSMEC
                     loaded.Concat(new[] { new VENTSAVED.LinkRef { Id = 0, Label = "This model" } })));
             }
 
+            // The interior picks, storey by storey, settled the same way. A
+            // storey whose placements have all gone keeps an empty set: it
+            // was a choice, and "none" must not turn back into "all found"
+            VENTSETTINGS.InteriorPicks.Clear();
+
+            if (VENTSETTINGS.InteriorChosen && _saved != null && _saved.InteriorPicks != null)
+            {
+                foreach (IGrouping<string, VENTSAVED.InteriorPick> storey in _saved.InteriorPicks
+                             .Where(p => p != null && p.Link != null)
+                             .GroupBy(p => p.Storey ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                {
+                    VENTSETTINGS.InteriorPicks[storey.Key] = VENTSAVED.Resolve(storey.Select(p => p.Link), loaded);
+                }
+            }
+
             foreach (VENTREAD.LinkRow link in links)
             {
                 // Set before the callbacks are attached, so filling the
@@ -763,8 +844,9 @@ namespace ATKINSMEC
         // ==================================================
 
         // SEVERAL ARCHITECTS' MODELS MAY HOLD APARTMENTS, and the interior
-        // models are FOUND - every placement, on the same level of this
-        // model (VENTAPARTMENTS). Ticking Apartments ticks the row as well:
+        // models are FOUND - the placements the keyword names or that were
+        // ticked level by level (Interior models...), on the same level of
+        // this model (VENTAPARTMENTS). Ticking Apartments ticks the row as well:
         // the architect's model has the corridors and lobbies too, and an
         // apartments model whose own rooms were never read would leave the
         // run gated on a list that shows rooms. Unticking the row after is
@@ -788,6 +870,105 @@ namespace ATKINSMEC
                    false);
 
             SaveSettings();
+        }
+
+        // ==================================================
+        // Which placements are interior models (VENTINTERIOR)
+        // ==================================================
+
+        // Set by the button when rooms had to be read first; the dialog
+        // opens when they arrive (Take), as the Fixtures one does
+        private bool _openInteriors;
+
+        // Every loaded placement but the apartment links: what the dialog
+        // can list under a keyword - any keyword, as it is typed
+        private List<long> InteriorCandidates()
+        {
+            return _links
+                .Where(l => !VENTSETTINGS.ApartmentLinkIds.Contains(l.Id))
+                .Select(l => l.Id)
+                .ToList();
+        }
+
+        private void BtnInteriors_Click(object sender, RoutedEventArgs e)
+        {
+            if (_links.Count == 0)
+            {
+                Status("No loaded Revit links found in this project - there is nothing to pick from.", false);
+                return;
+            }
+
+            // Each placement's rooms are what say which levels it is on. The
+            // dialog cannot read them itself: an external event does not run
+            // while a modal dialog is up.
+            var ask = new VENTREAD.Ask();
+
+            foreach (long linkId in InteriorCandidates())
+            {
+                if (!_roomsOf.ContainsKey(linkId))
+                    ask.Rooms.Add(linkId);
+            }
+
+            if (ask.Any)
+            {
+                _openInteriors = true;
+
+                Ask(ask);
+
+                return;
+            }
+
+            OpenInteriors();
+        }
+
+        private void OpenInteriors()
+        {
+            List<long> candidates = InteriorCandidates();
+
+            var links = _links
+                .Where(l => candidates.Contains(l.Id))
+                .Select(l => new KeyValuePair<long, string>(l.Id, l.Label))
+                .ToList();
+
+            // Each room's floor in this model, as the apartments map places
+            // it (RVTLINKSELECTION.HostElevationOf) - so a placement is
+            // offered on exactly the levels the run will search it on
+            var floors = new Dictionary<long, List<double>>();
+
+            foreach (long linkId in candidates)
+            {
+                List<RVTLINKSELECTION.LinkedRoom> rooms;
+
+                floors[linkId] = _roomsOf.TryGetValue(linkId, out rooms) && rooms != null
+                    ? rooms.Select(r => r.Floor).ToList()
+                    : new List<double>();
+            }
+
+            string before = VENTREAD.ApartmentsKey();
+
+            var dialog = new VENTINTERIORDIALOG(links, floors, _storeys, VENTSETTINGS.ApartmentLinkIds.ToList())
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            SaveSettings();
+
+            if (VENTREAD.ApartmentsKey() == before)
+                return;
+
+            Status(VENTSETTINGS.ApartmentLinkIds.Count == 0
+                       ? "Interior models set. They are searched once a link is ticked Apartments."
+                       : VENTSETTINGS.InteriorChosen
+                           ? "Interior models set level by level - the apartments are found again."
+                           : "Interior models follow the keyword - the apartments are found again.",
+                   false);
+
+            // A new keyword or a changed tick builds the apartments map
+            // again (Missing compares ApartmentsKey)
+            RefreshLevels();
         }
 
         // What the apartment ticks found: each placement's own line says
@@ -1306,6 +1487,10 @@ namespace ATKINSMEC
             _map = null;
             _mapFor = null;
             _fixturesOf = null;
+
+            // A dialog asked for before the Refresh is not opened later,
+            // out of nowhere, when some other read completes the rooms
+            _openInteriors = false;
 
             Ask(new VENTREAD.Ask { Links = true });
         }

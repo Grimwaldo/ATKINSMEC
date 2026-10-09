@@ -13,6 +13,8 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSAVED.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIOR.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELMAP.cs" />
   </ItemGroup>
 
 </Project>

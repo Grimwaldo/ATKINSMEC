@@ -18,11 +18,13 @@ namespace ATKINSMEC
     // and verified from the main model that may have different IND model
     // instances in different floors for same ARCH model or different arch
     // models". An interior model is usually placed once PER FLOOR, each
-    // placement its own link instance, so EVERY loaded link is searched -
-    // ticked or not - and each of its rooms is asked of every apartment
-    // link: Document.GetRoomAtPoint, the room's point put through its own
-    // placement's transform and back through the apartment link's inverse
-    // (the move VENTFIXTURES makes for a WC).
+    // placement its own link instance, so the INTERIOR placements are
+    // searched whether ticked on the links list or not - those the
+    // keyword names, or the user ticked level by level (VENTINTERIOR) -
+    // and each of their rooms is asked of every apartment link:
+    // Document.GetRoomAtPoint, the room's point put through its own
+    // placement's transform and back through the apartment link's
+    // inverse (the move VENTFIXTURES makes for a WC).
     //
     // VERIFIED ON THIS MODEL'S LEVELS. A room joins an apartment only when
     // the two stand on the SAME storey of the main model, by the band rule
@@ -66,7 +68,13 @@ namespace ATKINSMEC
             if (sources.Count == 0 || map.Storeys.Count == 0)
                 return map;
 
-            // ---- every other loaded placement, searched for rooms inside them
+            // ---- the INTERIOR placements, searched for rooms inside them:
+            // those the keyword names, or the user ticked level by level
+            // (VENTINTERIOR). An empty keyword, not chosen, is every
+            // placement - the way it worked before.
+            string keyword = VENTSETTINGS.InteriorKeyword;
+            bool chosen = VENTSETTINGS.InteriorChosen;
+
             foreach (RevitLinkInstance link in new FilteredElementCollector(doc)
                          .OfClass(typeof(RevitLinkInstance))
                          .Cast<RevitLinkInstance>()
@@ -75,6 +83,14 @@ namespace ATKINSMEC
                 long linkId = link.Id.ToValue();
 
                 if (map.Sources.Contains(linkId))
+                    continue;
+
+                string label = map.LabelOf(linkId);
+
+                // Not an interior model on any storey: not read at all
+                if (chosen
+                        ? !VENTSETTINGS.InteriorPicks.Values.Any(set => set != null && set.Contains(linkId))
+                        : !VENTLINKFILTER.Matches(label, keyword))
                     continue;
 
                 Document linked = link.GetLinkDocument();
@@ -132,6 +148,13 @@ namespace ATKINSMEC
             // Below every level of this model: in no band, so in no
             // apartment either - the export leaves it out anyway
             if (storey < 0)
+                return;
+
+            // An interior model ON THIS STOREY? A placement ticked on L04
+            // only gives its L04 rooms - VENTINTERIOR.Allowed
+            if (!VENTINTERIOR.Allowed(
+                    map.Storeys[storey].Name, link.Id.ToValue(), map.LabelOf(link.Id.ToValue()),
+                    VENTSETTINGS.InteriorKeyword, VENTSETTINGS.InteriorChosen, VENTSETTINGS.InteriorPicks))
                 return;
 
             // What each apartments model says about this room - the

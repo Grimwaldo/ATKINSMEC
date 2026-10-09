@@ -179,6 +179,20 @@ namespace ATKINSMEC
         // Empty, the default, is exactly what AUTOVENT always did.
         public static HashSet<long> ApartmentLinkIds = new HashSet<long>();
 
+        // WHICH PLACEMENTS ARE INTERIOR MODELS (VENTINTERIOR): named by a
+        // keyword, picked level by level in the Interior models dialog.
+        // Not chosen = every placement matching the keyword, on every level
+        // it has rooms - which an empty keyword makes every placement.
+        public const string DefaultInteriorKeyword = "IND";
+
+        public static string InteriorKeyword = DefaultInteriorKeyword;
+
+        public static bool InteriorChosen;
+
+        // Storey name (this model's level) -> the placements ticked there
+        public static Dictionary<string, HashSet<long>> InteriorPicks =
+            new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);
+
         // Which models the fixtures are read from; 0 is this model.
         // EMPTY MEANS THE LINKS THE ROOMS COME FROM - an architectural
         // model usually draws its WCs, and a plumbing model linked as
