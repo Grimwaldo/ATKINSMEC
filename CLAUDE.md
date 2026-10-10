@@ -530,6 +530,36 @@ from its own bounding box, which is geometry and so certainly internal.
 **"DISAGREE" there means the level arithmetic is wrong for that
 model.**
 
+**AND IT WAS WRONG - A ROOM'S FLOOR IS NOW ITS GEOMETRY.** The first real
+job (kifaf, 2026-10-10) put every room of both architect's models ONE
+LEVEL UP: *"LEVEL 03 showing no rooms despite having rooms in the
+models"*. The apartments log proved it from geometry alone - interior
+rooms with floors at 37.12 m stood physically INSIDE the architect's
+TA-04 rooms, which the arithmetic put on the level at 40.62 m, and
+TA-05-04's box began at exactly 40.620 m while its level said 44.11 m.
+The links sit at Z = -3.49 m, and `ProjectElevation + BasePoint.Position.Z`
+came out 3.49 m high: on that model the base point's height is counted
+twice, so `ProjectElevation` there is from the INTERNAL origin, and
+Autodesk's "relative to project origin" never says which. Rather than
+guess again:
+
+- **`HostElevationOf` takes the bottom of the room's own BOX** through
+  the link's total transform (`LowestZ`, every corner). A box is in its
+  model's internal coordinates, full stop. The level is only used for a
+  room with no box.
+- **Every LEVEL is corrected by what its model's own rooms and spaces
+  measure** (`RVTLINKSELECTION.LevelError(doc)` -> the Revit-free
+  `VENTLEVELMAP.LevelError`: the MEDIAN of box floor minus level floor
+  over up to 60 of them, nothing under 50 mm). Used for this model's
+  storeys (`GetHostLevels`), the link spans (`LevelSpan`), the debug
+  log's level list, and SPRINKLERS' `LevelUnder` levels. A model with no
+  rooms or spaces gets no correction - exactly the old behaviour.
+- Both logs say how far each model's levels were out.
+- Tested in `ventleveltest` with the kifaf numbers: by the arithmetic
+  TA-05-04 is on 06A and a TA-03 room on 04A (LEVEL 03 empty); by
+  geometry, or a level corrected by its rooms, TA-05 is on 05A and TA-03
+  on LEVEL 03. Mutation-checked (an average instead of the median fails).
+
 SPRINKLERS had the same comparison and is fixed too - see
 `SPRINKLERPLAN.LevelUnder` under SPRINKLERS.
 
@@ -1088,16 +1118,17 @@ Tower 2 and MLCP have no apartments.
       from a finished floor more than 150 mm above the interior model's.
       The old points come first, unchanged; the same-storey rule still
       decides whether a higher answer counts.
-    - **WHAT THE LOG PROVED ON THE FIRST REAL JOB** (kifaf, `LEVEL 04A`,
-      apartments ticked on `ARC-000010` and `ARC-000100`): the add-in was
-      reading the models correctly; **the architect's rooms are not one
-      per apartment**. `ARC-000010` has only cores on that level;
-      `ARC-000100` has 57 rooms in the whole model and, on `LEVEL 04A`,
-      three apartment rooms where the user expects nine - `2BDR-A2` of
-      477 m2, `1BDR-C` and a `2BDR-A1` that took 28 rooms from FOUR
-      interior placements ("2BDR-A1 showing rooms from other
-      apartments"). 80 of the 111 interior rooms stood in no room of
-      either model on that level.
+    - **WHAT THE FIRST REAL JOB'S LOG SHOWED - AND WHAT WAS FIRST MISREAD
+      FROM IT.** On kifaf `LEVEL 04A` the architect's apartments seemed
+      too few and one `2BDR-A1` took rooms from four interior placements,
+      and that was put down to the architect's rooms. **It was the level
+      arithmetic** (above, under "A ROOM'S FLOOR IS NOW ITS GEOMETRY"):
+      every architect's room was one level up, so `LEVEL 04A` was
+      showing LEVEL 03's apartments, and a LEVEL 03 apartment whose
+      volume reaches into the floor above was being matched with the
+      interior rooms of 04A. **`ApartmentOf` now prefers an answer on
+      the room's own storey** over the first room its low points hit,
+      for exactly that apartment.
     - **An apartment that takes rooms from more than one interior
       placement is now NAMED** (`Map.PlacementsIn`, `Spread`,
       `DescribeSpread`) in the export report, the airflow log and the

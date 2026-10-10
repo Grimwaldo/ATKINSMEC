@@ -431,6 +431,58 @@ internal static class Program
                 && none.Settle(1, "1:1", 0, null) == null && none.Outside == 1);
         }
 
+        // ---- LevelError: a model's levels measured on its own rooms -----
+        //
+        // User-reported on the kifaf job (2026-10-10): "LEVEL 03 showing no
+        // rooms". Every room of the architect's models was one level up -
+        // the level arithmetic 3.49 m high against the rooms' own geometry.
+        {
+            double m = Mm(1000.0);          // a metre, in feet
+
+            Check("no rooms measured is no error, and nothing at all is no error",
+                VENTLEVELMAP.LevelError(new double[0]) == 0 && VENTLEVELMAP.LevelError(null) == 0);
+
+            Check("rooms agreeing with their levels to within 50 mm are no error - a finish, not a fault",
+                VENTLEVELMAP.LevelError(new[] { 0.02 * m, -0.03 * m, 0.0, 0.049 * m }) == 0);
+
+            Check("every room 3.49 m under its level's arithmetic: the error is -3.49 m",
+                Math.Abs(VENTLEVELMAP.LevelError(Enumerable.Repeat(-3.49 * m, 12)) + 3.49 * m) < 1e-9);
+
+            Check("...and two rooms with odd boxes cannot move the model - the median",
+                Math.Abs(VENTLEVELMAP.LevelError(
+                    Enumerable.Repeat(-3.49 * m, 9).Concat(new[] { 10 * m, -20 * m })) + 3.49 * m) < 1e-9);
+
+            Check("an even count takes the middle two, and nonsense is left out",
+                Math.Abs(VENTLEVELMAP.LevelError(new[] { -3.0 * m, -4.0 * m, double.NaN, double.PositiveInfinity })
+                         + 3.5 * m) < 1e-9);
+
+            // The kifaf levels, from the apartments log
+            var kifaf = new List<VENTLEVELMAP.Storey>
+            {
+                At("LEVEL 03", 33.62), At("LEVEL 04A", 37.12), At("LEVEL 05A", 40.62), At("LEVEL 06A", 44.12)
+            };
+
+            // TA-05-04: its box began at 40.620 m; its level said 44.110
+            double byBox = 40.62 * m, byLevel = 44.11 * m;
+
+            Check("the kifaf room by its level arithmetic lands a level UP - the reported fault",
+                kifaf[VENTLEVELMAP.StoreyOf(kifaf, byLevel)].Name == "LEVEL 06A");
+
+            Check("...by its geometry, on the level its number says (TA-05 on LEVEL 05A)",
+                kifaf[VENTLEVELMAP.StoreyOf(kifaf, byBox)].Name == "LEVEL 05A");
+
+            double error = VENTLEVELMAP.LevelError(Enumerable.Repeat(byBox - byLevel, 20));
+
+            Check("...and a LEVEL of that model, corrected by the error its rooms measured, lands there too",
+                kifaf[VENTLEVELMAP.StoreyOf(kifaf, byLevel + error)].Name == "LEVEL 05A");
+
+            Check("...so a TA-03 room, two storeys (7.0 m) lower, is on LEVEL 03 - which used to show no rooms",
+                kifaf[VENTLEVELMAP.StoreyOf(kifaf, byBox - 7.0 * m)].Name == "LEVEL 03");
+
+            Check("...where by its level arithmetic it was on LEVEL 04A, leaving LEVEL 03 empty",
+                kifaf[VENTLEVELMAP.StoreyOf(kifaf, byLevel - 7.0 * m)].Name == "LEVEL 04A");
+        }
+
         // ---- RoomsOn: the levels list, from rooms already read ----------
         //
         // AUTOVENT's window reads each link's rooms once, inside the

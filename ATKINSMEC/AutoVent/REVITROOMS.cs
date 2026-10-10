@@ -970,6 +970,13 @@ namespace ATKINSMEC
             {
                 Transform total = link.GetTotalTransform();
 
+                // What this model's own rooms say its levels are out by -
+                // the correction every level below is given
+                double error = RVTLINKSELECTION.LevelError(linked);
+
+                L($"  Its levels, measured on its own rooms, are out by {Metres(error)}" +
+                  (error == 0 ? " - none" : " - corrected below; each room's floor is its own geometry"));
+
                 L($"  Levels of {linked.Title} (as it shows them -> in this model -> this model's level):");
 
                 foreach (Level level in new FilteredElementCollector(linked)
@@ -978,7 +985,7 @@ namespace ATKINSMEC
                              .OrderBy(l => l.ProjectElevation))
                 {
                     double here = total.OfPoint(
-                        new XYZ(0, 0, RVTLINKSELECTION.InternalZ(level))).Z;
+                        new XYZ(0, 0, RVTLINKSELECTION.InternalZ(level) + error)).Z;
 
                     string onto = VENTLEVELMAP.NameAt(storeys, here);
 

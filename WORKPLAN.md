@@ -67,7 +67,42 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
-## AUTOVENT: the apartments log, read - the architect's rooms are the problem - 2026-10-09 (evening)
+## AUTOVENT: every architect's room was ONE LEVEL UP - floors now from geometry - 2026-10-10
+
+User: *"LEVEL 03 showing no rooms despite having rooms in the models and
+having also apartments and IND models in that level"*. The apartments
+log (04:01) proved the cause from geometry: 102 IND rooms with floors
+at 37.12 m (`LEVEL 04A`) stood physically inside `ARC-000100`'s TA-04
+rooms, which the level arithmetic put on `LEVEL 05A`; `TA-05-04`'s box
+began at exactly 40.620 m (`05A`) while its level said 44.11 m (`06A`).
+Both ARC links sit at Z = -3.49 m; `ProjectElevation` + the base
+point's Z double-counted it. **So the previous entry's reading - "the
+architect's rooms are the problem" - was wrong**: `LEVEL 04A` was
+showing LEVEL 03's apartments (the nine the user expected), and
+`2BDR-A1` (TA-03-09, a LEVEL 03 apartment whose volume reaches up) was
+taking 04A's interior rooms.
+
+- **Fixed**: a linked room's floor is the bottom of its own box
+  (`HostElevationOf`); every level is corrected by what its model's own
+  rooms and spaces measure (`RVTLINKSELECTION.LevelError`, median, 50 mm
+  dead band) - this model's storeys, link spans, the debug log, and
+  SPRINKLERS' levels. `ApartmentOf` prefers an apartment on the room's
+  own storey. Both logs print each model's level error.
+- `ventleveltest` +11 (the kifaf numbers; mutation-checked); all 20
+  harnesses pass; all six built, deployed and hash-checked (Revit was
+  closed).
+- **Expect after the fix**: `LEVEL 03` gets `ARC-000100`'s 16 rooms (its
+  nine apartments) and `ARC-000010`'s TA-03 cores. The saved interior
+  picks are for `LEVEL 04A` only, so LEVEL 03's IND placements (tiers
+  253-258, by their numbering) must be ticked in **Interior models...**.
+  On `LEVEL 04A`, `ARC-000100` has ONE room (`2BDR-A1`, TA-04-11) that
+  every 04A IND room stands in - it will be flagged as spread across six
+  placements; that one is the architect's model.
+- **Never run in Revit** in its fixed form: the next export's apartments
+  log should say "levels out by -3.490 m" for both ARC models and ~0
+  for this model and the IND models.
+
+## AUTOVENT: the apartments log, read - the architect's rooms are the problem - 2026-10-09 (evening) - SUPERSEDED, misread (above)
 
 User re-exported `LEVEL 04A` with Apartments on `ARC-000010` AND
 `ARC-000100`: *"there should be 9 apartments in the level, but only 3

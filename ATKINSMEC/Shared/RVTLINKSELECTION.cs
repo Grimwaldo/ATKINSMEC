@@ -234,12 +234,17 @@ namespace ATKINSMEC
             // ---- the span: the lowest and highest level anything stands on
             Transform transform = link.GetTotalTransform();
 
+            // The link's levels corrected on its own rooms (LevelError) -
+            // the rooms above are placed by their geometry, and the span
+            // must say the same floors they do
+            double error = LevelError(linked);
+
             // Lowest first, at the height each one is IN THIS MODEL
             var levels = new FilteredElementCollector(linked)
                 .OfClass(typeof(Level))
                 .Cast<Level>()
                 .Select(l => new KeyValuePair<Level, double>(
-                    l, transform.OfPoint(new XYZ(0, 0, InternalZ(l))).Z))
+                    l, transform.OfPoint(new XYZ(0, 0, InternalZ(l) + error)).Z))
                 .OrderBy(l => l.Value)
                 .ToList();
 
@@ -379,6 +384,11 @@ namespace ATKINSMEC
             var collector = new FilteredElementCollector(doc)
                 .OfClass(typeof(Level));
 
+            // Corrected on this model's own rooms and spaces, as every
+            // linked level is (LevelError) - a room's floor is now its
+            // geometry, and the storeys have to be in the same system
+            double error = LevelError(doc);
+
             foreach (Element element in collector)
             {
                 var level = element as Level;
@@ -389,7 +399,7 @@ namespace ATKINSMEC
                 storeys.Add(new VENTLEVELMAP.Storey
                 {
                     Name = level.Name ?? string.Empty,
-                    Elevation = InternalZ(level),
+                    Elevation = InternalZ(level) + error,
                     Shown = level.Elevation
                 });
             }
@@ -452,11 +462,31 @@ namespace ATKINSMEC
         // shared coordinates is usually a plain translation, and it is
         // the Z of that translation that would otherwise put every room
         // in the building on the wrong floor.
+        //
+        // AND FROM ITS GEOMETRY FIRST: the bottom of the room's own box,
+        // through the link's transform. A box is in its model's internal
+        // coordinates whatever any level says, so no question of which
+        // origin a level is measured from can put it on the wrong floor -
+        // which the level arithmetic did, ONE LEVEL UP, for every room of a
+        // real job's architect's models (VENTLEVELMAP.LevelError has the
+        // story). The level is only used for a room with no box.
         public static double HostElevationOf(
             RevitLinkInstance linkInstance,
             Document linkedDoc,
             Room room)
         {
+            try
+            {
+                BoundingBoxXYZ box = room.get_BoundingBox(null);
+
+                if (box != null)
+                    return LowestZ(box, linkInstance.GetTotalTransform());
+            }
+            catch
+            {
+                // no geometry to read: the level below decides
+            }
+
             double z = 0;
 
             try
@@ -491,6 +521,81 @@ namespace ATKINSMEC
             }
 
             return z;
+        }
+
+        // The lowest corner of a box once through a transform - every
+        // corner, since a link turned about anything but Z tilts the box
+        private static double LowestZ(BoundingBoxXYZ box, Transform transform)
+        {
+            double lowest = double.MaxValue;
+
+            foreach (double x in new[] { box.Min.X, box.Max.X })
+            foreach (double y in new[] { box.Min.Y, box.Max.Y })
+            foreach (double z in new[] { box.Min.Z, box.Max.Z })
+            {
+                var corner = new XYZ(x, y, z);
+
+                lowest = Math.Min(lowest, transform == null ? corner.Z : transform.OfPoint(corner).Z);
+            }
+
+            return lowest;
+        }
+
+        // HOW FAR THIS MODEL'S LEVELS ARE OUT, in feet, measured on its own
+        // rooms and spaces (VENTLEVELMAP.LevelError): add it to InternalZ
+        // to get a level's real height. Zero for a model with no rooms or
+        // spaces, or whose rooms agree with its levels. Read only, and up to
+        // sixty of them - a model's levels are out by one amount or not at
+        // all.
+        public static double LevelError(Document doc)
+        {
+            var deltas = new List<double>();
+
+            if (doc == null)
+                return 0;
+
+            try
+            {
+                foreach (Element element in new FilteredElementCollector(doc)
+                             .WherePasses(new ElementMulticategoryFilter(new List<BuiltInCategory>
+                             {
+                                 BuiltInCategory.OST_Rooms, BuiltInCategory.OST_MEPSpaces
+                             }))
+                             .WhereElementIsNotElementType())
+                {
+                    if (deltas.Count >= 60)
+                        break;
+
+                    var spatial = element as SpatialElement;
+
+                    if (spatial == null || spatial.Area <= 0)
+                        continue;
+
+                    var level = doc.GetElement(spatial.LevelId) as Level;
+                    BoundingBoxXYZ box = spatial.get_BoundingBox(null);
+
+                    if (level == null || box == null)
+                        continue;
+
+                    double offset = 0;
+
+                    var room = spatial as Room;
+                    var space = spatial as Autodesk.Revit.DB.Mechanical.Space;
+
+                    if (room != null)
+                        offset = room.BaseOffset;
+                    else if (space != null)
+                        offset = space.BaseOffset;
+
+                    deltas.Add(box.Min.Z - (InternalZ(level) + offset));
+                }
+            }
+            catch
+            {
+                // what was measured before it failed still counts
+            }
+
+            return VENTLEVELMAP.LevelError(deltas);
         }
 
         // EVERY ROOM OF ONE LINK, as plain data and with no apartment on

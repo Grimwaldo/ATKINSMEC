@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATKINSMEC
 {
@@ -108,6 +109,46 @@ namespace ATKINSMEC
 
             return at < 0 ? string.Empty : storeys[at].Name;
         }
+
+        // HOW FAR A MODEL'S LEVEL ARITHMETIC IS OUT, from its own rooms
+        // and spaces: each one's floor by its GEOMETRY (the bottom of its
+        // box) less its floor by its LEVEL (RVTLINKSELECTION.InternalZ +
+        // its base offset), in feet. The median, so a room with an odd box
+        // cannot move a whole model; nothing at all, or less than Settled,
+        // is no error.
+        //
+        // User-reported on the first real job (kifaf, 2026-10-10): "LEVEL
+        // 03 showing no rooms despite having rooms in the models". Every
+        // room of the architect's models had been put ONE LEVEL UP. The
+        // proof was in the apartments log: interior rooms with their
+        // floors at 37.12 m stood physically INSIDE the architect's TA-04
+        // rooms, while the level arithmetic put those rooms on the level
+        // at 40.62 m; and TA-05-04's box began at exactly 40.620 m, the
+        // level the arithmetic said was one below it. Level.ProjectElevation
+        // plus the base point's height came out 3.49 m high in that model
+        // - the height its links were moved down by - and Autodesk's
+        // "relative to project origin" does not say which origin. Geometry
+        // does not have that question, so the model's own rooms decide.
+        public static double LevelError(IEnumerable<double> deltas)
+        {
+            List<double> all = (deltas ?? new double[0])
+                .Where(d => !double.IsNaN(d) && !double.IsInfinity(d))
+                .OrderBy(d => d)
+                .ToList();
+
+            if (all.Count == 0)
+                return 0;
+
+            double median = all.Count % 2 == 1
+                ? all[all.Count / 2]
+                : (all[all.Count / 2 - 1] + all[all.Count / 2]) / 2;
+
+            return Math.Abs(median) < Settled ? 0 : median;
+        }
+
+        // Below this the two ways agree, and nothing is corrected: a
+        // finish or a rounding, not a model whose levels are out (50 mm)
+        public static readonly double Settled = 50.0 / 304.8;
 
         // Sorted by elevation, lowest first - which is the order the
         // sheet comes out in, and the order somebody reads a building.

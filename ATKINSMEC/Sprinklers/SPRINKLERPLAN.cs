@@ -646,13 +646,17 @@ namespace ATKINSMEC
 
             // Each level with its height IN THE MODEL, lowest first - the
             // same coordinates the sprinkler points are in. Never
-            // Level.Elevation: see LevelUnder.
+            // Level.Elevation: see LevelUnder. Corrected on the model's own
+            // rooms and spaces (RVTLINKSELECTION.LevelError), the way
+            // AUTOVENT's storeys are.
+            double levelError = RVTLINKSELECTION.LevelError(hostDoc);
+
             List<KeyValuePair<Level, double>> levels =
                 new FilteredElementCollector(hostDoc)
                 .OfClass(typeof(Level))
                 .Cast<Level>()
                 .Select(l => new KeyValuePair<Level, double>(
-                    l, RVTLINKSELECTION.InternalZ(l)))
+                    l, RVTLINKSELECTION.InternalZ(l) + levelError))
                 .OrderBy(l => l.Value)
                 .ToList();
 

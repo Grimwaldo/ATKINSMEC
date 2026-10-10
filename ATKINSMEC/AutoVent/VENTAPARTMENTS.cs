@@ -77,7 +77,7 @@ namespace ATKINSMEC
             string keyword = VENTSETTINGS.InteriorKeyword;
             bool chosen = VENTSETTINGS.InteriorChosen;
 
-            LogSettings(map, keyword, chosen);
+            LogSettings(doc, map, keyword, chosen);
 
             // ---- the apartment links that can be read
             var sources = new List<Source>();
@@ -470,7 +470,7 @@ namespace ATKINSMEC
             // decision is Map.Settle's, verified on THIS model's levels
             foreach (Source source in sources)
             {
-                Room apartment = ApartmentOf(points, toHost, source);
+                Room apartment = ApartmentOf(points, toHost, source, map, seen.Storey);
 
                 if (apartment == null)
                     continue;
@@ -554,17 +554,32 @@ namespace ATKINSMEC
             return points;
         }
 
-        private static Room ApartmentOf(List<XYZ> points, Transform toHost, Source source)
+        // THE FIRST ANSWER ON THE ROOM'S OWN STOREY, else the first answer
+        // at all. An apartment drawn with its upper limit into the floor
+        // above holds the low points of the rooms up there too, and seen
+        // from the kifaf log (2026-10-10) that is what made one 2BDR-A1
+        // collect the rooms of four interior placements a floor up. The
+        // higher points then reach the apartment that is really there.
+        // Map.Settle still has the last word on the storey.
+        private static Room ApartmentOf(List<XYZ> points, Transform toHost, Source source, Map map, int storey)
         {
+            Room first = null;
+
             foreach (XYZ point in points)
             {
                 Room found = source.Doc.GetRoomAtPoint(source.Into.OfPoint(toHost.OfPoint(point)));
 
-                if (found != null && found.Area > 0)
+                if (found == null || found.Area <= 0)
+                    continue;
+
+                if (first == null)
+                    first = found;
+
+                if (VENTLEVELMAP.StoreyOf(map.Storeys, RVTLINKSELECTION.HostElevationOf(source.Link, source.Doc, found)) == storey)
                     return found;
             }
 
-            return null;
+            return first;
         }
 
         // ==================================================
@@ -583,7 +598,7 @@ namespace ATKINSMEC
             }
         }
 
-        private static void LogSettings(Map map, string keyword, bool chosen)
+        private static void LogSettings(Document doc, Map map, string keyword, bool chosen)
         {
             VENTAPTLOG.Head("Set-up");
 
@@ -605,7 +620,8 @@ namespace ATKINSMEC
                 }
             }
 
-            VENTAPTLOG.Head("Levels of this model (internal height)");
+            VENTAPTLOG.Head("Levels of this model (internal height, corrected by " +
+                            VENTAPTLOG.M(RVTLINKSELECTION.LevelError(doc)) + " measured on its own rooms and spaces)");
 
             for (int i = 0; i < map.Storeys.Count; i++)
                 VENTAPTLOG.Say("   " + map.Storeys[i].Name + "   " + VENTAPTLOG.M(map.Storeys[i].Elevation));
@@ -617,6 +633,9 @@ namespace ATKINSMEC
         {
             VENTAPTLOG.Head("Apartments model " + map.LabelOf(source.Id) + " [" + source.Id + "]");
             VENTAPTLOG.Say("Origin in this model " + Where(source.ToHost.Origin) + Nested(source.Link));
+            VENTAPTLOG.Say("Its levels, measured on its own rooms, are out by " +
+                           VENTAPTLOG.M(RVTLINKSELECTION.LevelError(source.Doc)) +
+                           " - each room's floor is taken from its own geometry either way");
 
             source.Rooms = new List<Footprint>();
 
