@@ -674,7 +674,8 @@ internal static class Program
                 {
                     Key = r.Key, Name = r.Name, Number = r.Number,
                     ApartmentKey = r.ApartmentKey, Apartment = r.Apartment, ApartmentNumber = r.ApartmentNumber,
-                    HomeKey = home == null ? null : home.Key, Home = home == null ? null : home.Name
+                    HomeKey = home == null ? null : home.Key, Home = home == null ? null : home.Name,
+                    HomeNumber = home == null ? null : home.Number
                 };
             }).ToList();
         }
@@ -808,6 +809,51 @@ internal static class Program
             VENTARRANGE.Moved(new[] { "a", "b", "c" }, "a", 99).SequenceEqual(new[] { "b", "c", "a" }) &&
             VENTARRANGE.Moved(new[] { "a", "b", "c" }, "c", -5).SequenceEqual(new[] { "c", "a", "b" }) &&
             VENTARRANGE.Moved(new[] { "a", "b" }, "x", 0).SequenceEqual(new[] { "a", "b" }));
+
+        // ---- searching the dialog's list ("look for rooms using keyword")
+        List<VENTARRANGE.Row> all = Rows(new VENTARRANGE.Arrangement());
+
+        HashSet<string> bed = VENTARRANGE.Shown(all, "bed");
+
+        Check("a search shows the rooms it finds - and each one's apartment heading with it",
+            bed.SetEquals(new[] { K(Ind, 21), aptA.Key, K(Ind, 31), aptB.Key }));
+
+        Check("...every word, any order, any case - and by number as well as name",
+            VENTARRANGE.Shown(all, "ROOM g-03").SetEquals(new[] { K(Ind, 31), aptB.Key }) &&
+            VENTARRANGE.Shown(all, "g-005").SetEquals(new[] { K(Arc, 5) }));
+
+        // Words are found INSIDE other words, as the links search finds
+        // them - "apt a" would find APT B too (its "APT" holds an "a")
+        Check("an apartment's number finds all its rooms",
+            VENTARRANGE.Shown(all, "g-002").SetEquals(new[] { K(Ind, 21), K(Ind, 22), K(Ind, 23), aptA.Key }));
+
+        var outA = new VENTARRANGE.Arrangement();
+        VENTARRANGE.TakeOut(outA, Rows(outA).First(r => r.Key == K(Ind, 22)), "GR");
+
+        Check("...and a room taken OUT of it too - by the apartment it stands in",
+            VENTARRANGE.Shown(Rows(outA), "g-002").SetEquals(new[] { K(Ind, 21), K(Ind, 23), aptA.Key, K(Ind, 22) }) &&
+            VENTARRANGE.Words(Rows(outA).First(r => r.Key == K(Ind, 22))).Contains("APT A"));
+
+        Check("nothing typed shows everything; a word nothing has shows nothing",
+            VENTARRANGE.Shown(all, "").Count == all.Count + 2 && VENTARRANGE.Shown(all, "kitchenette").Count == 0);
+
+        // ---- moving while a search hides rows
+        var seq = new List<string> { "a", "b", "c", "d", "e" };
+        var showing = new HashSet<string> { "a", "c", "e" };
+
+        Check("Move up with rows hidden: past the next row SHOWING, not swapped with an unseen one",
+            VENTARRANGE.Stepped(seq, "e", -1, showing).SequenceEqual(new[] { "a", "b", "e", "c", "d" }));
+
+        Check("Move down likewise",
+            VENTARRANGE.Stepped(seq, "c", +1, showing).SequenceEqual(new[] { "a", "b", "d", "e", "c" }));
+
+        Check("nothing showing that way: nothing moves",
+            VENTARRANGE.Stepped(seq, "a", -1, showing).SequenceEqual(seq) &&
+            VENTARRANGE.Stepped(seq, "e", +1, showing).SequenceEqual(seq));
+
+        Check("no search: one place, as Move up / Move down always did",
+            VENTARRANGE.Stepped(seq, "c", -1, null).SequenceEqual(new[] { "a", "c", "b", "d", "e" }) &&
+            VENTARRANGE.Stepped(seq, "c", +1, null).SequenceEqual(new[] { "a", "b", "d", "c", "e" }));
 
         // ---- a link loaded again under a new id
         var h = new VENTARRANGE.Arrangement();

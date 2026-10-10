@@ -314,6 +314,83 @@ namespace ATKINSMEC
         }
 
         // ==================================================
+        // Searching the dialog's list, at the user's request: "add a
+        // search bar inside the Arrange rooms for the sheet window to look
+        // for rooms using keyword"
+        // ==================================================
+
+        // Everything a search may find a room by: its number and name, its
+        // model, the apartment it is written under and the one it stands in
+        // - so searching an apartment's name finds its rooms, and the rooms
+        // taken out of it
+        public static string Words(Row row)
+        {
+            if (row == null)
+                return string.Empty;
+
+            return string.Join(" ", new[]
+            {
+                row.Number, row.Name, row.LinkName, row.Apartment, row.ApartmentNumber, row.Home, row.HomeNumber
+            }.Where(s => !string.IsNullOrEmpty(s)));
+        }
+
+        // THE KEYS A SEARCH LEAVES SHOWING: every room it finds, and the
+        // apartment each found room is written under - a room is never
+        // shown without its heading. VENTLINKFILTER's rule: every word,
+        // any order, any case; nothing typed shows everything.
+        public static HashSet<string> Shown(IEnumerable<Row> rows, string query)
+        {
+            var shown = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (Row row in rows ?? Enumerable.Empty<Row>())
+            {
+                if (!VENTLINKFILTER.Matches(Words(row), query))
+                    continue;
+
+                shown.Add(row.Key);
+
+                if (!string.IsNullOrEmpty(row.ApartmentKey))
+                    shown.Add(row.ApartmentKey);
+            }
+
+            return shown;
+        }
+
+        // ONE STEP UP OR DOWN AMONG WHAT IS SHOWING: past the next key the
+        // search shows, however many hidden ones lie between - so a
+        // filtered list moves the way it looks. Null `shown` is everything
+        // showing: one place, as Move up / Move down always did. Nothing
+        // showing that way: nothing moves.
+        public static List<string> Stepped(IList<string> sequence, string key, int by, ICollection<string> shown)
+        {
+            var list = (sequence ?? new List<string>()).ToList();
+
+            int at = list.IndexOf(key);
+
+            if (at < 0 || by == 0)
+                return list;
+
+            int step = by < 0 ? -1 : 1;
+            int next = at + step;
+
+            while (next >= 0 && next < list.Count && shown != null && !shown.Contains(list[next]))
+                next += step;
+
+            if (next < 0 || next >= list.Count)
+                return list;
+
+            string past = list[next];
+
+            list.RemoveAt(at);
+
+            int to = list.IndexOf(past);
+
+            list.Insert(step < 0 ? to : to + 1, key);
+
+            return list;
+        }
+
+        // ==================================================
         // Links loaded again under a new id
         // ==================================================
 

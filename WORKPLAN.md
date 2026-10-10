@@ -67,6 +67,17 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: a search box in Arrange rooms... - 2026-10-10
+
+User: *"add a search bar inside the Arrange rooms for the sheet window to
+look for rooms using keyword"*. Beside the Level picker: every word, any
+order, any case, over number, name, model and apartment; found rooms
+shown with their apartment heading; Move up/down step past what is
+showing; the line under the list names the other levels with matches as
+links. `ventleveltest` +9 (mutation-checked), all 20 harnesses pass,
+rendered at 1x and 1.5x. Deployed to all but **2024 (Revit 2024 open -
+redeploy after closing it)**. Never run in Revit.
+
 ## AUTOVENT: Arrange rooms... - take IND rooms out, drag rooms into order - 2026-10-10
 
 User: *"make option for user to list the IND rooms and he can select any

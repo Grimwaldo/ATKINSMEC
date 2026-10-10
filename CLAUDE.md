@@ -1266,6 +1266,17 @@ rooms but keep everything under its level under its level"*.
   sheet cannot disagree. Drag (an insertion line shows where), Move
   up/down or Ctrl+Up/Down; Take out / Put back act on every picked
   room; Reset this level forgets it all. Nothing is kept until OK.
+- **A SEARCH BOX** beside the Level picker (at the user's request): the
+  links search's rule (`VENTLINKFILTER` - every word, any order, any
+  case, found INSIDE other words, so "apt a" finds APT B too) over each
+  room's number, name, model and apartment - written under or standing
+  in - so an apartment's name finds its rooms and the ones taken out of
+  it (`VENTARRANGE.Words` / `Shown`). A found room always comes with its
+  apartment's heading. It only HIDES rows: Move up/down step past the
+  next row SHOWING (`Stepped`), and the line under the list counts the
+  matches on every other level as links that open it - which is why the
+  dialog's function now returns every level in one go. Esc in the box
+  clears it rather than closing the dialog; Ctrl+F returns to it.
 - **Saved per model** (VENTSAVED: `ungrouped`, `order <container>
   <keys...>`, `arrangelink <id> <label>`). Keys carry link ids, so
   every link they name is saved with its label and a link loaded again

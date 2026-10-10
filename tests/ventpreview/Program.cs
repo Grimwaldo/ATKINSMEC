@@ -288,11 +288,43 @@ namespace ventpreview
 
             int Compare(string a, string b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
 
+            // Two more levels, so a search has somewhere else to point at
+            var other = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>>
+            {
+                ["LEVEL 04A"] = new System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>
+                {
+                    Room("10:41", "TA-04-31", "CORRIDOR"),
+                    Room("23:01", "121.401", "MASTER BEDROOM", "11:19", "2BDR-A1", "TA-04-09"),
+                    Room("23:02", "121.402", "BEDROOM", "11:19", "2BDR-A1", "TA-04-09")
+                },
+                ["LEVEL 05A"] = new System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>
+                {
+                    Room("10:51", "TA-05-31", "CORRIDOR"),
+                    Room("24:01", "121.501", "MASTER BEDROOM", "11:29", "2BDR-A2", "TA-05-04")
+                }
+            };
+
+            // Every level, the way RoomsOn has them
+            System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>> RowsOf(
+                ATKINSMEC.VENTARRANGE.Arrangement a)
+            {
+                var levels = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>>
+                {
+                    [Level] = LevelRows(Level, all, a)
+                };
+
+                foreach (var level in other)
+                    levels[level.Key] = LevelRows(level.Key, level.Value, a);
+
+                return levels;
+            }
+
             // The default order, the way RoomsOn has it: units by number,
             // an apartment's rooms by theirs - then the arrangement
-            System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row> RowsOf(string level, ATKINSMEC.VENTARRANGE.Arrangement a)
+            System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row> LevelRows(
+                string level, System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row> source, ATKINSMEC.VENTARRANGE.Arrangement a)
             {
-                var rows = all.Select(r => new ATKINSMEC.VENTARRANGE.Row
+                var rows = source.Select(r => new ATKINSMEC.VENTARRANGE.Row
                 {
                     Key = r.Key, Number = r.Number, Name = r.Name, Exported = r.Exported,
                     HomeKey = r.HomeKey, Home = r.Home, HomeNumber = r.HomeNumber,
@@ -338,6 +370,18 @@ namespace ventpreview
 
             Shoot(dialog, Path.Combine(folder, "autovent-arrange.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-1.5x.png"), 1.5);
+
+            // Searching: "bedroom" - the rooms found, each under its
+            // apartment heading, and the other levels with matches named
+            var search = FindChild<System.Windows.Controls.TextBox>(dialog);
+
+            if (search != null)
+                search.Text = "bedroom";
+
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-search.png"));
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-search-1.5x.png"), 1.5);
 
             dialog.Close();
         }

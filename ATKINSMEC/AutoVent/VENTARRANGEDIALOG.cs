@@ -18,22 +18,40 @@ namespace ATKINSMEC
     //     room inside an apartment moves only within that apartment;
     //   - "Take out of apartment" gives an interior room a row of its own,
     //     "Put back" returns it;
-    //   - "Reset this level" forgets everything chosen for it.
+    //   - "Reset this level" forgets everything chosen for it;
+    //   - the SEARCH box narrows the list to the rooms whose number, name,
+    //     model or apartment hold every word typed (VENTARRANGE.Shown), each
+    //     found room with its apartment's heading; the line under the list
+    //     names the other levels with matches, and a click opens one. It
+    //     only hides rows: a move steps past the next row SHOWING
+    //     (VENTARRANGE.Stepped), and nothing hidden is changed.
     //
     // REVIT-FREE, like VENTINTERIORDIALOG: the window hands in a function
-    // that works a level's rows out of what it has already read - the same
-    // RoomsOn the levels list uses, so this shows exactly what the list and
-    // the sheet will get. Nothing is kept until OK. tests/ventpreview
-    // renders it.
+    // that works every level's rows out of what it has already read - the
+    // same RoomsOn the levels list uses, so this shows exactly what the
+    // list and the sheet will get. Nothing is kept until OK.
+    // tests/ventpreview renders it.
     public class VENTARRANGEDIALOG : Window
     {
-        private readonly Func<string, VENTARRANGE.Arrangement, List<VENTARRANGE.Row>> _rowsOf;
+        private readonly Func<VENTARRANGE.Arrangement, Dictionary<string, List<VENTARRANGE.Row>>> _rowsOf;
         private readonly VENTARRANGE.Arrangement _work;
 
         private string _level;
+
+        // Every level's rows as the arrangement now stands, and this level's
+        private Dictionary<string, List<VENTARRANGE.Row>> _all =
+            new Dictionary<string, List<VENTARRANGE.Row>>(StringComparer.OrdinalIgnoreCase);
+
         private List<VENTARRANGE.Row> _rows = new List<VENTARRANGE.Row>();
 
+        // What the search leaves showing on this level - null: everything
+        private HashSet<string> _shown;
+
+        private readonly IList<string> _levels;
+
         private readonly ComboBox _levelBox;
+        private readonly TextBox _search;
+        private readonly TextBlock _searchHint;
         private readonly ListBox _list;
         private readonly TextBlock _said;
 
@@ -66,11 +84,12 @@ namespace ATKINSMEC
 
         public VENTARRANGEDIALOG(
             IList<string> levels, string level,
-            Func<string, VENTARRANGE.Arrangement, List<VENTARRANGE.Row>> rowsOf,
+            Func<VENTARRANGE.Arrangement, Dictionary<string, List<VENTARRANGE.Row>>> rowsOf,
             VENTARRANGE.Arrangement arrangement)
         {
-            _rowsOf = rowsOf ?? ((l, a) => new List<VENTARRANGE.Row>());
+            _rowsOf = rowsOf ?? (a => new Dictionary<string, List<VENTARRANGE.Row>>());
             _work = (arrangement ?? new VENTARRANGE.Arrangement()).Clone();
+            _levels = levels ?? new List<string>();
 
             Title = "AUTOVENT - arrange rooms for the sheet";
             Width = 760;
@@ -133,6 +152,35 @@ namespace ATKINSMEC
             }
 
             levelRow.Children.Add(_levelBox);
+
+            // THE SEARCH, on the right of the same row - the links card's
+            // box, the same placeholder trick: a hint laid over the box,
+            // seen through it while it is empty
+            var searchCell = new Grid { Width = 240, Margin = new Thickness(12, 0, 0, 0) };
+
+            _search = new TextBox
+            {
+                Padding = new Thickness(6, 3, 6, 3),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                ToolTip = "Rooms whose number, name, model or apartment hold every word typed - " +
+                          "in any order, any case. Esc clears it; Ctrl+F comes back to it."
+            };
+
+            _searchHint = new TextBlock
+            {
+                Text = "Search rooms",
+                Foreground = Faint,
+                Margin = new Thickness(9, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+
+            searchCell.Children.Add(_search);
+            searchCell.Children.Add(_searchHint);
+
+            DockPanel.SetDock(searchCell, Dock.Right);
+            levelRow.LastChildFill = false;
+            levelRow.Children.Add(searchCell);
 
             Put(grid, 2, 0, 2, levelRow);
 
@@ -216,14 +264,48 @@ namespace ATKINSMEC
 
             Dragging();
 
+            // Another level is only another slice of what is worked out
+            // already; the search stays, so one keyword can be followed
+            // from level to level
             _levelBox.SelectionChanged += (s, e) =>
             {
                 var item = _levelBox.SelectedItem as ComboBoxItem;
 
                 _level = item == null ? null : item.Tag as string;
 
-                Fill(null);
+                Show(null);
             };
+
+            _search.TextChanged += (s, e) =>
+            {
+                _searchHint.Visibility = _search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+                Show(null);
+            };
+
+            // Esc clears the search rather than closing the window - Cancel
+            // answers Esc everywhere else
+            _search.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Escape && _search.Text.Length > 0)
+                {
+                    _search.Clear();
+                    e.Handled = true;
+                }
+            };
+
+            PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                {
+                    _search.Focus();
+                    _search.SelectAll();
+                    e.Handled = true;
+                }
+            };
+
+            // Every level worked out once before the first is shown - a
+            // level change only shows another slice of it
+            _all = _rowsOf(_work) ?? new Dictionary<string, List<VENTARRANGE.Row>>(StringComparer.OrdinalIgnoreCase);
 
             // The level asked for, else the first
             int start = (levels ?? new List<string>()).ToList().FindIndex(
@@ -274,19 +356,46 @@ namespace ATKINSMEC
         // The list
         // ==================================================
 
-        // The level's rows worked out afresh with the arrangement as it now
-        // stands, and the list rebuilt - keeping the rows that were picked,
-        // or picking `pick` if given
+        // Every level's rows worked out afresh with the arrangement as it
+        // now stands - after any change to it - and the list shown again
         private void Fill(IEnumerable<string> pick)
+        {
+            _all = _rowsOf(_work) ?? new Dictionary<string, List<VENTARRANGE.Row>>(StringComparer.OrdinalIgnoreCase);
+
+            Show(pick);
+        }
+
+        private static List<VENTARRANGE.Row> RowsOn(Dictionary<string, List<VENTARRANGE.Row>> all, string level)
+        {
+            List<VENTARRANGE.Row> rows;
+
+            return level != null && all != null && all.TryGetValue(level, out rows) && rows != null
+                ? rows
+                : new List<VENTARRANGE.Row>();
+        }
+
+        private string Query
+        {
+            get { return _search == null ? string.Empty : _search.Text ?? string.Empty; }
+        }
+
+        // The list rebuilt for this level and the search as they stand -
+        // keeping the rows that were picked, or picking `pick` if given
+        private void Show(IEnumerable<string> pick)
         {
             var picked = new HashSet<string>(pick ?? Picked().Select(l => (l.IsApartment ? "apt " : string.Empty) + l.Key));
 
-            _rows = _level == null ? new List<VENTARRANGE.Row>() : _rowsOf(_level, _work) ?? new List<VENTARRANGE.Row>();
+            _rows = RowsOn(_all, _level);
+
+            _shown = string.IsNullOrWhiteSpace(Query) ? null : VENTARRANGE.Shown(_rows, Query);
 
             _list.Items.Clear();
 
             foreach (Line line in Lines(_rows))
             {
+                if (_shown != null && !_shown.Contains(line.Key))
+                    continue;
+
                 var item = new ListBoxItem
                 {
                     Content = Draw(line),
@@ -486,11 +595,83 @@ namespace ATKINSMEC
                           _rows.Any(r => !string.IsNullOrEmpty(r.ApartmentKey) &&
                                          _work.OrderOf(VENTARRANGE.ApartmentContainer(r.ApartmentKey)) != null);
 
-            _said.Text = _rows.Count + " room(s) on " + _level +
-                         (apartments > 0 ? ", " + apartments + " apartment(s)" : string.Empty) +
-                         (takenOut > 0 ? ", " + takenOut + " taken out of their apartment" : string.Empty) +
-                         (unticked > 0 ? ", " + unticked + " unticked" : string.Empty) + ". " +
-                         (chosen ? "In the order chosen here." : "In the default order - by number.");
+            string summary = _rows.Count + " room(s) on " + _level +
+                             (apartments > 0 ? ", " + apartments + " apartment(s)" : string.Empty) +
+                             (takenOut > 0 ? ", " + takenOut + " taken out of their apartment" : string.Empty) +
+                             (unticked > 0 ? ", " + unticked + " unticked" : string.Empty) + ". " +
+                             (chosen ? "In the order chosen here." : "In the default order - by number.");
+
+            if (_shown == null)
+            {
+                _said.Text = summary;
+                return;
+            }
+
+            // SEARCHING: what it found here, and where else - each other
+            // level with a match a click away
+            string query = Query.Trim();
+
+            int found = _rows.Count(r => _shown.Contains(r.Key));
+
+            _said.Inlines.Clear();
+
+            _said.Inlines.Add(new System.Windows.Documents.Run(found == 0
+                ? "No room on " + _level + " matches \"" + query + "\""
+                : found + " of " + _rows.Count + " room(s) on " + _level + " match \"" + query + "\""));
+
+            var elsewhere = _levels
+                .Where(l => !string.Equals(l, _level, StringComparison.OrdinalIgnoreCase))
+                .Select(l => new { Level = l, Found = RowsOn(_all, l).Count(r => VENTLINKFILTER.Matches(VENTARRANGE.Words(r), query)) })
+                .Where(x => x.Found > 0)
+                .ToList();
+
+            if (elsewhere.Count == 0)
+            {
+                _said.Inlines.Add(new System.Windows.Documents.Run(found == 0 ? " - nor on any other level." : " - and on no other level."));
+            }
+            else
+            {
+                _said.Inlines.Add(new System.Windows.Documents.Run(found == 0 ? " - found on " : " - also on "));
+
+                for (int i = 0; i < elsewhere.Count; i++)
+                {
+                    if (i > 0)
+                        _said.Inlines.Add(new System.Windows.Documents.Run(", "));
+
+                    string level = elsewhere[i].Level;
+
+                    var link = new System.Windows.Documents.Hyperlink(
+                        new System.Windows.Documents.Run(level + " (" + elsewhere[i].Found + ")"))
+                    {
+                        Foreground = Accent,
+                        ToolTip = "Show " + level
+                    };
+
+                    link.Click += (s, e) => OpenLevel(level);
+
+                    _said.Inlines.Add(link);
+                }
+
+                _said.Inlines.Add(new System.Windows.Documents.Run("."));
+            }
+
+            _said.Inlines.Add(new System.Windows.Documents.Run(
+                " Rows the search hides keep their places; Esc shows them all."));
+        }
+
+        // Another level in the picker - the search stays as it is
+        private void OpenLevel(string level)
+        {
+            for (int i = 0; i < _levelBox.Items.Count; i++)
+            {
+                var item = _levelBox.Items[i] as ComboBoxItem;
+
+                if (item != null && string.Equals(item.Tag as string, level, StringComparison.OrdinalIgnoreCase))
+                {
+                    _levelBox.SelectedIndex = i;
+                    return;
+                }
+            }
         }
 
         // ==================================================
@@ -504,11 +685,13 @@ namespace ATKINSMEC
             VENTARRANGE.Arrangement plain = _work.Clone();
             plain.Orders.Remove(container);
 
-            List<string> defaults = VENTARRANGE.SequenceOf(_rowsOf(_level, plain) ?? new List<VENTARRANGE.Row>(), container);
+            List<string> defaults = VENTARRANGE.SequenceOf(RowsOn(_rowsOf(plain), _level), container);
 
             VENTARRANGE.SetOrder(_work, container, sequence, defaults);
         }
 
+        // One step past the next row SHOWING - with a search on, the rows it
+        // hides are stepped over rather than swapped with unseen
         private void MovePicked(int by)
         {
             List<Line> picked = Picked();
@@ -519,13 +702,12 @@ namespace ATKINSMEC
             Line line = picked[0];
 
             List<string> sequence = VENTARRANGE.SequenceOf(_rows, line.Container);
+            List<string> moved = VENTARRANGE.Stepped(sequence, line.Key, by, _shown);
 
-            int at = sequence.IndexOf(line.Key);
-
-            if (at < 0 || at + by < 0 || at + by >= sequence.Count)
+            if (moved.SequenceEqual(sequence, StringComparer.Ordinal))
                 return;
 
-            Reorder(line.Container, VENTARRANGE.Moved(sequence, line.Key, at + by));
+            Reorder(line.Container, moved);
 
             Fill(new[] { (line.IsApartment ? "apt " : string.Empty) + line.Key });
         }

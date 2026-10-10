@@ -938,43 +938,46 @@ namespace ATKINSMEC
                   ", but taken out of it in Arrange rooms... - a row of its own in the sheet.";
         }
 
-        // One level's rows as the dialog shows them, worked out with the
+        // Every level's rows as the dialog shows them, worked out with the
         // arrangement it is trying - the SAME RoomsOn the levels list uses
         // (arithmetic over what has been read), so the dialog, the list and
-        // the sheet cannot disagree
-        private List<VENTARRANGE.Row> ArrangeRows(string level, VENTARRANGE.Arrangement arrangement, ISet<string> unticked)
+        // the sheet cannot disagree. All levels in one go: the dialog's
+        // search counts the matches on the others.
+        private Dictionary<string, List<VENTARRANGE.Row>> ArrangeRows(VENTARRANGE.Arrangement arrangement, ISet<string> unticked)
         {
             VENTAPARTMENTS.Map map = VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
 
             Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> on =
                 RVTLINKSELECTION.RoomsOn(TickedLinks(), _roomsOf, map, _storeys, arrangement);
 
-            List<RVTLINKSELECTION.LinkedRoom> rooms;
-
-            if (level == null || !on.TryGetValue(level, out rooms))
-                return new List<VENTARRANGE.Row>();
-
             bool manyLinks = on.Values.SelectMany(r => r).Select(r => r.LinkId).Distinct().Count() > 1;
 
-            return rooms.Select(r =>
-            {
-                VENTAPARTMENTS.Apartment home = map == null ? null : map.Of(r.Key);
+            var all = new Dictionary<string, List<VENTARRANGE.Row>>(StringComparer.OrdinalIgnoreCase);
 
-                return new VENTARRANGE.Row
+            foreach (KeyValuePair<string, List<RVTLINKSELECTION.LinkedRoom>> level in on)
+            {
+                all[level.Key] = level.Value.Select(r =>
                 {
-                    Key = r.Key,
-                    Name = r.Name ?? string.Empty,
-                    Number = r.Number ?? string.Empty,
-                    LinkName = manyLinks ? r.LinkName ?? string.Empty : string.Empty,
-                    ApartmentKey = r.ApartmentKey,
-                    Apartment = r.Apartment,
-                    ApartmentNumber = r.ApartmentNumber,
-                    HomeKey = home == null ? null : home.Key,
-                    Home = home == null ? null : home.Name,
-                    HomeNumber = home == null ? null : home.Number,
-                    Exported = !unticked.Contains(r.Key)
-                };
-            }).ToList();
+                    VENTAPARTMENTS.Apartment home = map == null ? null : map.Of(r.Key);
+
+                    return new VENTARRANGE.Row
+                    {
+                        Key = r.Key,
+                        Name = r.Name ?? string.Empty,
+                        Number = r.Number ?? string.Empty,
+                        LinkName = manyLinks ? r.LinkName ?? string.Empty : string.Empty,
+                        ApartmentKey = r.ApartmentKey,
+                        Apartment = r.Apartment,
+                        ApartmentNumber = r.ApartmentNumber,
+                        HomeKey = home == null ? null : home.Key,
+                        Home = home == null ? null : home.Name,
+                        HomeNumber = home == null ? null : home.Number,
+                        Exported = !unticked.Contains(r.Key)
+                    };
+                }).ToList();
+            }
+
+            return all;
         }
 
         private void BtnArrange_Click(object sender, RoutedEventArgs e)
@@ -1005,7 +1008,7 @@ namespace ATKINSMEC
             var dialog = new VENTARRANGEDIALOG(
                 levels,
                 pickedLevel == null ? null : pickedLevel.Name,
-                (level, arrangement) => ArrangeRows(level, arrangement, unticked),
+                arrangement => ArrangeRows(arrangement, unticked),
                 VENTARRANGE.Current)
             {
                 Owner = this
