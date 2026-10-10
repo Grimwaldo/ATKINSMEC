@@ -67,6 +67,17 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: find and replace; a window that fits; CLAUDE.md cut - 2026-10-10
+
+User picked 5, 7 and 8 of the suggestions. **Find and replace...** in
+Arrange rooms (rooms and apartment headings, any case, through Rename).
+**The window fits the screen** (`VENTFIT`): opens no bigger than the
+working area, minimum 480 tall, and the body scrolls when shorter than
+its rows need. **CLAUDE.md is the rules only** - 3555 lines down to
+about 450; the long version is `git show 465c133:CLAUDE.md`. Tests:
+ventleveltest +replace checks, all 20 pass. Deployed to all but **2024
+(Revit 2024 open)**. Never run in Revit.
+
 ## AUTOVENT: rename rooms before exporting; shorter wording - 2026-10-10
 
 User: *"allow option for user to rename rooms before exporting"*, and
