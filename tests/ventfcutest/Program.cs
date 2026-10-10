@@ -88,6 +88,143 @@ internal static class Program
         }
     }
 
+    // ==================================================================
+    // VENTFACING - a bellmouth into its room, or into an FCU. The user's
+    // four cases (2026-10-10), in metres: floor at 0, ceiling at 2.7, the
+    // FCU in the void above it.
+    // ==================================================================
+
+    private static double[] V(double x, double y, double z)
+    {
+        return new[] { x, y, z };
+    }
+
+    private static readonly VENTFACING.Box Fcu = new VENTFACING.Box
+    {
+        Min = V(4.0, 2.0, 2.9),
+        Max = V(5.2, 2.6, 3.3)
+    };
+
+    private const double Reach = 1.5;
+    private const double Margin = 0.15;
+
+    // Where a bellmouth's air goes, as REVITROOMS asks: the mouth from
+    // its connector and body, then the first unit that mouth hits
+    private static int Aim(double[] connectorAt, double[] connectorZ, double[] body,
+                           IList<VENTFACING.Box> units, out double distance)
+    {
+        double[] mouth = VENTFACING.Mouth(connectorZ, connectorAt, body);
+
+        return VENTFACING.Faced(connectorAt, mouth, units, Reach, Margin, out distance);
+    }
+
+    private static void Facing()
+    {
+        Console.WriteLine();
+        Console.WriteLine("  bellmouths - into the room, or into an FCU");
+
+        const string bellmouth = "ATR_ME_MEQ_BellMouth-Fresh Air";
+        const string endcap = "ATR_ME_AIT_Rectangular Blank Endcap_SAD";
+
+        VENTSETTINGS.EndcapNames = VENTSETTINGS.DefaultEndcapNames;
+        VENTSETTINGS.BellmouthNames = VENTSETTINGS.DefaultBellmouthNames;
+
+        var units = new List<VENTFACING.Box> { Fcu };
+        double d;
+
+        // 4. In the void at the unit's height, duct behind it, mouth on
+        //    the unit - the kifaf master bedroom over the ensuite
+        int four = Aim(V(4.6, 1.2, 3.1), V(0, -1, 0), V(4.6, 1.35, 3.1), units, out d);
+
+        Check("case 4: a bellmouth in the void, mouth on the unit, feeds it (0.65 m away)",
+            four == 0 && Near(Math.Round(d, 6), 0.65) &&
+            VENTFACING.RoleOf(bellmouth, four >= 0) == VENTFACING.Role.Feeds);
+
+        // 1. The same unit in the room, the bellmouth discharging DOWN
+        //    into the room through the ceiling
+        int oneDown = Aim(V(4.6, 1.4, 2.95), V(0, 0, 1), V(4.6, 1.4, 2.8), units, out d);
+
+        // ...or through a bulkhead, sideways, under the ceiling - aimed
+        //    at the unit in plan, but at the room's height, not the void's
+        int oneSide = Aim(V(4.6, 1.0, 2.4), V(0, -1, 0), V(4.6, 1.15, 2.4), units, out d);
+
+        Check("case 1: discharging down into the room, an FCU beside it - serves its room",
+            oneDown < 0 && VENTFACING.RoleOf(bellmouth, oneDown >= 0) == VENTFACING.Role.InRoom);
+
+        Check("case 1: through a bulkhead toward the unit in plan, but below the ceiling - serves its room",
+            oneSide < 0 && VENTFACING.RoleOf(bellmouth, oneSide >= 0) == VENTFACING.Role.InRoom);
+
+        // 2. No unit anywhere near
+        int two = Aim(V(12, 8, 3.1), V(0, -1, 0), V(12, 8.15, 3.1), units, out d);
+
+        Check("case 2: no FCU in front of it - serves its room",
+            two < 0 && VENTFACING.RoleOf(bellmouth, two >= 0) == VENTFACING.Role.InRoom);
+
+        // 3. An endcap is traced whichever way it points - a blank cap
+        //    has no mouth
+        Check("case 3: an endcap is traced to its unit, facing it or not",
+            VENTFACING.RoleOf(endcap, false) == VENTFACING.Role.Endcap &&
+            VENTFACING.RoleOf(endcap, true) == VENTFACING.Role.Endcap);
+
+        // ---- the geometry's edges -------------------------------------
+        Check("a bellmouth with its BACK to the unit does not feed it",
+            Aim(V(4.6, 1.2, 3.1), V(0, 1, 0), V(4.6, 1.05, 3.1), units, out d) < 0);
+
+        Check("a unit beyond the reach is not fed (2 m away, reach 1.5 m)",
+            Aim(V(4.6, 0.0, 3.1), V(0, -1, 0), V(4.6, 0.15, 3.1), units, out d) < 0);
+
+        // THE API DOES NOT SAY WHICH WAY A CONNECTOR'S Z POINTS. Either
+        // way, the body - on the mouth side - settles it
+        double[] onePointing = VENTFACING.Mouth(V(0, -1, 0), V(4.6, 1.2, 3.1), V(4.6, 1.35, 3.1));
+        double[] otherPointing = VENTFACING.Mouth(V(0, 1, 0), V(4.6, 1.2, 3.1), V(4.6, 1.35, 3.1));
+
+        Check("the mouth is the same whichever way the connector's Z points - the body decides",
+            Near(onePointing[1], 1) && Near(otherPointing[1], 1));
+
+        Check("...and a body centred on the connector leaves it to the connector",
+            Near(VENTFACING.Mouth(V(0, 0, 1), V(1, 1, 1), V(1, 1, 1))[2], -1) &&
+            VENTFACING.Mouth(V(0, 0, 0), V(1, 1, 1), null) == null);
+
+        Check("a mouth 100 mm under the unit's edge still feeds it; 200 mm under does not",
+            Aim(V(4.6, 1.2, 2.8), V(0, -1, 0), V(4.6, 1.35, 2.8), units, out d) == 0 &&
+            Aim(V(4.6, 1.2, 2.7), V(0, -1, 0), V(4.6, 1.35, 2.7), units, out d) < 0);
+
+        // Two units in line, both within the reach, the farther listed
+        // first: the first the air reaches
+        var two_units = new List<VENTFACING.Box>
+        {
+            new VENTFACING.Box { Min = V(4.0, 2.8, 2.9), Max = V(5.2, 3.0, 3.3) },
+            Fcu,
+            null
+        };
+
+        Check("two units in line: the nearer is fed; an unreadable box is passed over",
+            Aim(V(4.6, 1.2, 3.1), V(0, -1, 0), V(4.6, 1.35, 3.1), two_units, out d) == 1 && Near(Math.Round(d, 6), 0.65) &&
+            VENTFACING.Hit(V(4.6, 1.2, 3.1), V(0, 1, 0), two_units[0], Reach, Margin) > 0);
+
+        Check("a mouth already inside the unit's box feeds it, at 0",
+            VENTFACING.Hit(V(4.5, 2.2, 3.0), V(1, 0, 0), Fcu, Reach, Margin) == 0);
+
+        Check("no direction, no box or no reach is no hit, and does not throw",
+            VENTFACING.Hit(V(4.6, 1.2, 3.1), V(0, 0, 0), Fcu, Reach, Margin) < 0 &&
+            VENTFACING.Hit(V(4.6, 1.2, 3.1), V(0, 1, 0), null, Reach, Margin) < 0 &&
+            VENTFACING.Hit(V(4.6, 1.2, 3.1), V(0, 1, 0), Fcu, 0, Margin) < 0);
+
+        // ---- the names ------------------------------------------------
+        Check("a diffuser facing a unit is still in-room - only bellmouths are aimed",
+            VENTFACING.RoleOf("M_Supply Diffuser", true) == VENTFACING.Role.InRoom);
+
+        Check("a family named both ways is an endcap - endcaps have always been traced",
+            VENTFACING.RoleOf("BellMouth Endcap", false) == VENTFACING.Role.Endcap);
+
+        VENTSETTINGS.BellmouthNames = "";
+
+        Check("no bellmouth names: every bellmouth serves its room, as before either list existed",
+            VENTFACING.RoleOf(bellmouth, true) == VENTFACING.Role.InRoom);
+
+        VENTSETTINGS.BellmouthNames = VENTSETTINGS.DefaultBellmouthNames;
+    }
+
     private static int Main()
     {
         Console.WriteLine();
@@ -366,6 +503,8 @@ internal static class Program
                 VENTFCUCHECK.Nowhere(null, null, null).Count == 0 &&
                 VENTFCUCHECK.CarriedRooms(null, fresh).Count == 0);
         }
+
+        Facing();
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0

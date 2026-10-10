@@ -168,11 +168,19 @@ plain status lines.
   the pre-tick IS the fallback rule.
 - Endcap reach (default 1500 mm; ≤0 → default). Too large finds the
   wrong FCU.
-- **Which families are endcaps** (traced to their FCU, not given their
-  own room's air): `VENTSETTINGS.EndcapNames`, the "Endcap names" box,
-  comma-separated, each matched like the links search; default and
-  empty = `Endcap`. A fresh-air bellmouth on an FCU over an ensuite was
-  taken for an ensuite terminal and the bedroom's air went nowhere.
+- **Endcaps and bellmouths, by family name** (two boxes, comma-separated,
+  matched like the links search). An **endcap** (`EndcapNames`, default
+  and empty = `Endcap`) is always traced to the nearest unit. A
+  **bellmouth** (`BellmouthNames`, default `BellMouth`, empty = none)
+  feeds a unit **only when its mouth faces one within the reach**
+  (`VENTFACING`: a ray from the duct connector, away from the duct — sign
+  checked against the body, since the API does not say which way a
+  connector's Z points — into the unit's box grown 150 mm); otherwise it
+  serves the room it stands in. That is what tells "bellmouth into the
+  room, FCU in the room" from "bellmouth into an FCU over another room":
+  the second sits in the void at the unit's height. A unit on the
+  bellmouth's OWN duct system is never fed (an AHU's intake faces its
+  AHU). Each bellmouth's decision is in the debug log (`BELLMOUTH ...`).
 - **Air with nowhere to go is reported** (`VENTFCUCHECK.Nowhere`): a
   room with air in the sheet and no terminal in it or endcap carrying
   it — in the run's dialog and the log.

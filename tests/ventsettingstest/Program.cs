@@ -235,6 +235,23 @@ internal static class Program
                 VENTSETTINGS.EndcapChoice(" Endcap, BellMouth ") == "Endcap, BellMouth");
 
             VENTSETTINGS.EndcapNames = VENTSETTINGS.DefaultEndcapNames;
+
+            // ---- and which are bellmouths (aimed: VENTFACING) ----------
+            Check("bellmouths: the default names the kifaf family, not an endcap or a diffuser",
+                VENTSETTINGS.IsBellmouth(bellmouth) && VENTSETTINGS.IsBellmouth(returnBell) &&
+                !VENTSETTINGS.IsBellmouth(endcap) && !VENTSETTINGS.IsBellmouth("M_Supply Diffuser"));
+
+            // UNLIKE THE ENDCAPS, EMPTY IS NONE - the old behaviour, every
+            // bellmouth serving its room - so it can be switched off
+            Check("...an empty list is none, not the default",
+                !VENTSETTINGS.IsBellmouth(bellmouth, "") && !VENTSETTINGS.IsBellmouth(bellmouth, null) &&
+                VENTSETTINGS.IsBellmouth(bellmouth, "fresh bellmouth") &&
+                !VENTSETTINGS.IsBellmouth(returnBell, "fresh bellmouth"));
+
+            Check("...remembered as: the default = no choice, empty = none, else as typed",
+                VENTSETTINGS.BellmouthChoice(" bellmouth ") == null &&
+                VENTSETTINGS.BellmouthChoice("") == "" && VENTSETTINGS.BellmouthChoice(null) == "" &&
+                VENTSETTINGS.BellmouthChoice("BM, Bell Mouth") == "BM, Bell Mouth");
         }
 
         // ---- which plumbing fixture families count into No. of Units
@@ -550,6 +567,7 @@ internal static class Program
                 Extract = null,
                 ReachMm = 2250,
                 EndcapNames = "Endcap, BellMouth Fresh",
+                BellmouthNames = "",
                 CountFixtures = false,
                 RoomLinks = { L(1001, "ARC-000010.rvt"), L(1002, "ARC-000020.rvt : 1 : Tower A") },
                 Apartments = { L(1002, "ARC-000020.rvt : 1 : Tower A") },
@@ -606,6 +624,9 @@ internal static class Program
 
             Check("the endcap names survive; a model that kept the default has none (follows the default)",
                 t.EndcapNames == "Endcap, BellMouth Fresh" && p.EndcapNames == null);
+
+            Check("NO bellmouths (empty) survives as empty, kept apart from the default (null)",
+                t.BellmouthNames == "" && p.BellmouthNames == null);
 
             // ---- the interior models: keyword and picks per level ---------
             var picked = new VENTSAVED.Model

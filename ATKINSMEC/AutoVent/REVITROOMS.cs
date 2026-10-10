@@ -359,6 +359,33 @@ namespace ATKINSMEC
 
             L($"Rooms containing terminals: {roomTerminalMap.Count}");
 
+            List<FamilyInstance> equipment =
+                new FilteredElementCollector(doc2)
+                .OfCategory(BuiltInCategory.OST_MechanicalEquipment)
+                .WhereElementIsNotElementType()
+                .Cast<FamilyInstance>()
+                .ToList();
+
+            // How far the terminal may be from the nearest FCU
+            // connector. Was a constant 4.92 ft (~1.5 m); asked for on
+            // the window now, because it describes how somebody draws
+            // rather than anything about the add-in - see VENTSETTINGS.
+            double connectorTolerance = VENTSETTINGS.EndcapReachFeet;
+
+            L($"Endcap reach: {VENTSETTINGS.EndcapReachMm:0} mm");
+            L($"Endcap names: {VENTSETTINGS.EndcapNames}");
+            L($"Bellmouth names: {(VENTSETTINGS.BellmouthNames.Length == 0 ? "(none)" : VENTSETTINGS.BellmouthNames)}");
+
+            // ==================================================
+            // Bellmouths: into the room, or into an FCU?
+            // ==================================================
+            //
+            // A bellmouth whose mouth faces a unit within the reach feeds
+            // that unit; any other serves the room it stands in. See
+            // VENTFACING for the four cases this tells apart.
+            Dictionary<ElementId, Faced> faced =
+                BellmouthsFeeding(allTerminals, equipment, connectorTolerance, out int bellmouths);
+
             // ==================================================
             // Classify the in-room terminals as fresh / extract
             // ==================================================
@@ -376,9 +403,10 @@ namespace ATKINSMEC
 
                 foreach (FamilyInstance terminal in kvp.Value)
                 {
-                    // Endcaps feed an FCU serving ANOTHER space — they are
-                    // handled by the FCU trace, never as in-room terminals
-                    if (IsEndcap(terminal))
+                    // Endcaps, and bellmouths facing a unit, feed an FCU
+                    // serving ANOTHER space — they are handled by the FCU
+                    // trace, never as in-room terminals
+                    if (IsEndcap(terminal) || faced.ContainsKey(terminal.Id))
                         continue;
 
                     bool isSupply;
@@ -424,22 +452,6 @@ namespace ATKINSMEC
                     matchedRoomKeys.Add(info.Key);
             }
 
-            List<FamilyInstance> equipment =
-                new FilteredElementCollector(doc2)
-                .OfCategory(BuiltInCategory.OST_MechanicalEquipment)
-                .WhereElementIsNotElementType()
-                .Cast<FamilyInstance>()
-                .ToList();
-
-            // How far the terminal may be from the nearest FCU
-            // connector. Was a constant 4.92 ft (~1.5 m); asked for on
-            // the window now, because it describes how somebody draws
-            // rather than anything about the add-in - see VENTSETTINGS.
-            double connectorTolerance = VENTSETTINGS.EndcapReachFeet;
-
-            L($"Endcap reach: {VENTSETTINGS.EndcapReachMm:0} mm");
-            L($"Endcap names: {VENTSETTINGS.EndcapNames}");
-
             var outsideFresh =
                 new Dictionary<FamilyInstance, List<string>>();
 
@@ -477,12 +489,19 @@ namespace ATKINSMEC
                         terminal.Id,
                         out inRoomKey);
 
-                // Only endcap families are traced through an FCU: they
-                // serve another space, even when standing in a matched
-                // room. Bellmouths/diffusers/grilles are in-room only —
-                // their value comes from the room they stand in, so an
+                // Endcaps, and bellmouths whose mouth faces a unit, are
+                // traced through an FCU: they serve another space, even
+                // when standing in a matched room. Every other terminal -
+                // a bellmouth facing nothing included - is in-room only:
+                // its value comes from the room it stands in, so an
                 // unmatched room simply means nothing is written.
-                if (!IsEndcap(terminal))
+                bool endcap = IsEndcap(terminal);
+
+                Faced facedUnit;
+
+                bool feeds = !endcap && faced.TryGetValue(terminal.Id, out facedUnit);
+
+                if (!endcap && !feeds)
                 {
                     if (!insideRoom)
                     {
@@ -496,33 +515,45 @@ namespace ATKINSMEC
                     continue;
                 }
 
-                L($"FCU-CANDIDATE endcap {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' fresh={isFresh} extract={isExtract}" +
+                L($"FCU-CANDIDATE {(endcap ? "endcap" : "bellmouth")} {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' fresh={isFresh} extract={isExtract}" +
                     (insideRoom
                         ? $" (standing in room {inRoomKey})"
                         : " (not inside any room in scope)"));
 
-                double nearestDistance;
+                FamilyInstance fcu;
 
-                FamilyInstance fcu =
-                    FindNearestEquipment(
+                if (feeds)
+                {
+                    // The unit its mouth faces - already settled, within
+                    // the reach by construction
+                    fcu = faced[terminal.Id].Unit;
+
+                    L($"  faces FCU {fcu.Id.ToValue()} at {faced[terminal.Id].Distance * 304.8:F0} mm");
+                }
+                else
+                {
+                    double nearestDistance;
+
+                    fcu = FindNearestEquipment(
                         terminal,
                         equipment,
                         out nearestDistance);
 
-                L($"  nearest FCU: {(fcu == null ? "none" : fcu.Id.ToValue().ToString())}, distance={(fcu == null ? 0 : nearestDistance * 304.8):F0} mm (tolerance {connectorTolerance * 304.8:F0} mm)");
+                    L($"  nearest FCU: {(fcu == null ? "none" : fcu.Id.ToValue().ToString())}, distance={(fcu == null ? 0 : nearestDistance * 304.8):F0} mm (tolerance {connectorTolerance * 304.8:F0} mm)");
 
-                if (fcu == null ||
-                    nearestDistance > connectorTolerance)
-                {
-                    L("  -> rejected: no FCU within tolerance");
+                    if (fcu == null ||
+                        nearestDistance > connectorTolerance)
+                    {
+                        L("  -> rejected: no FCU within tolerance");
 
-                    noFcuFound++;
+                        noFcuFound++;
 
-                    if (fcu != null &&
-                        nearestDistance < closestMiss)
-                        closestMiss = nearestDistance;
+                        if (fcu != null &&
+                            nearestDistance < closestMiss)
+                            closestMiss = nearestDistance;
 
-                    continue;
+                        continue;
+                    }
                 }
 
                 List<string> servedRooms =
@@ -786,7 +817,10 @@ namespace ATKINSMEC
                 $"Rooms in scope: {allRooms.Count}\n" +
                 $"Rooms matched to the sheet: {matchedRooms}\n" +
                 $"Terminals updated: {terminalsUpdated}\n" +
-                $"Terminals skipped (read-only): {terminalsSkipped}";
+                $"Terminals skipped (read-only): {terminalsSkipped}" +
+                (bellmouths > 0
+                    ? $"\nBellmouths feeding an FCU: {faced.Count} of {bellmouths}"
+                    : string.Empty);
 
             // A ROOM WHOSE UNITS AND ENDCAPS DISAGREE IS NOT AN
             // ERROR, AND NOTHING WAS CHANGED FOR IT - but it is the
@@ -1110,6 +1144,158 @@ namespace ATKINSMEC
             {
                 // logging must never break the add-in
             }
+        }
+
+        // A bellmouth and the unit its mouth faces
+        private class Faced
+        {
+            public FamilyInstance Unit;
+            public double Distance;
+        }
+
+        // How much a unit's box is grown before asking whether a mouth
+        // faces it - a bellmouth drawn a little off the plenum's centre
+        // still feeds it
+        private const double FacingMarginFeet = 150 / 304.8;
+
+        // EVERY BELLMOUTH ON A FRESH OR EXTRACT SYSTEM, decided once: the
+        // unit its mouth faces within the reach, or - absent from the
+        // answer - none, and it serves its room.
+        //
+        // A UNIT ON THE BELLMOUTH'S OWN DUCT SYSTEM IS NOT FED THROUGH ITS
+        // MOUTH: an AHU's fresh air intake faces the AHU, but its duct
+        // runs into it. Only air crossing an open gap into a unit counts.
+        private static Dictionary<ElementId, Faced> BellmouthsFeeding(
+            List<FamilyInstance> terminals,
+            List<FamilyInstance> units,
+            double reach,
+            out int bellmouths)
+        {
+            var feeding = new Dictionary<ElementId, Faced>();
+
+            bellmouths = 0;
+
+            var boxes = new List<VENTFACING.Box>();
+            var systemsOf = new List<HashSet<long>>();
+
+            foreach (FamilyInstance unit in units)
+            {
+                BoundingBoxXYZ box = unit.get_BoundingBox(null);
+
+                boxes.Add(box == null
+                    ? null
+                    : new VENTFACING.Box { Min = P(box.Min), Max = P(box.Max) });
+
+                systemsOf.Add(SystemsOf(unit));
+            }
+
+            foreach (FamilyInstance terminal in terminals)
+            {
+                if (terminal.Symbol == null ||
+                    IsEndcap(terminal) ||
+                    !VENTSETTINGS.IsBellmouth(terminal.Symbol.FamilyName))
+                    continue;
+
+                bool isFresh;
+                bool isExtract;
+
+                ClassifyTerminal(terminal, out isFresh, out isExtract);
+
+                if (!isFresh && !isExtract)
+                    continue;
+
+                bellmouths++;
+
+                HashSet<long> own = SystemsOf(terminal);
+
+                // The units it could feed: not on its own system
+                var candidates = new List<VENTFACING.Box>();
+
+                for (int i = 0; i < units.Count; i++)
+                    candidates.Add(systemsOf[i].Overlaps(own) ? null : boxes[i]);
+
+                BoundingBoxXYZ body = terminal.get_BoundingBox(null);
+
+                double[] centre = body == null
+                    ? null
+                    : P((body.Min + body.Max) / 2);
+
+                int best = -1;
+                double bestDistance = -1;
+                string mouth = "no direction";
+
+                foreach (Connector c in GetHvacConnectors(terminal))
+                {
+                    double[] at;
+                    double[] direction;
+
+                    try
+                    {
+                        at = P(c.Origin);
+                        direction = VENTFACING.Mouth(P(c.CoordinateSystem.BasisZ), at, centre);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (direction == null)
+                        continue;
+
+                    mouth = $"mouth ({direction[0]:0.00}, {direction[1]:0.00}, {direction[2]:0.00})";
+
+                    double distance;
+
+                    int hit = VENTFACING.Faced(at, direction, candidates, reach, FacingMarginFeet, out distance);
+
+                    if (hit >= 0 && (best < 0 || distance < bestDistance))
+                    {
+                        best = hit;
+                        bestDistance = distance;
+                    }
+                }
+
+                if (best >= 0)
+                {
+                    feeding[terminal.Id] = new Faced { Unit = units[best], Distance = bestDistance };
+
+                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}: faces unit {units[best].Id.ToValue()} '{units[best].Symbol?.FamilyName}' at {bestDistance * 304.8:F0} mm -> feeds it");
+                }
+                else
+                {
+                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}: faces no unit within {reach * 304.8:F0} mm -> serves its room");
+                }
+            }
+
+            L($"Bellmouths: {bellmouths}, feeding a unit: {feeding.Count}");
+
+            return feeding;
+        }
+
+        // The duct systems an element's connectors are on
+        private static HashSet<long> SystemsOf(FamilyInstance element)
+        {
+            var systems = new HashSet<long>();
+
+            foreach (Connector c in GetHvacConnectors(element))
+            {
+                try
+                {
+                    if (c.MEPSystem != null)
+                        systems.Add(c.MEPSystem.Id.ToValue());
+                }
+                catch
+                {
+                    // a connector that cannot say is on no system
+                }
+            }
+
+            return systems;
+        }
+
+        private static double[] P(XYZ point)
+        {
+            return new[] { point.X, point.Y, point.Z };
         }
 
         private static FamilyInstance FindNearestEquipment(

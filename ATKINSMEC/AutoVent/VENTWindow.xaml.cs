@@ -76,6 +76,7 @@ namespace ATKINSMEC
                 VENTSETTINGS.EndcapReachMm.ToString("0");
 
             TxtEndcapNames.Text = VENTSETTINGS.EndcapNames;
+            TxtBellmouthNames.Text = VENTSETTINGS.BellmouthNames;
 
             // The duct system types belong to THIS model and do not
             // change with what is ticked anywhere, so this is read once
@@ -307,6 +308,10 @@ namespace ATKINSMEC
                 ? VENTSETTINGS.DefaultEndcapNames
                 : saved.EndcapNames;
 
+            VENTSETTINGS.BellmouthNames = saved == null || saved.BellmouthNames == null
+                ? VENTSETTINGS.DefaultBellmouthNames
+                : saved.BellmouthNames;
+
             VENTSETTINGS.CountFixtures = saved == null || saved.CountFixtures;
 
             VENTSETTINGS.FixtureFamilies.Clear();
@@ -365,6 +370,9 @@ namespace ATKINSMEC
                 Extract = Chosen(_extract, VENTSETTINGS.LooksExtract),
                 ReachMm = ReachInBox(),
                 EndcapNames = VENTSETTINGS.EndcapChoice(TxtEndcapNames == null ? null : TxtEndcapNames.Text),
+                BellmouthNames = TxtBellmouthNames == null
+                    ? VENTSETTINGS.BellmouthChoice(VENTSETTINGS.BellmouthNames)
+                    : VENTSETTINGS.BellmouthChoice(TxtBellmouthNames.Text),
                 CountFixtures = VENTSETTINGS.CountFixtures,
                 FixtureFamilies = VENTSETTINGS.FixtureFamilies
                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -1410,6 +1418,10 @@ namespace ATKINSMEC
                 VENTSETTINGS.EndcapChoice(TxtEndcapNames.Text) ?? VENTSETTINGS.DefaultEndcapNames;
 
             TxtEndcapNames.Text = VENTSETTINGS.EndcapNames;
+
+            // An empty bellmouth box IS a choice: none, every bellmouth
+            // serving its room
+            VENTSETTINGS.BellmouthNames = (TxtBellmouthNames.Text ?? string.Empty).Trim();
         }
 
         private void Ticked(

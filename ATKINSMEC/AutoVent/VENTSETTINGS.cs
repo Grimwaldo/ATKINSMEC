@@ -146,7 +146,8 @@ namespace ATKINSMEC
         // (2026-10-10): a master bedroom's FCU sat over the ENSUITE with
         // its fresh air on an "ATR_ME_MEQ_BellMouth-Fresh Air", which was
         // taken for an ensuite terminal - and the bedroom's 50 l/s went
-        // nowhere.
+        // nowhere. Bellmouths have their own list now (below), because a
+        // bellmouth may also serve its room directly; an endcap never does.
         //
         // Names with a comma between; each matches as the links search
         // does (VENTLINKFILTER: every word, any order, any case). Empty is
@@ -174,12 +175,46 @@ namespace ATKINSMEC
 
         public static bool IsEndcap(string familyName, string names)
         {
+            return Named(
+                familyName,
+                string.IsNullOrWhiteSpace(names) ? DefaultEndcapNames : names);
+        }
+
+        // WHICH ARE BELLMOUTHS - traced to an FCU only when their mouth
+        // faces one within the reach, otherwise given the air of the room
+        // they stand in (VENTFACING). Unlike the endcaps, EMPTY MEANS NONE:
+        // every bellmouth then serves its room, which is what AUTOVENT did
+        // before either list existed - the safe way to be switched off.
+        public const string DefaultBellmouthNames = "BellMouth";
+
+        public static string BellmouthNames = DefaultBellmouthNames;
+
+        public static bool IsBellmouth(string familyName)
+        {
+            return IsBellmouth(familyName, BellmouthNames);
+        }
+
+        public static bool IsBellmouth(string familyName, string names)
+        {
+            return Named(familyName, names ?? string.Empty);
+        }
+
+        // Remembered as: null = the default; "" = none; else as typed
+        public static string BellmouthChoice(string typed)
+        {
+            string names = (typed ?? string.Empty).Trim();
+
+            return string.Equals(names, DefaultBellmouthNames, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : names;
+        }
+
+        // Names with a comma (or semicolon) between, each matched as the
+        // links search matches: every word, any order, any case
+        private static bool Named(string familyName, string list)
+        {
             if (string.IsNullOrEmpty(familyName))
                 return false;
-
-            string list = string.IsNullOrWhiteSpace(names)
-                ? DefaultEndcapNames
-                : names;
 
             foreach (string name in list.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
             {

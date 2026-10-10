@@ -67,6 +67,23 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: a bellmouth into its room, or into an FCU - 2026-10-10
+
+User's four cases: (1) bellmouth serving its room, FCU in that room;
+(2) bellmouth serving its room, no FCU; (3) endcap feeding an FCU
+outside the room; (4) bellmouth feeding an FCU, both in a room the FCU
+does not serve. 1 and 4 told apart by where the MOUTH points
+(`VENTFACING`): a bellmouth feeds the unit its air would hit within the
+endcap reach, else it serves its room; endcaps traced as before. New
+**Bellmouths** box beside **Endcaps** (default `BellMouth`; empty = every
+bellmouth serves its room, the old behaviour). Units on the bellmouth's
+own duct system are excluded. Tests: ventfcutest +16 (the four cases in
+metres, both connector-Z conventions, margin, reach, two units;
+mutation-checked), ventsettingstest +4; all 20 pass; rendered 1x/1.5x;
+deployed to all but **2024 (Revit 2024 open)**. **Never run in Revit**
+- above all the connector direction on the real bellmouth family; the
+log prints each bellmouth's mouth vector and the unit it faces.
+
 ## AUTOVENT: endcaps by name; air with nowhere to go - 2026-10-10
 
 User (kifaf 1BDR-C, with a plan screenshot): the master bedroom's FCU

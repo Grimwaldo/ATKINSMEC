@@ -789,7 +789,7 @@
                                          centred in what is left over -->
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*" MaxWidth="320"/>
+                                        <ColumnDefinition Width="*" MaxWidth="380"/>
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
@@ -822,19 +822,40 @@
                                     </StackPanel>
 
                                     <!-- Which families feed an FCU rather
-                                         than the room they stand in -->
+                                         than the room they stand in: an
+                                         endcap always, a bellmouth when
+                                         its mouth faces one (VENTFACING) -->
                                     <TextBlock Grid.Row="1"
-                                               Text="Endcap names"
+                                               Text="Endcaps"
                                                Margin="0,10,0,0"
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource Ink}"/>
 
-                                    <TextBox x:Name="TxtEndcapNames"
-                                             Grid.Row="1" Grid.Column="1"
-                                             Margin="8,10,0,0"
-                                             VerticalAlignment="Center"
-                                             ToolTip="Terminal families traced to the FCU they feed. Commas between names."
-                                             Text="Endcap"/>
+                                    <Grid Grid.Row="1" Grid.Column="1"
+                                          Margin="8,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBox x:Name="TxtEndcapNames"
+                                                 VerticalAlignment="Center"
+                                                 ToolTip="Family names always traced to the nearest FCU. Commas between."
+                                                 Text="Endcap"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="Bellmouths"
+                                                   Margin="12,0,8,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{StaticResource Ink}"/>
+
+                                        <TextBox x:Name="TxtBellmouthNames"
+                                                 Grid.Column="2"
+                                                 VerticalAlignment="Center"
+                                                 ToolTip="Traced to an FCU only when facing one; otherwise they serve their room. Empty = none."
+                                                 Text="BellMouth"/>
+                                    </Grid>
                                 </Grid>
 
                             </StackPanel>

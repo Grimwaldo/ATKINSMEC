@@ -61,6 +61,9 @@ namespace ATKINSMEC
             // Which terminal families are endcaps; null = the default
             public string EndcapNames;
 
+            // ...and bellmouths; null = the default, "" = none
+            public string BellmouthNames;
+
             public bool CountFixtures = true;
 
             // The links ticked to read rooms from
@@ -313,6 +316,9 @@ namespace ATKINSMEC
                 if (m.EndcapNames != null)
                     Line(text, "endcapnames", m.EndcapNames);
 
+                if (m.BellmouthNames != null)
+                    Line(text, "bellmouthnames", m.BellmouthNames);
+
                 Line(text, "fixtures", m.CountFixtures ? "on" : "off");
 
                 foreach (LinkRef link in m.RoomLinks)
@@ -431,6 +437,11 @@ namespace ATKINSMEC
 
                     case "endcapnames":
                         m.EndcapNames = a.Trim().Length == 0 ? null : a.Trim();
+                        break;
+
+                    // Kept even when empty: that is "no bellmouths"
+                    case "bellmouthnames":
+                        m.BellmouthNames = a.Trim();
                         break;
 
                     case "fixtures":
