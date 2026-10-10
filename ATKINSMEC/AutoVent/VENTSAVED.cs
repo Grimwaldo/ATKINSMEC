@@ -58,6 +58,9 @@ namespace ATKINSMEC
 
             public double ReachMm = VENTSETTINGS.DefaultEndcapReachMm;
 
+            // Which terminal families are endcaps; null = the default
+            public string EndcapNames;
+
             public bool CountFixtures = true;
 
             // The links ticked to read rooms from
@@ -306,6 +309,10 @@ namespace ATKINSMEC
                 }
 
                 Line(text, "reach", m.ReachMm.ToString("R", CultureInfo.InvariantCulture));
+
+                if (m.EndcapNames != null)
+                    Line(text, "endcapnames", m.EndcapNames);
+
                 Line(text, "fixtures", m.CountFixtures ? "on" : "off");
 
                 foreach (LinkRef link in m.RoomLinks)
@@ -420,6 +427,10 @@ namespace ATKINSMEC
                         m.ReachMm = double.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out mm) && mm > 0
                             ? mm
                             : VENTSETTINGS.DefaultEndcapReachMm;
+                        break;
+
+                    case "endcapnames":
+                        m.EndcapNames = a.Trim().Length == 0 ? null : a.Trim();
                         break;
 
                     case "fixtures":

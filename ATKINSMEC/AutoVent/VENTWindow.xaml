@@ -778,41 +778,64 @@
 
                             <StackPanel Grid.Column="2" Margin="18,0,0,0">
 
-                                <!-- The button shares this row: stacked
-                                     under the hint it fell off the
-                                     bottom of the card. -->
-                                <StackPanel Orientation="Horizontal">
+                                <!-- Two rows, no taller than the two lists
+                                     beside them: a third pushes the whole
+                                     window past its height. The button
+                                     shares the first - stacked under it,
+                                     it fell off the bottom of the card. -->
+                                <Grid>
+                                    <!-- The column is capped, not the box:
+                                         a stretched box with a MaxWidth is
+                                         centred in what is left over -->
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*" MaxWidth="320"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
                                     <TextBlock Text="Endcap reach"
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource Ink}"/>
 
-                                    <TextBox x:Name="TxtEndcapReach"
-                                             Width="62"
-                                             Margin="8,0,0,0"
-                                             VerticalAlignment="Center"
-                                             Text="1500"/>
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal">
+                                        <TextBox x:Name="TxtEndcapReach"
+                                                 Width="62"
+                                                 Margin="8,0,0,0"
+                                                 VerticalAlignment="Center"
+                                                 ToolTip="How far an endcap may look for the FCU it feeds."
+                                                 Text="1500"/>
 
-                                    <TextBlock Text="mm"
-                                               Margin="6,0,0,0"
+                                        <TextBlock Text="mm"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{StaticResource Ink}"/>
+
+                                        <Button x:Name="BtnRun"
+                                                Margin="20,0,0,0"
+                                                Style="{StaticResource PrimaryButton}"
+                                                Content="Assign airflows"
+                                                Click="BtnRun_Click"/>
+                                    </StackPanel>
+
+                                    <!-- Which families feed an FCU rather
+                                         than the room they stand in -->
+                                    <TextBlock Grid.Row="1"
+                                               Text="Endcap names"
+                                               Margin="0,10,0,0"
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource Ink}"/>
 
-                                    <Button x:Name="BtnRun"
-                                            Margin="20,0,0,0"
-                                            Style="{StaticResource PrimaryButton}"
-                                            Content="Assign airflows"
-                                            Click="BtnRun_Click"/>
-                                </StackPanel>
-
-                                <!-- Two short sentences, one per line.
-                                     Each has to fit ONE line at 150%
-                                     scaling: the card is as tall as the
-                                     two lists beside it, and a third line
-                                     pushes the whole window past its
-                                     height. -->
-                                <TextBlock Margin="0,10,0,0"
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource Hint}" Text="How far an endcap may look for the FCU it feeds."/>
+                                    <TextBox x:Name="TxtEndcapNames"
+                                             Grid.Row="1" Grid.Column="1"
+                                             Margin="8,10,0,0"
+                                             VerticalAlignment="Center"
+                                             ToolTip="Terminal families traced to the FCU they feed. Commas between names."
+                                             Text="Endcap"/>
+                                </Grid>
 
                             </StackPanel>
                         </Grid>

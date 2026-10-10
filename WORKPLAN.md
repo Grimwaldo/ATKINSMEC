@@ -67,6 +67,21 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: endcaps by name; air with nowhere to go - 2026-10-10
+
+User (kifaf 1BDR-C, with a plan screenshot): the master bedroom's FCU
+sits over the ENSUITE, fed by a fresh air bellmouth there. The debug log
+showed why it failed: only families named "Endcap" were traced to their
+FCU, so `ATR_ME_MEQ_BellMouth-Fresh Air` counted as an ensuite terminal
+(ensuite fresh = 0), and MASTER BEDROOM 121.046's 50 l/s was written
+nowhere - silently. Now: an **Endcap names** box under the reach
+(default `Endcap`; type `Endcap, BellMouth`), saved per model; and a
+room whose air found no terminal or endcap is listed in the run's
+dialog and log. Tests: ventsettingstest +8, ventfcutest +5 (both
+mutation-checked); all 20 pass; rendered at 1x and 1.5x; deployed to
+all six (2024 too). **Never run in Revit** - in particular which FCU
+the bellmouth binds to (nearest connector within the reach).
+
 ## AUTOVENT: find and replace; a window that fits; CLAUDE.md cut - 2026-10-10
 
 User picked 5, 7 and 8 of the suggestions. **Find and replace...** in

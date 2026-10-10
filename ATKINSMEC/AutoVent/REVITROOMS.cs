@@ -438,6 +438,7 @@ namespace ATKINSMEC
             double connectorTolerance = VENTSETTINGS.EndcapReachFeet;
 
             L($"Endcap reach: {VENTSETTINGS.EndcapReachMm:0} mm");
+            L($"Endcap names: {VENTSETTINGS.EndcapNames}");
 
             var outsideFresh =
                 new Dictionary<FamilyInstance, List<string>>();
@@ -608,6 +609,14 @@ namespace ATKINSMEC
             int terminalsUpdated = 0;
             int terminalsSkipped = 0;
 
+            // Rooms whose air found a terminal - in the room, or an endcap
+            // on its unit - per side. The rest went nowhere.
+            var landedFresh = new HashSet<string>();
+            var landedExtract = new HashSet<string>();
+
+            List<string> nowhereFresh = new List<string>();
+            List<string> nowhereExtract = new List<string>();
+
             using (Transaction t =
                 new Transaction(doc2, "Update Airflows"))
             {
@@ -638,6 +647,8 @@ namespace ATKINSMEC
                         supplyTerminals.Count > 0 &&
                         airData.FreshAir > 0)
                     {
+                        landedFresh.Add(info.Key);
+
                         double perTerminal =
                             airData.FreshAir / supplyTerminals.Count;
 
@@ -662,6 +673,8 @@ namespace ATKINSMEC
                         exhaustTerminals.Count > 0 &&
                         airData.ExhaustAir > 0)
                     {
+                        landedExtract.Add(info.Key);
+
                         double perTerminal =
                             airData.ExhaustAir / exhaustTerminals.Count;
 
@@ -707,6 +720,9 @@ namespace ATKINSMEC
                         continue;
                     }
 
+                    landedFresh.UnionWith(
+                        VENTFCUCHECK.CarriedRooms(kvp.Value, freshValues));
+
                     if (WriteFlow(kvp.Key, total))
                     {
                         terminalsUpdated++;
@@ -730,6 +746,9 @@ namespace ATKINSMEC
                         continue;
                     }
 
+                    landedExtract.UnionWith(
+                        VENTFCUCHECK.CarriedRooms(kvp.Value, extractValues));
+
                     if (WriteFlow(kvp.Key, total))
                     {
                         terminalsUpdated++;
@@ -742,8 +761,22 @@ namespace ATKINSMEC
                     }
                 }
 
+                nowhereFresh = VENTFCUCHECK.Nowhere(
+                    freshValues, landedFresh, key => RoomLabel(allRooms, key));
+
+                nowhereExtract = VENTFCUCHECK.Nowhere(
+                    extractValues, landedExtract, key => RoomLabel(allRooms, key));
+
                 t.Commit();
             }
+
+            L($"Air with nowhere to go: {nowhereFresh.Count} room(s) fresh, {nowhereExtract.Count} extract");
+
+            foreach (string line in nowhereFresh)
+                L("  NOWHERE fresh " + line);
+
+            foreach (string line in nowhereExtract)
+                L("  NOWHERE extract " + line);
 
             L($"SUMMARY: matchedRooms={matchedRooms}, terminalsUpdated={terminalsUpdated}, terminalsSkipped={terminalsSkipped}");
 
@@ -789,6 +822,12 @@ namespace ATKINSMEC
                 }
             }
 
+            // AIR WITH NOWHERE TO GO - a room the sheet gives air to, with
+            // no terminal in it and no endcap on its unit. Usually an
+            // endcap named some other way (Endcaps on the window).
+            report += Nowhere("fresh", nowhereFresh);
+            report += Nowhere("extract", nowhereExtract);
+
             if (matchedRooms == 0 &&
                 allRooms.Count > 0 &&
                 ventilationData.Count > 0)
@@ -817,6 +856,28 @@ namespace ATKINSMEC
                 "\n\nFull details: ATKINSMEC_debug_log.txt on your Desktop.";
 
             TaskDialog.Show("AUTOVENT", report);
+        }
+
+        private static string Nowhere(string side, List<string> lines)
+        {
+            if (lines == null || lines.Count == 0)
+                return string.Empty;
+
+            string text =
+                $"\n\n{lines.Count} room(s) with {side} air and no terminal or endcap to take it:\n";
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (i == 6)
+                {
+                    text += $"    ... and {lines.Count - i} more, in the log.\n";
+                    break;
+                }
+
+                text += "    " + lines[i] + "\n";
+            }
+
+            return text;
         }
 
         private static VENTSHEET.SpaceKey KeyOf(RoomInfo info)
@@ -889,13 +950,12 @@ namespace ATKINSMEC
         }
 
         // Endcap families feed an FCU that serves another space; every
-        // other terminal family serves the space it stands in
+        // other terminal family serves the space it stands in. Which
+        // families those are is the window's (VENTSETTINGS.EndcapNames).
         private static bool IsEndcap(FamilyInstance terminal)
         {
             return terminal.Symbol != null &&
-                ContainsIgnoreCase(
-                    terminal.Symbol.FamilyName,
-                    "Endcap");
+                VENTSETTINGS.IsEndcap(terminal.Symbol.FamilyName);
         }
 
         private static void ClassifyTerminal(
@@ -1050,13 +1110,6 @@ namespace ATKINSMEC
             {
                 // logging must never break the add-in
             }
-        }
-
-        private static bool ContainsIgnoreCase(string text, string word)
-        {
-            return text.IndexOf(
-                word,
-                StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static FamilyInstance FindNearestEquipment(

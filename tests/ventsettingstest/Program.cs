@@ -190,6 +190,53 @@ internal static class Program
                 VENTSETTINGS.DefaultEndcapReachMm;
         }
 
+        // ---- which terminal families are endcaps --------------------
+        //
+        // The kifaf 1BDR-C: the master bedroom's FCU sits over the
+        // ensuite, fed by a fresh air BELLMOUTH - taken for an ensuite
+        // terminal, so the bedroom's 50 l/s went nowhere.
+        {
+            const string endcap = "ATR_ME_AIT_Rectangular Blank Endcap_SAD";
+            const string bellmouth = "ATR_ME_MEQ_BellMouth-Fresh Air";
+            const string returnBell = "ATR_ME_MEQ_BellMouth-Return Air";
+
+            VENTSETTINGS.EndcapNames = VENTSETTINGS.DefaultEndcapNames;
+
+            Check("endcaps: the default is the old rule - 'Endcap' in the family name, nothing else",
+                VENTSETTINGS.IsEndcap(endcap) && VENTSETTINGS.IsEndcap("m_endcap round") &&
+                !VENTSETTINGS.IsEndcap(bellmouth) && !VENTSETTINGS.IsEndcap("M_Supply Diffuser"));
+
+            VENTSETTINGS.EndcapNames = "Endcap, BellMouth";
+
+            Check("...naming the bellmouth makes it one, and endcaps stay endcaps",
+                VENTSETTINGS.IsEndcap(bellmouth) && VENTSETTINGS.IsEndcap(endcap) &&
+                !VENTSETTINGS.IsEndcap("ATK_ME_AIT_Exhaust_Round_Diffuser"));
+
+            Check("...a name of two words needs both, in any order - so one bellmouth can be told from another",
+                VENTSETTINGS.IsEndcap(bellmouth, "fresh bellmouth") &&
+                !VENTSETTINGS.IsEndcap(returnBell, "fresh bellmouth"));
+
+            Check("...semicolons work too, and empty names between commas are passed over",
+                VENTSETTINGS.IsEndcap(bellmouth, "Endcap; ; BellMouth,,") &&
+                !VENTSETTINGS.IsEndcap("M_Supply Diffuser", " , ;"));
+
+            // AN EMPTY BOX MUST NOT SWITCH THE TRACE OFF - every endcap in
+            // the job would then take its own room's air, silently
+            Check("...an empty list is the default, never 'no endcaps at all'",
+                VENTSETTINGS.IsEndcap(endcap, "") && VENTSETTINGS.IsEndcap(endcap, null) &&
+                VENTSETTINGS.IsEndcap(endcap, "   ") && !VENTSETTINGS.IsEndcap(bellmouth, ""));
+
+            Check("...a family with no name is not one, and does not throw",
+                !VENTSETTINGS.IsEndcap(null) && !VENTSETTINGS.IsEndcap(""));
+
+            Check("...the default, typed in any case, is remembered as no choice; anything else as typed",
+                VENTSETTINGS.EndcapChoice("Endcap") == null && VENTSETTINGS.EndcapChoice(" endcap ") == null &&
+                VENTSETTINGS.EndcapChoice("") == null && VENTSETTINGS.EndcapChoice(null) == null &&
+                VENTSETTINGS.EndcapChoice(" Endcap, BellMouth ") == "Endcap, BellMouth");
+
+            VENTSETTINGS.EndcapNames = VENTSETTINGS.DefaultEndcapNames;
+        }
+
         // ---- which plumbing fixture families count into No. of Units
         Console.WriteLine();
         Console.WriteLine("  fixtures");
@@ -502,6 +549,7 @@ internal static class Program
                 Fresh = new System.Collections.Generic.List<string> { "ATK_ME_OA Supply", "ATK_ME_Fresh Air" },
                 Extract = null,
                 ReachMm = 2250,
+                EndcapNames = "Endcap, BellMouth Fresh",
                 CountFixtures = false,
                 RoomLinks = { L(1001, "ARC-000010.rvt"), L(1002, "ARC-000020.rvt : 1 : Tower A") },
                 Apartments = { L(1002, "ARC-000020.rvt : 1 : Tower A") },
@@ -555,6 +603,9 @@ internal static class Program
 
             Check("a model never given a fixture switch counts fixtures, as the default does",
                 p.CountFixtures);
+
+            Check("the endcap names survive; a model that kept the default has none (follows the default)",
+                t.EndcapNames == "Endcap, BellMouth Fresh" && p.EndcapNames == null);
 
             // ---- the interior models: keyword and picks per level ---------
             var picked = new VENTSAVED.Model

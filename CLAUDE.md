@@ -168,6 +168,14 @@ plain status lines.
   the pre-tick IS the fallback rule.
 - Endcap reach (default 1500 mm; ≤0 → default). Too large finds the
   wrong FCU.
+- **Which families are endcaps** (traced to their FCU, not given their
+  own room's air): `VENTSETTINGS.EndcapNames`, the "Endcap names" box,
+  comma-separated, each matched like the links search; default and
+  empty = `Endcap`. A fresh-air bellmouth on an FCU over an ensuite was
+  taken for an ensuite terminal and the bedroom's air went nowhere.
+- **Air with nowhere to go is reported** (`VENTFCUCHECK.Nowhere`): a
+  room with air in the sheet and no terminal in it or endcap carrying
+  it — in the run's dialog and the log.
 - **Endcaps split a room's air between the endcaps bound to its units**
   (`VENTFCUCHECK`: `Tally`, `Share`, `Carried`) — the shares always add
   back to the whole. One unit, one endcap divides by one; counts per side.

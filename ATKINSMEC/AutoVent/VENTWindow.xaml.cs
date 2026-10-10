@@ -75,6 +75,8 @@ namespace ATKINSMEC
             TxtEndcapReach.Text =
                 VENTSETTINGS.EndcapReachMm.ToString("0");
 
+            TxtEndcapNames.Text = VENTSETTINGS.EndcapNames;
+
             // The duct system types belong to THIS model and do not
             // change with what is ticked anywhere, so this is read once
             RefreshSystemTypes();
@@ -301,6 +303,10 @@ namespace ATKINSMEC
                 ? VENTSETTINGS.DefaultEndcapReachMm
                 : saved.ReachMm;
 
+            VENTSETTINGS.EndcapNames = saved == null || saved.EndcapNames == null
+                ? VENTSETTINGS.DefaultEndcapNames
+                : saved.EndcapNames;
+
             VENTSETTINGS.CountFixtures = saved == null || saved.CountFixtures;
 
             VENTSETTINGS.FixtureFamilies.Clear();
@@ -358,6 +364,7 @@ namespace ATKINSMEC
                 Fresh = Chosen(_fresh, VENTSETTINGS.LooksFresh),
                 Extract = Chosen(_extract, VENTSETTINGS.LooksExtract),
                 ReachMm = ReachInBox(),
+                EndcapNames = VENTSETTINGS.EndcapChoice(TxtEndcapNames == null ? null : TxtEndcapNames.Text),
                 CountFixtures = VENTSETTINGS.CountFixtures,
                 FixtureFamilies = VENTSETTINGS.FixtureFamilies
                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -1396,6 +1403,13 @@ namespace ATKINSMEC
             }
 
             VENTSETTINGS.EndcapReachMm = mm;
+
+            // Likewise an empty names box is the default, never "no
+            // endcaps at all"
+            VENTSETTINGS.EndcapNames =
+                VENTSETTINGS.EndcapChoice(TxtEndcapNames.Text) ?? VENTSETTINGS.DefaultEndcapNames;
+
+            TxtEndcapNames.Text = VENTSETTINGS.EndcapNames;
         }
 
         private void Ticked(

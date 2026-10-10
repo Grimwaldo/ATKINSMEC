@@ -327,6 +327,46 @@ internal static class Program
                 && worth[2].Name == "2.09");
         }
 
+        // ---- AIR WITH NOWHERE TO GO --------------------------------
+        //
+        // The kifaf 1BDR-C: MASTER BEDROOM 50 l/s, its unit's bellmouth
+        // taken for an ensuite terminal, so nothing carried it - and the
+        // run said nothing. Exactly REVITROOMS' calls.
+        {
+            var fresh = new Dictionary<string, double>
+            {
+                ["BED"] = 50, ["ENSUITE"] = 0, ["LIVING"] = 10, ["KITCHEN"] = 20, ["DRESSING"] = 0
+            };
+
+            Check("an endcap carries the rooms of its unit that have air - not those with none, not others",
+                string.Join(",", VENTFCUCHECK.CarriedRooms(new[] { "LIVING", "DRESSING", "LIVING", "NOTINSHEET" }, fresh))
+                == "LIVING");
+
+            var landed = new HashSet<string>();
+
+            landed.UnionWith(VENTFCUCHECK.CarriedRooms(new[] { "LIVING" }, fresh));   // the endcap
+            landed.Add("KITCHEN");                                                       // a terminal inside
+
+            List<string> nowhere = VENTFCUCHECK.Nowhere(fresh, landed, k => "121.046 MASTER " + k);
+
+            Check("the bedroom is the one room said - a room with no air is never one",
+                nowhere.Count == 1 && nowhere[0] == "121.046 MASTER BED: 50 l/s");
+
+            landed.UnionWith(VENTFCUCHECK.CarriedRooms(new[] { "BED", "ENSUITE" }, fresh));   // the bellmouth, named
+
+            Check("...and with the bellmouth taken as an endcap, nothing is",
+                VENTFCUCHECK.Nowhere(fresh, landed, null).Count == 0);
+
+            Check("...several are sorted, and a part litre shows",
+                string.Join("|", VENTFCUCHECK.Nowhere(
+                    new Dictionary<string, double> { ["b"] = 12.5, ["A"] = 7 }, new HashSet<string>(), null))
+                == "A: 7 l/s|b: 12.5 l/s");
+
+            Check("...nothing given is nothing said, and does not throw",
+                VENTFCUCHECK.Nowhere(null, null, null).Count == 0 &&
+                VENTFCUCHECK.CarriedRooms(null, fresh).Count == 0);
+        }
+
         Console.WriteLine();
         Console.WriteLine(_failed == 0
             ? "all checks passed"

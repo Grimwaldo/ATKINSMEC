@@ -140,6 +140,57 @@ namespace ATKINSMEC
             }
         }
 
+        // WHICH TERMINAL FAMILIES ARE ENDCAPS - traced to the FCU they
+        // feed rather than given the air of the room they stand in. It
+        // was the word "Endcap" alone, inside REVITROOMS. User-reported
+        // (2026-10-10): a master bedroom's FCU sat over the ENSUITE with
+        // its fresh air on an "ATR_ME_MEQ_BellMouth-Fresh Air", which was
+        // taken for an ensuite terminal - and the bedroom's 50 l/s went
+        // nowhere.
+        //
+        // Names with a comma between; each matches as the links search
+        // does (VENTLINKFILTER: every word, any order, any case). Empty is
+        // the default, so the box cannot switch the trace off by accident.
+        public const string DefaultEndcapNames = "Endcap";
+
+        public static string EndcapNames = DefaultEndcapNames;
+
+        public static bool IsEndcap(string familyName)
+        {
+            return IsEndcap(familyName, EndcapNames);
+        }
+
+        // What a typed box is remembered as: null = the default, so a
+        // model nobody set up follows a change of default
+        public static string EndcapChoice(string typed)
+        {
+            string names = (typed ?? string.Empty).Trim();
+
+            return names.Length == 0 ||
+                   string.Equals(names, DefaultEndcapNames, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : names;
+        }
+
+        public static bool IsEndcap(string familyName, string names)
+        {
+            if (string.IsNullOrEmpty(familyName))
+                return false;
+
+            string list = string.IsNullOrWhiteSpace(names)
+                ? DefaultEndcapNames
+                : names;
+
+            foreach (string name in list.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (name.Trim().Length > 0 &&
+                    VENTLINKFILTER.Matches(familyName, name))
+                    return true;
+            }
+
+            return false;
+        }
+
         // ==================================================
         // Fixtures into "No. of Units"
         // ==================================================

@@ -307,6 +307,69 @@ namespace ATKINSMEC
             return found;
         }
 
+        // ==================================================
+        // Air that went nowhere
+        // ==================================================
+
+        // THE ROOMS AN ENDCAP CARRIED: those of its unit's rooms with air
+        // on this side - exactly the ones Carried added a share of.
+        public static List<string> CarriedRooms(
+            IEnumerable<string> servedRooms,
+            IDictionary<string, double> roomValues)
+        {
+            var found = new List<string>();
+
+            if (servedRooms == null || roomValues == null)
+                return found;
+
+            foreach (string roomKey in servedRooms)
+            {
+                double value;
+
+                if (roomKey != null &&
+                    !found.Contains(roomKey) &&
+                    roomValues.TryGetValue(roomKey, out value) &&
+                    value > 0)
+                {
+                    found.Add(roomKey);
+                }
+            }
+
+            return found;
+        }
+
+        // A ROOM WHOSE AIR WENT NOWHERE: the sheet gives it some, and no
+        // terminal in it and no endcap took any of it. That passed without
+        // a word - user-reported (2026-10-10): a master bedroom's 50 l/s,
+        // because its unit's fresh air bellmouth was not named like an
+        // endcap. One line each, "121.046 MASTER BEDROOM: 50 l/s", sorted.
+        public static List<string> Nowhere(
+            IDictionary<string, double> roomValues,
+            ICollection<string> landed,
+            Func<string, string> label)
+        {
+            var lines = new List<string>();
+
+            if (roomValues == null)
+                return lines;
+
+            foreach (KeyValuePair<string, double> room in roomValues)
+            {
+                if (room.Value <= 0 ||
+                    (landed != null && landed.Contains(room.Key)))
+                    continue;
+
+                string name = label == null ? room.Key : label(room.Key);
+
+                lines.Add(name + ": " + room.Value.ToString(
+                              "0.#", System.Globalization.CultureInfo.InvariantCulture) + " l/s");
+            }
+
+            lines.Sort(StringComparer.OrdinalIgnoreCase);
+
+            return lines;
+        }
+
         private static int Lookup(IDictionary<long, int> of, long key)
         {
             int found;
