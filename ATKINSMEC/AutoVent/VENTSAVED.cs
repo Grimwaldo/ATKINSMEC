@@ -82,6 +82,7 @@ namespace ATKINSMEC
             // again under a new id is found by its label (Resolve).
             public List<string> Ungrouped = new List<string>();
             public List<KeyValuePair<string, List<string>>> Orders = new List<KeyValuePair<string, List<string>>>();
+            public List<KeyValuePair<string, string>> Names = new List<KeyValuePair<string, string>>();
             public List<LinkRef> ArrangeLinks = new List<LinkRef>();
         }
 
@@ -340,6 +341,9 @@ namespace ATKINSMEC
                 foreach (KeyValuePair<string, List<string>> order in m.Orders)
                     Line(text, "order", new[] { order.Key }.Concat(order.Value ?? new List<string>()).ToArray());
 
+                foreach (KeyValuePair<string, string> name in m.Names)
+                    Line(text, "rename", name.Key, name.Value);
+
                 foreach (LinkRef link in m.ArrangeLinks)
                     Line(text, "arrangelink", link.Id.ToString(CultureInfo.InvariantCulture), link.Label);
             }
@@ -479,6 +483,11 @@ namespace ATKINSMEC
 
                     case "arrangelink":
                         Add(m.ArrangeLinks, a, b);
+                        break;
+
+                    case "rename":
+                        if (a.Trim().Length > 0 && b.Trim().Length > 0)
+                            m.Names.Add(new KeyValuePair<string, string>(a.Trim(), b.Trim()));
                         break;
 
                     // Anything else is from a later version: kept out

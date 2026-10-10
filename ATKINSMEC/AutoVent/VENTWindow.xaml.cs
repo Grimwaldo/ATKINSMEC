@@ -332,6 +332,9 @@ namespace ATKINSMEC
 
                 foreach (KeyValuePair<string, List<string>> order in saved.Orders)
                     VENTARRANGE.Current.Orders[order.Key] = new List<string>(order.Value);
+
+                foreach (KeyValuePair<string, string> name in saved.Names)
+                    VENTARRANGE.Current.Names[name.Key] = name.Value;
             }
         }
 
@@ -385,6 +388,10 @@ namespace ATKINSMEC
             now.Orders = VENTARRANGE.Current.Orders
                 .OrderBy(o => o.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(o => new KeyValuePair<string, List<string>>(o.Key, o.Value.ToList()))
+                .ToList();
+
+            now.Names = VENTARRANGE.Current.Names
+                .OrderBy(n => n.Key, StringComparer.Ordinal)
                 .ToList();
 
             foreach (long id in VENTARRANGE.Links(VENTARRANGE.Current).OrderBy(i => i))
@@ -964,13 +971,15 @@ namespace ATKINSMEC
                     {
                         Key = r.Key,
                         Name = r.Name ?? string.Empty,
+                        ModelName = r.ModelName ?? string.Empty,
                         Number = r.Number ?? string.Empty,
                         LinkName = manyLinks ? r.LinkName ?? string.Empty : string.Empty,
                         ApartmentKey = r.ApartmentKey,
                         Apartment = r.Apartment,
+                        ModelApartment = r.ModelApartment,
                         ApartmentNumber = r.ApartmentNumber,
                         HomeKey = home == null ? null : home.Key,
-                        Home = home == null ? null : home.Name,
+                        Home = home == null ? null : arrangement.NameOf(home.Key, home.Name),
                         HomeNumber = home == null ? null : home.Number,
                         Exported = !unticked.Contains(r.Key)
                     };
@@ -1022,10 +1031,7 @@ namespace ATKINSMEC
             SaveSettings();
             RefreshLevels();
 
-            Status(VENTARRANGE.Current.IsEmpty
-                       ? "Rooms in the default order, every interior room under its apartment."
-                       : "The levels list and the export now follow the arrangement chosen.",
-                   false);
+            Status("Arrangement saved.", false);
         }
 
         // ==================================================
@@ -1658,16 +1664,15 @@ namespace ATKINSMEC
 
             if (query.Length == 0)
             {
-                Status("Every level and room showing again.", false);
+                Status("Ready.", false);
                 return;
             }
 
             int levels = _levels.Count(l => l.IsShown);
 
             Status(found == 0
-                       ? "No room matches \"" + query + "\" - nothing is hidden from the runs. Esc clears the search."
-                       : found + " room(s) on " + levels + " level(s) match \"" + query + "\". Hidden rooms keep their " +
-                         "ticks; All, None and a level's tick act on the rooms showing.",
+                       ? "No room matches \"" + query + "\"."
+                       : found + " room(s) on " + levels + " level(s) match.",
                    false);
         }
 

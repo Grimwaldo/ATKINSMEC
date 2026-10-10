@@ -231,15 +231,18 @@ namespace ATKINSMEC
                     Parameter nameParam =
                         room.get_Parameter(BuiltInParameter.ROOM_NAME);
 
+                    // By the name the export wrote it under - renamed in
+                    // Arrange rooms... or the model's own - or its sheet
+                    // row is never found
                     var info = new RoomInfo
                     {
                         Room = room,
                         Bbox = bbox,
                         BaseZ = Math.Round(bbox.Min.Z, 2),
                         LevelName = levelName,
-                        RoomName = nameParam == null
-                            ? string.Empty
-                            : nameParam.AsString(),
+                        RoomName = VENTARRANGE.Current.NameOf(
+                            RVTLINKSELECTION.RoomKey(linkId, room.Id.ToValue()),
+                            nameParam == null ? string.Empty : nameParam.AsString()),
                         RoomNumber = room.Number,
                         Key = linkId + ":" + room.Id.ToValue(),
                         LinkName = linkedDoc.Title

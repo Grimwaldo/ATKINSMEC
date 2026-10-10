@@ -339,10 +339,12 @@ namespace ventpreview
             {
                 var rows = source.Select(r => new ATKINSMEC.VENTARRANGE.Row
                 {
-                    Key = r.Key, Number = r.Number, Name = r.Name, Exported = r.Exported,
+                    Key = r.Key, Number = r.Number, Exported = r.Exported,
+                    Name = a.NameOf(r.Key, r.Name), ModelName = r.Name,
                     HomeKey = r.HomeKey, Home = r.Home, HomeNumber = r.HomeNumber,
                     ApartmentKey = a.Ungrouped.Contains(r.Key) ? null : r.ApartmentKey,
-                    Apartment = a.Ungrouped.Contains(r.Key) ? null : r.Apartment,
+                    Apartment = a.Ungrouped.Contains(r.Key) || r.ApartmentKey == null ? null : a.NameOf(r.ApartmentKey, r.Apartment),
+                    ModelApartment = a.Ungrouped.Contains(r.Key) ? null : r.Apartment,
                     ApartmentNumber = a.Ungrouped.Contains(r.Key) ? null : r.ApartmentNumber
                 }).ToList();
 
@@ -357,6 +359,8 @@ namespace ventpreview
 
             var arrangement = new ATKINSMEC.VENTARRANGE.Arrangement();
             arrangement.Ungrouped.Add("22:17");
+            arrangement.Names["20:58"] = "MASTER ENSUITE";
+            arrangement.Names["11:4"] = "2BDR-A2 (FLAT 2)";
             arrangement.Orders[ATKINSMEC.VENTARRANGE.LevelContainer(Level)] =
                 new System.Collections.Generic.List<string> { "11:9", "10:31", "10:33", "11:4", "11:6", "22:17", "10:34" };
             arrangement.Orders[ATKINSMEC.VENTARRANGE.ApartmentContainer("11:9")] =

@@ -507,7 +507,7 @@
                                      VerticalContentAlignment="Center"
                                      TextChanged="TxtLevelSearch_TextChanged"
                                      KeyDown="TxtLevelSearch_KeyDown"
-                                     ToolTip="Type part of a room's number or name, or its level's - every word must appear, in any order. Rooms it hides keep their ticks and still count; while it is on, All, None and a level's tick act on the rooms showing. Esc clears it."/>
+                                     ToolTip="Room number, name or level. Esc clears it."/>
                             <TextBlock x:Name="TxtLevelSearchHint"
                                        Text="Search rooms"
                                        Margin="9,0,0,0"
@@ -560,7 +560,7 @@
                                 Style="{StaticResource FlatButton}"
                                 Margin="0,6,0,0"
                                 Content="Arrange rooms..."
-                                ToolTip="Drag the rooms of a level into the order the sheet should have them, and take interior (IND) rooms out of their apartments as rows of their own"
+                                ToolTip="Order, rename and ungroup rooms for the sheet"
                                 Click="BtnArrange_Click"/>
 
                         <ScrollViewer VerticalScrollBarVisibility="Auto"

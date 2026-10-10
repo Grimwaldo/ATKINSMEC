@@ -67,6 +67,16 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: rename rooms before exporting; shorter wording - 2026-10-10
+
+User: *"allow option for user to rename rooms before exporting"*, and
+*"do not overexplain things in the autovent addin"*. Rename... (F2,
+double-click) in Arrange rooms, for rooms and apartment headings; the
+export AND the airflow write use the new name, so the round trip holds.
+Dialog hint, tooltips and status lines cut to a line. Tests: ventleveltest
++7 (mutation-checked), ventsettingstest +2; all 20 pass. Deployed to all
+but **2024 (Revit 2024 open)**. Never run in Revit.
+
 ## AUTOVENT: a search box on Levels to process - 2026-10-10
 
 User: *"add search bar also into the rooms to process"*. In the levels

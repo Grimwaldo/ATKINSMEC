@@ -1305,8 +1305,23 @@ rooms but keep everything under its level under its level"*.
   matches on every other level as links that open it - which is why the
   dialog's function now returns every level in one go. Esc in the box
   clears it rather than closing the dialog; Ctrl+F returns to it.
+- **RENAMING FOR THE SHEET** (`Arrangement.Names`, key -> name; Rename...,
+  F2 or a double-click in the dialog), at the user's request: *"allow
+  option for user to rename rooms before exporting"*. A room or an
+  apartment heading. Empty, or the model's own name, is no rename.
+  **The airflow write matches a sheet row by name + number + level**
+  (`VENTSHEET.SpaceKey`), so `REVITROOMS` takes the SAME `NameOf` as
+  `CollectRooms` - change one without the other and every renamed row
+  silently gets no airflow. The levels list shows the new names
+  (`RoomsOn`; `LinkedRoom.ModelName` / `ModelApartment` keep the
+  model's), and the dialog's search still finds the old ones. Saved as
+  `rename <key> <name>`; remapped with the links; Reset this level
+  forgets them.
+- **AUTOVENT's own wording is kept SHORT** - the user: *"do not
+  overexplain things in the autovent addin"*. One-line hints, a few
+  words in tooltips, plain status lines; explanations belong here.
 - **Saved per model** (VENTSAVED: `ungrouped`, `order <container>
-  <keys...>`, `arrangelink <id> <label>`). Keys carry link ids, so
+  <keys...>`, `rename <key> <name>`, `arrangelink <id> <label>`). Keys carry link ids, so
   every link they name is saved with its label and a link loaded again
   under a new id is re-pointed (`VENTARRANGE.Remap`, `Resolve`).
 - Tested: `ventleveltest` (25 - through the real `RoomsOn`, both

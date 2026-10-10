@@ -640,6 +640,25 @@ internal static class Program
             Check("an order line with no keys, or no container, is passed over",
                 VENTSAVED.Parse("model\tk\norder\tlevel:GR\norder\t\t1:2\n")[0].Orders.Count == 0);
 
+            var renamedModel = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\renamed.rvt",
+                Names =
+                {
+                    new System.Collections.Generic.KeyValuePair<string, string>("3001198:7", "2BDR-A1 (FLAT 3)"),
+                    new System.Collections.Generic.KeyValuePair<string, string>("3589274:121106", "MASTER\tBEDROOM")
+                }
+            };
+
+            var renamedBack = VENTSAVED.Parse(VENTSAVED.Compose(new[] { renamedModel, plainModel() }));
+
+            Check("room names given for the sheet survive - a tab in one cannot break the file",
+                renamedBack[0].Names.Count == 2 && renamedBack[0].Names[0].Value == "2BDR-A1 (FLAT 3)" &&
+                renamedBack[0].Names[1].Value == "MASTER BEDROOM" && renamedBack[1].Names.Count == 0);
+
+            Check("a rename line with no key or no name is passed over",
+                VENTSAVED.Parse("model\tk\nrename\t1:2\nrename\t\tX\n")[0].Names.Count == 0);
+
             // ---- what the file must survive -------------------------------
             var awkward = new VENTSAVED.Model
             {

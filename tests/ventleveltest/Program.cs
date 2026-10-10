@@ -672,7 +672,8 @@ internal static class Program
 
                 return new VENTARRANGE.Row
                 {
-                    Key = r.Key, Name = r.Name, Number = r.Number,
+                    Key = r.Key, Name = r.Name, ModelName = r.ModelName, Number = r.Number,
+                    ModelApartment = r.ModelApartment,
                     ApartmentKey = r.ApartmentKey, Apartment = r.Apartment, ApartmentNumber = r.ApartmentNumber,
                     HomeKey = home == null ? null : home.Key, Home = home == null ? null : home.Name,
                     HomeNumber = home == null ? null : home.Number
@@ -837,6 +838,42 @@ internal static class Program
         Check("nothing typed shows everything; a word nothing has shows nothing",
             VENTARRANGE.Shown(all, "").Count == all.Count + 2 && VENTARRANGE.Shown(all, "kitchenette").Count == 0);
 
+        // ---- renaming for the sheet ("rename rooms before exporting")
+        var named = new VENTARRANGE.Arrangement();
+
+        VENTARRANGE.Rename(named, K(Ind, 21), "  MASTER BEDROOM ", "Bed room");
+        VENTARRANGE.Rename(named, aptA.Key, "2BDR-A1", "APT A");
+
+        var renamedRooms = RVTLINKSELECTION.RoomsOn(new[] { Arc }, roomsOf, map, bands, named)["GR"];
+        var bedroom = renamedRooms.First(r => r.Key == K(Ind, 21));
+
+        Check("a renamed room is listed by its new name, trimmed, and keeps the model's",
+            bedroom.Name == "MASTER BEDROOM" && bedroom.ModelName == "Bed room");
+
+        Check("a renamed apartment heads its rooms by the new name",
+            renamedRooms.Where(r => r.ApartmentKey == aptA.Key).All(r => r.Apartment == "2BDR-A1" && r.ModelApartment == "APT A"));
+
+        Check("...the name the export and the airflow write both use (NameOf by the room key)",
+            named.NameOf(RVTLINKSELECTION.RoomKey(Ind, 21), "Bed room") == "MASTER BEDROOM" &&
+            named.NameOf(K(Arc, 1), "LOBBY") == "LOBBY");
+
+        Check("still found by its old name",
+            VENTARRANGE.Shown(Rows(named), "bed room").Contains(K(Ind, 21)));
+
+        VENTARRANGE.Rename(named, K(Ind, 21), "", "Bed room");
+        VENTARRANGE.Rename(named, aptA.Key, "APT A", "APT A");
+
+        Check("emptied, or given the model's own name back, it is no rename at all",
+            named.IsEmpty);
+
+        var renamedLevel = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Rename(renamedLevel, K(Arc, 5), "LOBBY 2", "CORRIDOR");
+        VENTARRANGE.Rename(renamedLevel, aptB.Key, "1BDR-C", "APT B");
+        VENTARRANGE.Reset(renamedLevel, Rows(renamedLevel), "GR");
+
+        Check("Reset this level forgets its rooms' and apartments' names too",
+            renamedLevel.IsEmpty);
+
         // ---- moving while a search hides rows
         var seq = new List<string> { "a", "b", "c", "d", "e" };
         var showing = new HashSet<string> { "a", "c", "e" };
@@ -860,11 +897,15 @@ internal static class Program
         h.Ungrouped.Add("20:22");
         h.Orders["level:GR"] = new List<string> { "10:5", "apt:10:2".Substring(4), "20:22" };
         h.Orders["apt:10:2"] = new List<string> { "20:23", "20:21" };
+        h.Names["30:7"] = "KITCHEN";
 
-        Check("the arrangement names its links, to be saved with their labels",
-            VENTARRANGE.Links(h).OrderBy(i => i).SequenceEqual(new long[] { 10, 20 }));
+        Check("the arrangement names its links, to be saved with their labels - renamed rooms' included",
+            VENTARRANGE.Links(h).OrderBy(i => i).SequenceEqual(new long[] { 10, 20, 30 }));
 
-        VENTARRANGE.Remap(h, new Dictionary<long, long> { [10] = 110, [20] = 120 });
+        VENTARRANGE.Remap(h, new Dictionary<long, long> { [10] = 110, [20] = 120, [30] = 130 });
+
+        Check("a renamed room follows its link to the new id",
+            h.Names.Count == 1 && h.Names["130:7"] == "KITCHEN");
 
         Check("re-pointed to the new ids: rooms taken out, every order and the apartment containers",
             h.Ungrouped.SetEquals(new[] { "120:22" }) &&

@@ -482,12 +482,14 @@ namespace ATKINSMEC
                     else
                         heightsFromBoundingBox++;
 
+                    // Renamed for the sheet in Arrange rooms... - the airflow
+                    // write matches by the same name (REVITROOMS)
                     block.Rooms.Add(new VENTTEMPLATE.Room
                     {
                         Key = roomKey,
-                        Name = nameParam == null
+                        Name = VENTARRANGE.Current.NameOf(roomKey, nameParam == null
                             ? string.Empty
-                            : nameParam.AsString(),
+                            : nameParam.AsString()),
                         Number = room.Number,
                         AreaM2 = UnitUtils.ConvertFromInternalUnits(
                             room.Area,
@@ -495,7 +497,7 @@ namespace ATKINSMEC
                         HeightM = heightM,
                         Fixtures = FixturesIn(fixtures, linkId, room),
                         ApartmentKey = apartment == null ? null : apartment.Key,
-                        Apartment = apartment == null ? null : apartment.Name,
+                        Apartment = apartment == null ? null : VENTARRANGE.Current.NameOf(apartment.Key, apartment.Name),
                         ApartmentNumber = apartment == null ? null : apartment.Number
                     });
                 }
@@ -532,17 +534,27 @@ namespace ATKINSMEC
 
             int takenOut = arrangement.Ungrouped.Count(keys.Contains);
 
+            int renamed = arrangement.Names.Keys.Count(k =>
+                keys.Contains(k) || blocks.SelectMany(b => b.Rooms).Any(r => r.ApartmentKey == k));
+
             int levels = blocks.Count(b => arrangement.OrderOf(VENTARRANGE.LevelContainer(b.LevelName)) != null ||
                                            b.Rooms.Any(r => !string.IsNullOrEmpty(r.ApartmentKey) &&
                                                             arrangement.OrderOf(VENTARRANGE.ApartmentContainer(r.ApartmentKey)) != null));
 
-            if (takenOut == 0 && levels == 0)
-                return string.Empty;
+            var said = new List<string>();
 
-            return "\r\n\r\nArranged by hand (Arrange rooms...): " +
-                   (levels > 0 ? levels + " level(s) in the order chosen" : "no order changed") +
-                   (takenOut > 0 ? ", " + takenOut + " interior room(s) taken out of their apartment as rows of their own" : string.Empty) +
-                   ".";
+            if (levels > 0)
+                said.Add(levels + " level(s) reordered");
+
+            if (takenOut > 0)
+                said.Add(takenOut + " room(s) taken out of apartments");
+
+            if (renamed > 0)
+                said.Add(renamed + " renamed");
+
+            return said.Count == 0
+                ? string.Empty
+                : "\r\n\r\nArrange rooms: " + string.Join(", ", said) + ".";
         }
 
         // What the apartments did, for the report

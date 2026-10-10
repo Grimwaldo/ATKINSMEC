@@ -60,6 +60,7 @@ namespace ATKINSMEC
         private readonly Button _takeOut;
         private readonly Button _putBack;
         private readonly Button _reset;
+        private readonly Button _rename;
 
         // What OK hands back
         public VENTARRANGE.Arrangement Result { get; private set; }
@@ -126,11 +127,9 @@ namespace ATKINSMEC
                 Margin = new Thickness(0, 0, 0, 6)
             });
 
-            Put(grid, 1, 0, 2, Hint(
-                "One level at a time, in the order it will be written. Drag a row to move it within its level - " +
-                "an apartment moves with its rooms, and a room inside an apartment moves within that apartment. " +
-                "Take an interior (IND) room out of its apartment to give it a row of its own. The levels list " +
-                "and every export follow this."));
+            // Short, at the user's request: "do not overexplain things in the
+            // autovent addin"
+            Put(grid, 1, 0, 2, Hint("Drag to reorder. Rows stay within their level and apartment."));
 
             var levelRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
 
@@ -162,8 +161,7 @@ namespace ATKINSMEC
             {
                 Padding = new Thickness(6, 3, 6, 3),
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "Rooms whose number, name, model or apartment hold every word typed - " +
-                          "in any order, any case. Esc clears it; Ctrl+F comes back to it."
+                ToolTip = "Number, name, model or apartment (Ctrl+F)"
             };
 
             _searchHint = new TextBlock
@@ -202,6 +200,8 @@ namespace ATKINSMEC
 
             _up = SideButton("Move up", side);
             _down = SideButton("Move down", side);
+            _rename = SideButton("Rename...", side);
+            _rename.Margin = new Thickness(0, 18, 0, 0);
             _takeOut = SideButton("Take out of apartment", side);
             _takeOut.Margin = new Thickness(0, 18, 0, 0);
             _putBack = SideButton("Put back in apartment", side);
@@ -210,9 +210,7 @@ namespace ATKINSMEC
 
             _up.ToolTip = "Ctrl+Up";
             _down.ToolTip = "Ctrl+Down";
-            _takeOut.ToolTip = "Write the picked interior rooms as rows of their own, by their own names";
-            _putBack.ToolTip = "Write the picked rooms under their apartment again";
-            _reset.ToolTip = "Forget the order and every room taken out on this level";
+            _rename.ToolTip = "F2, or double-click";
 
             Put(grid, 3, 1, 1, side);
 
@@ -250,11 +248,25 @@ namespace ATKINSMEC
             _takeOut.Click += (s, e) => TakeOutPicked();
             _putBack.Click += (s, e) => PutBackPicked();
             _reset.Click += (s, e) => { VENTARRANGE.Reset(_work, _rows, _level); Fill(null); };
+            _rename.Click += (s, e) => RenamePicked();
 
             _list.SelectionChanged += (s, e) => Enable();
 
+            _list.MouseDoubleClick += (s, e) =>
+            {
+                if (ItemAt(e.OriginalSource as DependencyObject) != null)
+                    RenamePicked();
+            };
+
             _list.PreviewKeyDown += (s, e) =>
             {
+                if (e.Key == Key.F2)
+                {
+                    RenamePicked();
+                    e.Handled = true;
+                    return;
+                }
+
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
                     return;
 
@@ -489,6 +501,12 @@ namespace ATKINSMEC
                     FontWeight = FontWeights.SemiBold
                 });
 
+                if (first != null && first.Apartment != first.ModelApartment)
+                {
+                    head.Inlines.Add(Renamed());
+                    head.ToolTip = "Model: " + first.ModelApartment;
+                }
+
                 head.Inlines.Add(new System.Windows.Documents.Run(
                     "   " + (first == null ? string.Empty : first.ApartmentNumber) + "   -   apartment, " + rooms + " room(s)")
                 {
@@ -526,6 +544,12 @@ namespace ATKINSMEC
 
             name.Inlines.Add(new System.Windows.Documents.Run(row.Name));
 
+            if (row.Name != row.ModelName)
+            {
+                name.Inlines.Add(Renamed());
+                name.ToolTip = "Model: " + row.ModelName;
+            }
+
             if (row.IsTakenOut)
             {
                 name.Inlines.Add(new System.Windows.Documents.Run(
@@ -560,6 +584,11 @@ namespace ATKINSMEC
             return panel;
         }
 
+        private static System.Windows.Documents.Run Renamed()
+        {
+            return new System.Windows.Documents.Run("  renamed") { Foreground = Accent, FontSize = 11 };
+        }
+
         private List<Line> Picked()
         {
             return _list.SelectedItems
@@ -573,7 +602,7 @@ namespace ATKINSMEC
         {
             List<Line> picked = Picked();
 
-            _up.IsEnabled = _down.IsEnabled = picked.Count == 1;
+            _up.IsEnabled = _down.IsEnabled = _rename.IsEnabled = picked.Count == 1;
             _takeOut.IsEnabled = picked.Any(l => l.Row != null && !string.IsNullOrEmpty(l.Row.ApartmentKey));
             _putBack.IsEnabled = picked.Any(l => l.Row != null && l.Row.IsTakenOut);
             _reset.IsEnabled = _rows.Count > 0;
@@ -583,7 +612,7 @@ namespace ATKINSMEC
         {
             if (_level == null)
             {
-                _said.Text = "No level has rooms to arrange - tick a linked model first.";
+                _said.Text = "No rooms - tick a linked model first.";
                 return;
             }
 
@@ -591,15 +620,15 @@ namespace ATKINSMEC
             int takenOut = _rows.Count(r => r.IsTakenOut);
             int unticked = _rows.Count(r => !r.Exported);
 
-            bool chosen = _work.OrderOf(LevelContainer) != null ||
-                          _rows.Any(r => !string.IsNullOrEmpty(r.ApartmentKey) &&
-                                         _work.OrderOf(VENTARRANGE.ApartmentContainer(r.ApartmentKey)) != null);
+            int renamed = _rows.Count(r => r.Name != r.ModelName) +
+                          _rows.Where(r => !string.IsNullOrEmpty(r.ApartmentKey) && r.Apartment != r.ModelApartment)
+                               .Select(r => r.ApartmentKey).Distinct().Count();
 
-            string summary = _rows.Count + " room(s) on " + _level +
+            string summary = _rows.Count + " room(s)" +
                              (apartments > 0 ? ", " + apartments + " apartment(s)" : string.Empty) +
-                             (takenOut > 0 ? ", " + takenOut + " taken out of their apartment" : string.Empty) +
-                             (unticked > 0 ? ", " + unticked + " unticked" : string.Empty) + ". " +
-                             (chosen ? "In the order chosen here." : "In the default order - by number.");
+                             (takenOut > 0 ? ", " + takenOut + " taken out" : string.Empty) +
+                             (renamed > 0 ? ", " + renamed + " renamed" : string.Empty) +
+                             (unticked > 0 ? ", " + unticked + " unticked" : string.Empty) + ".";
 
             if (_shown == null)
             {
@@ -616,8 +645,8 @@ namespace ATKINSMEC
             _said.Inlines.Clear();
 
             _said.Inlines.Add(new System.Windows.Documents.Run(found == 0
-                ? "No room on " + _level + " matches \"" + query + "\""
-                : found + " of " + _rows.Count + " room(s) on " + _level + " match \"" + query + "\""));
+                ? "No match on " + _level
+                : found + " of " + _rows.Count + " match"));
 
             var elsewhere = _levels
                 .Where(l => !string.Equals(l, _level, StringComparison.OrdinalIgnoreCase))
@@ -627,7 +656,7 @@ namespace ATKINSMEC
 
             if (elsewhere.Count == 0)
             {
-                _said.Inlines.Add(new System.Windows.Documents.Run(found == 0 ? " - nor on any other level." : " - and on no other level."));
+                _said.Inlines.Add(new System.Windows.Documents.Run("."));
             }
             else
             {
@@ -654,9 +683,6 @@ namespace ATKINSMEC
 
                 _said.Inlines.Add(new System.Windows.Documents.Run("."));
             }
-
-            _said.Inlines.Add(new System.Windows.Documents.Run(
-                " Rows the search hides keep their places; Esc shows them all."));
         }
 
         // Another level in the picker - the search stays as it is
@@ -710,6 +736,99 @@ namespace ATKINSMEC
             Reorder(line.Container, moved);
 
             Fill(new[] { (line.IsApartment ? "apt " : string.Empty) + line.Key });
+        }
+
+        // A new name for the one row picked - a room, or an apartment's
+        // heading. Emptied, it goes back to the model's name.
+        private void RenamePicked()
+        {
+            List<Line> picked = Picked();
+
+            if (picked.Count != 1)
+                return;
+
+            Line line = picked[0];
+
+            string current, model;
+
+            if (line.IsApartment)
+            {
+                VENTARRANGE.Row first = _rows.FirstOrDefault(r => r.ApartmentKey == line.Key);
+
+                if (first == null)
+                    return;
+
+                current = first.Apartment;
+                model = first.ModelApartment;
+            }
+            else
+            {
+                current = line.Row.Name;
+                model = line.Row.ModelName;
+            }
+
+            string name = AskName(current, model);
+
+            if (name == null)
+                return;
+
+            VENTARRANGE.Rename(_work, line.Key, name, model);
+
+            Fill(new[] { (line.IsApartment ? "apt " : string.Empty) + line.Key });
+        }
+
+        // The name asked for, or null for Cancel
+        private string AskName(string current, string model)
+        {
+            var ask = new Window
+            {
+                Title = "Rename",
+                Owner = this,
+                Width = 380,
+                SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+                FontFamily = FontFamily,
+                FontSize = FontSize,
+                Background = Background
+            };
+
+            var panel = new StackPanel { Margin = new Thickness(16) };
+
+            var box = new TextBox { Text = current ?? string.Empty, Padding = new Thickness(6, 3, 6, 3) };
+
+            panel.Children.Add(box);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Model: " + model + "  (empty to keep it)",
+                Foreground = Muted,
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 14, 0, 0)
+            };
+
+            var ok = new Button { Content = "OK", Width = 80, Padding = new Thickness(0, 3, 0, 3), IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Width = 80, Padding = new Thickness(0, 3, 0, 3), Margin = new Thickness(8, 0, 0, 0), IsCancel = true };
+
+            ok.Click += (s, e) => ask.DialogResult = true;
+
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            panel.Children.Add(buttons);
+
+            ask.Content = panel;
+            ask.Loaded += (s, e) => { box.Focus(); box.SelectAll(); };
+
+            return ask.ShowDialog() == true ? box.Text : null;
         }
 
         private void TakeOutPicked()

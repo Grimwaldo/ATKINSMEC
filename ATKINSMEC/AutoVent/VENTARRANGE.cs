@@ -43,9 +43,16 @@ namespace ATKINSMEC
             public Dictionary<string, List<string>> Orders =
                 new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
+            // RENAMED FOR THE SHEET, at the user's request ("allow option
+            // for user to rename rooms before exporting"): room or apartment
+            // key -> the name written. The airflow write matches a sheet row
+            // by name, so it applies these too - a renamed row still finds
+            // its room.
+            public Dictionary<string, string> Names = new Dictionary<string, string>(StringComparer.Ordinal);
+
             public bool IsEmpty
             {
-                get { return Ungrouped.Count == 0 && Orders.Count == 0; }
+                get { return Ungrouped.Count == 0 && Orders.Count == 0 && Names.Count == 0; }
             }
 
             public Arrangement Clone()
@@ -57,7 +64,18 @@ namespace ATKINSMEC
                 foreach (KeyValuePair<string, List<string>> order in Orders)
                     copy.Orders[order.Key] = new List<string>(order.Value);
 
+                foreach (KeyValuePair<string, string> name in Names)
+                    copy.Names[name.Key] = name.Value;
+
                 return copy;
+            }
+
+            // The name a room or apartment is written by: its new one, or
+            // the model's
+            public string NameOf(string key, string modelName)
+            {
+                string name;
+                return key != null && Names.TryGetValue(key, out name) ? name : modelName;
             }
 
             public List<string> OrderOf(string container)
@@ -211,13 +229,15 @@ namespace ATKINSMEC
         public class Row
         {
             public string Key = string.Empty;
-            public string Name = string.Empty;
+            public string Name = string.Empty;          // as written - renamed or not
+            public string ModelName = string.Empty;     // the model's own
             public string Number = string.Empty;
             public string LinkName = string.Empty;
 
             // The apartment it is written under NOW - null: a row of its own
             public string ApartmentKey;
-            public string Apartment;
+            public string Apartment;                    // as written
+            public string ModelApartment;               // the model's own
             public string ApartmentNumber;
 
             // The apartment it STANDS IN, grouped or not - null for a room
@@ -295,8 +315,23 @@ namespace ATKINSMEC
                 top.Remove(row.Key);
         }
 
+        // A NEW NAME FOR THE SHEET. Empty, or the model's own name, is no
+        // rename at all - the model's name is written again.
+        public static void Rename(Arrangement arrangement, string key, string name, string modelName)
+        {
+            if (arrangement == null || string.IsNullOrEmpty(key))
+                return;
+
+            string clean = (name ?? string.Empty).Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+            if (clean.Length == 0 || clean == (modelName ?? string.Empty).Trim())
+                arrangement.Names.Remove(key);
+            else
+                arrangement.Names[key] = clean;
+        }
+
         // EVERYTHING CHOSEN FOR ONE LEVEL forgotten: its order, its
-        // apartments' orders, and its rooms taken out
+        // apartments' orders and names, its rooms taken out and renamed
         public static void Reset(Arrangement arrangement, IEnumerable<Row> rows, string level)
         {
             if (arrangement == null)
@@ -307,9 +342,13 @@ namespace ATKINSMEC
             foreach (Row row in rows ?? Enumerable.Empty<Row>())
             {
                 arrangement.Ungrouped.Remove(row.Key);
+                arrangement.Names.Remove(row.Key);
 
                 if (row.IsInterior)
+                {
                     arrangement.Orders.Remove(ApartmentContainer(row.HomeKey));
+                    arrangement.Names.Remove(row.HomeKey);
+                }
             }
         }
 
@@ -328,9 +367,11 @@ namespace ATKINSMEC
             if (row == null)
                 return string.Empty;
 
+            // The model's names too: a renamed room is still found by its old one
             return string.Join(" ", new[]
             {
-                row.Number, row.Name, row.LinkName, row.Apartment, row.ApartmentNumber, row.Home, row.HomeNumber
+                row.Number, row.Name, row.ModelName, row.LinkName, row.Apartment, row.ModelApartment,
+                row.ApartmentNumber, row.Home, row.HomeNumber
             }.Where(s => !string.IsNullOrEmpty(s)));
         }
 
@@ -428,6 +469,9 @@ namespace ATKINSMEC
                     ids.Add(LinkOf(key));
             }
 
+            foreach (string key in arrangement.Names.Keys)
+                ids.Add(LinkOf(key));
+
             ids.Remove(0);
 
             return ids;
@@ -462,6 +506,12 @@ namespace ATKINSMEC
 
             foreach (KeyValuePair<string, List<string>> order in orders)
                 arrangement.Orders[moved(order.Key)] = order.Value.Select(moved).ToList();
+
+            var names = arrangement.Names.ToList();
+            arrangement.Names.Clear();
+
+            foreach (KeyValuePair<string, string> name in names)
+                arrangement.Names[moved(name.Key)] = name.Value;
         }
     }
 }

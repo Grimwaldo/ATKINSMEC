@@ -43,6 +43,11 @@ namespace ATKINSMEC
             public string Apartment { get; set; }
             public string ApartmentNumber { get; set; }
 
+            // The model's own names, where Name and Apartment carry a
+            // name given for the sheet (VENTARRANGE.Names)
+            public string ModelName { get; set; }
+            public string ModelApartment { get; set; }
+
             public string Key
             {
                 get { return RoomKey(LinkId, RoomId); }
@@ -132,17 +137,22 @@ namespace ATKINSMEC
                         byLevel.Add(level, list);
                     }
 
+                    // Named as the sheet will name it (VENTARRANGE.Names)
                     list.Add(new LinkedRoom
                     {
                         LinkId = linkId,
                         RoomId = room.RoomId,
-                        Name = room.Name ?? string.Empty,
+                        Name = arrangement == null ? room.Name ?? string.Empty : arrangement.NameOf(key, room.Name ?? string.Empty),
+                        ModelName = room.Name ?? string.Empty,
                         Number = room.Number ?? string.Empty,
                         LinkName = room.LinkName ?? string.Empty,
                         LinkLevel = room.LinkLevel ?? string.Empty,
                         Floor = room.Floor,
                         ApartmentKey = apartment == null ? null : apartment.Key,
-                        Apartment = apartment == null ? null : apartment.Name,
+                        Apartment = apartment == null
+                            ? null
+                            : arrangement == null ? apartment.Name : arrangement.NameOf(apartment.Key, apartment.Name),
+                        ModelApartment = apartment == null ? null : apartment.Name,
                         ApartmentNumber = apartment == null ? null : apartment.Number
                     });
                 }
