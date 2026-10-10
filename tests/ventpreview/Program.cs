@@ -130,6 +130,26 @@ namespace ventpreview
 
             Shoot(window, Path.Combine(folder, "autovent-big.png"));
 
+            // A 1080p laptop at 150%: about 690 above the taskbar - the body
+            // scrolls, at the top and at the bottom
+            window.Width = 1060;
+            window.Height = 690;
+
+            window.UpdateLayout();
+
+            Shoot(window, Path.Combine(folder, "autovent-short.png"));
+            Shoot(window, Path.Combine(folder, "autovent-short-1.5x.png"), 1.5);
+
+            var body = window.FindName("BodyScroll") as System.Windows.Controls.ScrollViewer;
+
+            if (body != null)
+            {
+                body.ScrollToBottom();
+                window.UpdateLayout();
+            }
+
+            Shoot(window, Path.Combine(folder, "autovent-short-bottom.png"));
+
             window.Close();
 
             app.Shutdown();

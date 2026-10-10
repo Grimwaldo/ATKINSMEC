@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AUTOVENT"
         Height="860" Width="1060"
-        MinHeight="800" MinWidth="920"
+        MinHeight="480" MinWidth="920"
         WindowStartupLocation="CenterScreen"
         Background="#FFF4F6F8"
         UseLayoutRounding="True"
@@ -317,7 +317,16 @@
         </Border>
 
         <!-- ================= body ================= -->
-        <Grid Margin="22,18,22,14">
+        <!-- Scrolls once the window is shorter than the rows need - a
+             1080p laptop at 150%. BodyGrid's height is SET (VENTFIT.Body):
+             left to the scroll viewer, the levels row's * would become
+             Auto and the tree would build every row. -->
+        <ScrollViewer x:Name="BodyScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Focusable="False"
+                      SizeChanged="BodyScroll_SizeChanged">
+        <Grid x:Name="BodyGrid" Margin="22,18,22,14" Height="680">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*" MinHeight="190"/>
@@ -925,5 +934,6 @@
             </Border>
 
         </Grid>
+        </ScrollViewer>
     </DockPanel>
 </Window>

@@ -866,6 +866,28 @@ internal static class Program
         Check("emptied, or given the model's own name back, it is no rename at all",
             named.IsEmpty);
 
+        // ---- find and replace across names
+        var typo = new VENTARRANGE.Arrangement();
+
+        int replaced = VENTARRANGE.Replace(typo, Rows(typo), "bed ROOM", "BEDROOM");
+
+        Check("find and replace: every name holding it, any case - rooms only, here two",
+            replaced == 2 && typo.Names[K(Ind, 21)] == "BEDROOM" && typo.Names[K(Ind, 31)] == "BEDROOM");
+
+        Check("...and an apartment heading once, however many rooms are under it",
+            VENTARRANGE.Replace(typo, Rows(typo), "APT", "FLAT") == 2 &&
+            typo.Names[aptA.Key] == "FLAT A" && typo.Names[aptB.Key] == "FLAT B");
+
+        Check("...the replacement is taken literally - a $ is a $",
+            VENTARRANGE.Replace(typo, Rows(typo), "LOBBY", "$0 HALL") == 1 && typo.Names[K(Arc, 1)] == "$0 HALL");
+
+        Check("...replaced back to the model's own name, it is no rename",
+            VENTARRANGE.Replace(typo, Rows(typo), "FLAT", "APT") == 2 &&
+            !typo.Names.ContainsKey(aptA.Key) && !typo.Names.ContainsKey(aptB.Key));
+
+        Check("...and nothing to find changes nothing",
+            VENTARRANGE.Replace(typo, Rows(typo), "", "X") == 0 && VENTARRANGE.Replace(typo, Rows(typo), "kitchenette", "X") == 0);
+
         var renamedLevel = new VENTARRANGE.Arrangement();
         VENTARRANGE.Rename(renamedLevel, K(Arc, 5), "LOBBY 2", "CORRIDOR");
         VENTARRANGE.Rename(renamedLevel, aptB.Key, "1BDR-C", "APT B");

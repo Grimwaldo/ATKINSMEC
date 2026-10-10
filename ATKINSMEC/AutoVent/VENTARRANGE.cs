@@ -330,6 +330,46 @@ namespace ATKINSMEC
                 arrangement.Names[key] = clean;
         }
 
+        // FIND AND REPLACE across names, at the user's request - a typo
+        // like "BREDROOM" in an interior model, put right everywhere at
+        // once. Every room given, and each apartment heading over them
+        // once, whose name AS WRITTEN holds `find` (any case) has it
+        // replaced - literally, nothing in either string is a pattern - and
+        // goes through Rename, so a name brought back to the model's is no
+        // rename. Returns how many names changed.
+        public static int Replace(Arrangement arrangement, IEnumerable<Row> rows, string find, string with)
+        {
+            if (arrangement == null || string.IsNullOrEmpty(find))
+                return 0;
+
+            var pattern = new System.Text.RegularExpressions.Regex(
+                System.Text.RegularExpressions.Regex.Escape(find),
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            Func<string, string> replaced = text => pattern.Replace(text ?? string.Empty, m => with ?? string.Empty);
+
+            int changed = 0;
+            var apartments = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (Row row in rows ?? Enumerable.Empty<Row>())
+            {
+                if (pattern.IsMatch(row.Name ?? string.Empty))
+                {
+                    Rename(arrangement, row.Key, replaced(row.Name), row.ModelName);
+                    changed++;
+                }
+
+                if (!string.IsNullOrEmpty(row.ApartmentKey) && apartments.Add(row.ApartmentKey) &&
+                    pattern.IsMatch(row.Apartment ?? string.Empty))
+                {
+                    Rename(arrangement, row.ApartmentKey, replaced(row.Apartment), row.ModelApartment);
+                    changed++;
+                }
+            }
+
+            return changed;
+        }
+
         // EVERYTHING CHOSEN FOR ONE LEVEL forgotten: its order, its
         // apartments' orders and names, its rooms taken out and renamed
         public static void Reset(Arrangement arrangement, IEnumerable<Row> rows, string level)

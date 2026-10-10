@@ -61,6 +61,7 @@ namespace ATKINSMEC
         private readonly Button _putBack;
         private readonly Button _reset;
         private readonly Button _rename;
+        private readonly Button _replace;
 
         // What OK hands back
         public VENTARRANGE.Arrangement Result { get; private set; }
@@ -202,6 +203,7 @@ namespace ATKINSMEC
             _down = SideButton("Move down", side);
             _rename = SideButton("Rename...", side);
             _rename.Margin = new Thickness(0, 18, 0, 0);
+            _replace = SideButton("Find and replace...", side);
             _takeOut = SideButton("Take out of apartment", side);
             _takeOut.Margin = new Thickness(0, 18, 0, 0);
             _putBack = SideButton("Put back in apartment", side);
@@ -249,6 +251,7 @@ namespace ATKINSMEC
             _putBack.Click += (s, e) => PutBackPicked();
             _reset.Click += (s, e) => { VENTARRANGE.Reset(_work, _rows, _level); Fill(null); };
             _rename.Click += (s, e) => RenamePicked();
+            _replace.Click += (s, e) => ReplaceNames();
 
             _list.SelectionChanged += (s, e) => Enable();
 
@@ -775,6 +778,89 @@ namespace ATKINSMEC
             VENTARRANGE.Rename(_work, line.Key, name, model);
 
             Fill(new[] { (line.IsApartment ? "apt " : string.Empty) + line.Key });
+        }
+
+        // Find and replace across names - this level, or every level
+        private void ReplaceNames()
+        {
+            var ask = new Window
+            {
+                Title = "Find and replace",
+                Owner = this,
+                Width = 380,
+                SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false,
+                FontFamily = FontFamily,
+                FontSize = FontSize,
+                Background = Background
+            };
+
+            var grid = new Grid { Margin = new Thickness(16) };
+
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            for (int i = 0; i < 4; i++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var find = new TextBox { Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 0, 8) };
+            var with = new TextBox { Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 0, 8) };
+            var every = new CheckBox { Content = new TextBlock { Text = "All levels" }, IsChecked = true };
+
+            Action<UIElement, int, int> at = (element, row, column) =>
+            {
+                Grid.SetRow(element, row);
+                Grid.SetColumn(element, column);
+                grid.Children.Add(element);
+            };
+
+            at(new TextBlock { Text = "Find", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 8) }, 0, 0);
+            at(find, 0, 1);
+            at(new TextBlock { Text = "Replace with", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 8) }, 1, 0);
+            at(with, 1, 1);
+            at(every, 2, 1);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 14, 0, 0)
+            };
+
+            var ok = new Button { Content = "Replace", Width = 80, Padding = new Thickness(0, 3, 0, 3), IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Width = 80, Padding = new Thickness(0, 3, 0, 3), Margin = new Thickness(8, 0, 0, 0), IsCancel = true };
+
+            ok.Click += (s, e) => ask.DialogResult = true;
+
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+
+            Grid.SetColumnSpan(buttons, 2);
+            at(buttons, 3, 0);
+
+            ask.Content = grid;
+            ask.Loaded += (s, e) => find.Focus();
+
+            if (ask.ShowDialog() != true || string.IsNullOrEmpty(find.Text))
+                return;
+
+            IEnumerable<VENTARRANGE.Row> rows = every.IsChecked == true
+                ? _all.Values.SelectMany(r => r)
+                : _rows;
+
+            int changed = VENTARRANGE.Replace(_work, rows.ToList(), find.Text, with.Text);
+
+            Fill(null);
+
+            // Said first on the line under the list, until the next change
+            var said = new System.Windows.Documents.Run(changed + " name(s) changed. ") { Foreground = Accent };
+
+            if (_said.Inlines.FirstInline == null)
+                _said.Inlines.Add(said);
+            else
+                _said.Inlines.InsertBefore(_said.Inlines.FirstInline, said);
         }
 
         // The name asked for, or null for Cancel

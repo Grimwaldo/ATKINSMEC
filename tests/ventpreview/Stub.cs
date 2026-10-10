@@ -141,6 +141,11 @@ namespace ATKINSMEC
 
         private void TxtLevelSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
 
+        private void BodyScroll_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            VENTFIT.Body(BodyScroll, BodyGrid);
+        }
+
         public void SearchLevels(string text)
         {
             TxtLevelSearch.Text = text;

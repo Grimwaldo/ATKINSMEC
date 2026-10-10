@@ -48,6 +48,10 @@ namespace ATKINSMEC
         {
             InitializeComponent();
 
+            // No bigger than the screen - before it is shown, so it still
+            // opens centred (VENTFIT)
+            VENTFIT.Screen(this);
+
             _doc = doc;
             _docTitle = docTitle ?? string.Empty;
 
@@ -652,10 +656,18 @@ namespace ATKINSMEC
 
             if (_recalled)
             {
-                Status("Set up as this model was last left" +
-                       (string.IsNullOrEmpty(_saved.When) ? "" : " (" + _saved.When + ")") +
-                       ": the ticked links, Apartments, system types, endcap reach and fixtures.", false);
+                Status("Set-up restored" +
+                       (string.IsNullOrEmpty(_saved.When) ? "." : " (" + _saved.When + ")."), false);
             }
+
+            // The body to the window, once its rows have their real heights
+            Dispatcher.BeginInvoke(new Action(() => VENTFIT.Body(BodyScroll, BodyGrid)),
+                                   System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void BodyScroll_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            VENTFIT.Body(BodyScroll, BodyGrid);
         }
 
         // ==================================================
