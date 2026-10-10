@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Read-only probe, loaded through the Add-In Manager: dumps what is
+       modelled in an apartment so another can be modelled the same way. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AptProbe</AssemblyName>
+    <RootNamespace>AptProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.60" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.60" />
+  </ItemGroup>
+</Project>
