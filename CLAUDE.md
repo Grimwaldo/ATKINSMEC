@@ -293,7 +293,10 @@ Revit-free, built in code), `VENTAPARTMENTS.cs` (asking the models
 which interior room stands in which apartment) + `VENTAPARTMENTMAP.cs`
 (deciding it, the same-storey rule and the record - Revit-free, the
 other half of the same partial class) + `VENTAPTLOG.cs` (what the map
-found and why, `Desktop\ATKINSMEC_apartments_log.txt`), `VENTSHOW.cs` ("Show in
+found and why, `Desktop\ATKINSMEC_apartments_log.txt`), `VENTARRANGE.cs`
+(the rooms arranged by hand for the sheet, Revit-free) +
+`VENTARRANGEDIALOG.cs` (the "Arrange rooms..." dialog, built in code,
+Revit-free), `VENTSHOW.cs` ("Show in
 plan" for the rooms picked in the levels list), `VENTLEVELROWS.cs` (the
 level and room rows of the levels tree, their ticks and the rules for
 picking several - `Picks` - Revit-free).
@@ -1227,6 +1230,52 @@ apartment rooms; nothing is read twice. The window renders at 1x and
 interior placements). **The Revit half has never run** - in particular
 whether `GetRoomAtPoint` finds the apartment from an interior room's
 point in a real pair of models.
+
+**THE ROOMS CAN BE ARRANGED BY HAND FOR THE SHEET** (`VENTARRANGE`,
+**Arrange rooms...** under All/None/Show in plan), at the user's request
+(2026-10-10): *"select any IND room and make it ungrouped from ARCH
+rooms so it can be added directly to the excel sheet ... arrange the IND
+rooms grouped under ARCH room by dragging in the list so it will come
+with same arrangement in the excel sheet, do the same also for ARCH
+rooms but keep everything under its level under its level"*.
+
+- **Taking an interior room out of its apartment changes the SHEET
+  only** (`Arrangement.Ungrouped`): it is written as a row of its own,
+  by its own name. The apartments map is untouched, so the airflow write
+  and the fixture count do exactly what they did - a room is keyed by
+  its own name grouped or not, which `officetest` proves by reading the
+  arranged sheet back through the real importer. An apartment whose
+  rooms are ALL taken out has no row left (it is still `Holding`).
+- **Orders are per CONTAINER** - a level's top rows (`level:<name>`:
+  ordinary rooms and apartments, each apartment one unit) or one
+  apartment's own rooms (`apt:<apartment key>`). Nothing can move
+  between containers, so nothing leaves its level or its apartment;
+  dropping anywhere else is refused in the dialog.
+- **An order that is only the default is not kept** (`SetOrder`) - the
+  system-type lists' rule - so a room drawn later still lands by
+  number, and a row dragged away and back is forgotten, not frozen.
+  Keys an order names that no longer exist are passed over; rooms it
+  never knew follow, in default order.
+- **ONE RULE, TWO PLACES, ON TOP OF THE DEFAULT SORT**:
+  `RVTLINKSELECTION.RoomsOn` (the levels list - which therefore shows
+  the sheet's order, and a taken-out room without its "APT / " prefix)
+  and `REVITEXPORT.CollectRooms` (every export way). `VENTTEMPLATE.Room`
+  gained `Key` for it. The export report says what was arranged.
+- **The dialog cannot work rows out for itself** - the window hands it
+  a function over the SAME `RoomsOn`, so the dialog, the list and the
+  sheet cannot disagree. Drag (an insertion line shows where), Move
+  up/down or Ctrl+Up/Down; Take out / Put back act on every picked
+  room; Reset this level forgets it all. Nothing is kept until OK.
+- **Saved per model** (VENTSAVED: `ungrouped`, `order <container>
+  <keys...>`, `arrangelink <id> <label>`). Keys carry link ids, so
+  every link they name is saved with its label and a link loaded again
+  under a new id is re-pointed (`VENTARRANGE.Remap`, `Resolve`).
+- Tested: `ventleveltest` (25 - through the real `RoomsOn`, both
+  mutation-checked), `officetest` (7 - the real office workbook comes
+  out in the chosen order, merges intact, read back by the real
+  importer), `ventsettingstest` (5 - the file). Rendered at 1x and 1.5x
+  (`autovent-arrange*.png`). **The dragging itself is not exercised by
+  any harness** - only drawn - and **never run in Revit**.
 
 **A ROOM NUMBER IS WRITTEN AS TEXT** (`Numberformat = "@"`). `0123` is
 not `123`, and a column of room numbers Excel has turned into integers

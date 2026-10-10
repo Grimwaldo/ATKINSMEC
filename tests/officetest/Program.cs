@@ -48,6 +48,7 @@ internal static class Program
         HomeTest(template);
         FixturesTest(template);
         ApartmentsTest(template);
+        ArrangedTest(template);
         AddToOfficeTest(template);
         AddToBareTest(template);
         RefusalTests(template);
@@ -248,6 +249,119 @@ internal static class Program
 
         Check(!read.Keys.Any(k => k.SpaceName.StartsWith("DRIVER/STAFF")),
               "no row is keyed by the apartment's name");
+    }
+
+    // ==================================================
+    // Arranged by hand (VENTARRANGE), as REVITEXPORT.CollectRooms applies it
+    // ==================================================
+
+    // User (2026-10-10): take an IND room out of its apartment so it is a
+    // row of its own, and drag the rooms into the order the sheet should
+    // have - "so it will come with same arrangement in the excel sheet".
+    static void ArrangedTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== arranged by hand: the order chosen, an interior room taken out");
+
+        VENTTEMPLATE.Room Keyed(VENTTEMPLATE.Room room) { room.Key = room.Number; return room; }
+
+        var found = new List<VENTTEMPLATE.Room>
+        {
+            Keyed(In("9:2", "DRIVER/STAFF APT LARGE", "P04-02", "Toilet", "P04-02-03", 3.88)),
+            Keyed(R("LOBBY", "001", 40, 3.5)),
+            Keyed(In("9:1", "DRIVER/STAFF APT", "P04-01", "Toilet", "P04-01-02", 3.5)),
+            Keyed(In("9:2", "DRIVER/STAFF APT LARGE", "P04-02", "Bed room", "P04-02-01", 7.8)),
+            Keyed(In("9:3", "STUDIO", "P04-03", "Studio room", "P04-03-01", 28)),
+            Keyed(In("9:1", "DRIVER/STAFF APT", "P04-01", "Bed room", "P04-01-01", 19)),
+            Keyed(R("CORRIDOR", "002", 70, 3.7)),
+            Keyed(In("9:2", "DRIVER/STAFF APT LARGE", "P04-02", "Living", "P04-02-02", 17.5))
+        };
+
+        const string Level = "PODIUM LEVEL 2";
+
+        var arrangement = new VENTARRANGE.Arrangement();
+
+        // The toilet of the small apartment taken out; the large apartment
+        // first, its rooms reordered; the lobby last
+        arrangement.Ungrouped.Add("P04-01-02");
+        arrangement.Orders[VENTARRANGE.LevelContainer(Level)] =
+            new List<string> { "9:2", "002", "9:3", "9:1", "P04-01-02", "001" };
+        arrangement.Orders[VENTARRANGE.ApartmentContainer("9:2")] =
+            new List<string> { "P04-02-02", "P04-02-03", "P04-02-01" };
+
+        // Exactly what CollectRooms does: ungroup, the default order, then
+        // the arrangement
+        foreach (VENTTEMPLATE.Room room in found.Where(r => arrangement.Ungrouped.Contains(r.Key)))
+        {
+            room.ApartmentKey = null;
+            room.Apartment = null;
+            room.ApartmentNumber = null;
+        }
+
+        List<VENTTEMPLATE.Room> ordered = VENTARRANGE.Order(
+            VENTTEMPLATE.Ordered(found), Level, arrangement, r => r.Key, r => r.ApartmentKey);
+
+        string expected = "P04-02-02,P04-02-03,P04-02-01,002,P04-03-01,P04-01-01,P04-01-02,001";
+
+        Check(string.Join(",", ordered.Select(r => r.Number)) == expected,
+              "the rooms in the order chosen, each apartment still together: " + string.Join(",", ordered.Select(r => r.Number)));
+
+        string path = Path.Combine(Out, "arranged.xlsx");
+
+        VENTOFFICE.Result result = VENTOFFICE.NewWorkbook(
+            template, Job("Arranged", new List<VENTTEMPLATE.Level> { L(Level, 0, ordered.ToArray()) }, null), path);
+
+        Check(result.Apartments == 3, "still three apartment groups written (" + result.Apartments + ")");
+
+        using (var p = new ExcelPackage(new FileInfo(path)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Arranged"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            int f = layout.SpaceNameCol, h = layout.SpaceEndCol;
+
+            var numbers = Enumerable.Range(layout.FirstDataRow, 40)
+                .Select(r => ws.Cells[r, layout.RoomNumberCol].Text)
+                .Where(t => t.Length > 0)
+                .ToList();
+
+            Check(string.Join(",", numbers) == expected,
+                  "the SHEET has them in that order, row by row: " + string.Join(",", numbers));
+
+            int Row(string number) =>
+                Enumerable.Range(layout.FirstDataRow, 40).First(r => ws.Cells[r, layout.RoomNumberCol].Text == number);
+
+            int first = Row("P04-02-02"), last = Row("P04-02-01");
+
+            Check(ws.MergedCells[first, f] == ExcelCellAddress.GetColumnLetter(f) + first + ":" + ExcelCellAddress.GetColumnLetter(f) + last &&
+                  ws.Cells[first, f].Text == "DRIVER/STAFF APT LARGE" && ws.Cells[first, h].Text == "Living",
+                  "the large apartment heads its rooms, merged down over all three in their new order - " + ws.MergedCells[first, f]);
+
+            int toilet = Row("P04-01-02");
+
+            Check(ws.Cells[toilet, f].Text == "Toilet" && ws.MergedCells[toilet, f] != null &&
+                  new ExcelAddress(ws.MergedCells[toilet, f]).End.Column == h &&
+                  new ExcelAddress(ws.MergedCells[toilet, f]).Start.Row == toilet,
+                  "the toilet taken out is a row of its own: its OWN name across F:H, no apartment over it");
+
+            int bed = Row("P04-01-01");
+
+            Check(ws.Cells[bed, f].Text == "DRIVER/STAFF APT" && ws.Cells[bed, h].Text == "Bed room" &&
+                  ws.MergedCells[bed, f] == null,
+                  "its apartment keeps the room still inside it - one room now, nothing to merge down");
+        }
+
+        // ---- and read back through the REAL importer: every room by its own name
+        VENTSHEET.sheetpath = path;
+        VENTSHEET.sheetname = "Arranged";
+
+        Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> read = new VENTSHEET().excelsheet();
+
+        Check(read.Count == 8 &&
+              read.Keys.Any(k => k.SpaceName == "Toilet" && k.RoomNumber == "P04-01-02" && k.Level == Level) &&
+              read.Keys.Any(k => k.SpaceName == "Living" && k.RoomNumber == "P04-02-02") &&
+              !read.Keys.Any(k => k.SpaceName.StartsWith("DRIVER/STAFF")),
+              "the importer reads all 8 back, the taken-out toilet by its own name - so the airflow write still finds it");
     }
 
     // ==================================================

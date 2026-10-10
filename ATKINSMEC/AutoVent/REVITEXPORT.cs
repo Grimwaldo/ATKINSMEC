@@ -162,7 +162,7 @@ namespace ATKINSMEC
                 string made = FromTemplate(doc2, blocks, out unitsCol, out groups);
 
                 return made + heights + Fixtures(fixtures, unitsCol) +
-                       Apartments(apartments, blocks, groups);
+                       Apartments(apartments, blocks, groups) + Arranged(blocks);
             }
 
             using (ExcelPackage package =
@@ -207,7 +207,7 @@ namespace ATKINSMEC
                 }
 
                 report += heights + Fixtures(fixtures, layout.UnitsCol) +
-                          Apartments(apartments, blocks, groups);
+                          Apartments(apartments, blocks, groups) + Arranged(blocks);
 
                 package.SaveAs(new FileInfo(TargetPath));
 
@@ -445,6 +445,11 @@ namespace ATKINSMEC
 
                     VENTAPARTMENTS.Apartment apartment = apartments.Of(roomKey);
 
+                    // Taken out of its apartment in Arrange rooms...: a row
+                    // of its own, by its own name (VENTARRANGE)
+                    if (apartment != null && VENTARRANGE.Current.Ungrouped.Contains(roomKey))
+                        apartment = null;
+
                     VENTTEMPLATE.Level block;
 
                     if (!byLevel.TryGetValue(levelName, out block))
@@ -479,6 +484,7 @@ namespace ATKINSMEC
 
                     block.Rooms.Add(new VENTTEMPLATE.Room
                     {
+                        Key = roomKey,
                         Name = nameParam == null
                             ? string.Empty
                             : nameParam.AsString(),
@@ -500,11 +506,43 @@ namespace ATKINSMEC
             blocks.Sort((a, b) => a.Elevation.CompareTo(b.Elevation));
 
             // By number, with each apartment's rooms kept together - they
-            // are one merged group in the sheet
+            // are one merged group in the sheet - and then as arranged by
+            // hand in Arrange rooms... (VENTARRANGE), the order the levels
+            // list shows. Nothing leaves its level or its apartment.
             foreach (VENTTEMPLATE.Level block in blocks)
-                block.Rooms = VENTTEMPLATE.Ordered(block.Rooms);
+            {
+                block.Rooms = VENTARRANGE.Order(
+                    VENTTEMPLATE.Ordered(block.Rooms), block.LevelName, VENTARRANGE.Current,
+                    r => r.Key, r => r.ApartmentKey);
+            }
 
             return blocks;
+        }
+
+        // What was arranged by hand (Arrange rooms...), for the report - a
+        // sheet in an order nobody remembers choosing must never surprise
+        private static string Arranged(List<VENTTEMPLATE.Level> blocks)
+        {
+            VENTARRANGE.Arrangement arrangement = VENTARRANGE.Current;
+
+            if (arrangement == null || arrangement.IsEmpty)
+                return string.Empty;
+
+            var keys = new HashSet<string>(blocks.SelectMany(b => b.Rooms).Select(r => r.Key ?? string.Empty));
+
+            int takenOut = arrangement.Ungrouped.Count(keys.Contains);
+
+            int levels = blocks.Count(b => arrangement.OrderOf(VENTARRANGE.LevelContainer(b.LevelName)) != null ||
+                                           b.Rooms.Any(r => !string.IsNullOrEmpty(r.ApartmentKey) &&
+                                                            arrangement.OrderOf(VENTARRANGE.ApartmentContainer(r.ApartmentKey)) != null));
+
+            if (takenOut == 0 && levels == 0)
+                return string.Empty;
+
+            return "\r\n\r\nArranged by hand (Arrange rooms...): " +
+                   (levels > 0 ? levels + " level(s) in the order chosen" : "no order changed") +
+                   (takenOut > 0 ? ", " + takenOut + " interior room(s) taken out of their apartment as rows of their own" : string.Empty) +
+                   ".";
         }
 
         // What the apartments did, for the report

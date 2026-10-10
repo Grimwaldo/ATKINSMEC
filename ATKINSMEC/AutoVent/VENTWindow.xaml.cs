@@ -320,6 +320,19 @@ namespace ATKINSMEC
 
             VENTSETTINGS.InteriorChosen = saved != null && saved.InteriorPicks != null;
             VENTSETTINGS.InteriorPicks.Clear();
+
+            // The rooms arranged by hand (VENTARRANGE) - by the keys they
+            // were saved under; ShowLinks re-points any whose link has been
+            // loaded again under a new id
+            VENTARRANGE.Current = new VENTARRANGE.Arrangement();
+
+            if (saved != null)
+            {
+                VENTARRANGE.Current.Ungrouped.UnionWith(saved.Ungrouped);
+
+                foreach (KeyValuePair<string, List<string>> order in saved.Orders)
+                    VENTARRANGE.Current.Orders[order.Key] = new List<string>(order.Value);
+            }
         }
 
         private static VENTSAVED.LinkRef Ref(Tick link)
@@ -364,6 +377,26 @@ namespace ATKINSMEC
                 : VENTSETTINGS.InteriorKeyword;
 
             now.InteriorPicks = VENTSETTINGS.InteriorChosen ? InteriorPicksNow() : null;
+
+            // The arrangement by hand, and every link its keys name with
+            // its label - a link not loaded now keeps the label it had
+            now.Ungrouped = VENTARRANGE.Current.Ungrouped.OrderBy(k => k, StringComparer.Ordinal).ToList();
+
+            now.Orders = VENTARRANGE.Current.Orders
+                .OrderBy(o => o.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(o => new KeyValuePair<string, List<string>>(o.Key, o.Value.ToList()))
+                .ToList();
+
+            foreach (long id in VENTARRANGE.Links(VENTARRANGE.Current).OrderBy(i => i))
+            {
+                Tick link = _links.FirstOrDefault(l => l.Id == id);
+
+                VENTSAVED.LinkRef before = _saved == null
+                    ? null
+                    : _saved.ArrangeLinks.FirstOrDefault(l => l.Id == id);
+
+                now.ArrangeLinks.Add(link != null ? Ref(link) : before ?? new VENTSAVED.LinkRef { Id = id });
+            }
 
             // A link not loaded right now keeps what was chosen for it
             if (_saved != null)
@@ -740,6 +773,24 @@ namespace ATKINSMEC
                 }
             }
 
+            // The rooms arranged by hand name their link by id: one loaded
+            // again under a new id is found by its label, as every other
+            // remembered link is, and its rooms' keys are re-pointed
+            if (_saved != null && _saved.ArrangeLinks.Count > 0)
+            {
+                var moved = new Dictionary<long, long>();
+
+                foreach (VENTSAVED.LinkRef link in _saved.ArrangeLinks)
+                {
+                    HashSet<long> now = VENTSAVED.Resolve(new[] { link }, loaded);
+
+                    if (now.Count == 1 && !now.Contains(link.Id))
+                        moved[link.Id] = now.First();
+                }
+
+                VENTARRANGE.Remap(VENTARRANGE.Current, moved);
+            }
+
             foreach (VENTREAD.LinkRow link in links)
             {
                 // Set before the callbacks are attached, so filling the
@@ -870,6 +921,108 @@ namespace ATKINSMEC
                    false);
 
             SaveSettings();
+        }
+
+        // ==================================================
+        // Arranging the rooms for the sheet (VENTARRANGE)
+        // ==================================================
+
+        // A room's tooltip line when it was taken out of its apartment
+        private static string TakenOutTip(VENTAPARTMENTS.Map map, string key)
+        {
+            VENTAPARTMENTS.Apartment home = map == null ? null : map.Of(key);
+
+            return home == null || !VENTARRANGE.Current.Ungrouped.Contains(key)
+                ? string.Empty
+                : Environment.NewLine + "Stands in apartment " + (home.Number + " " + home.Name).Trim() +
+                  ", but taken out of it in Arrange rooms... - a row of its own in the sheet.";
+        }
+
+        // One level's rows as the dialog shows them, worked out with the
+        // arrangement it is trying - the SAME RoomsOn the levels list uses
+        // (arithmetic over what has been read), so the dialog, the list and
+        // the sheet cannot disagree
+        private List<VENTARRANGE.Row> ArrangeRows(string level, VENTARRANGE.Arrangement arrangement, ISet<string> unticked)
+        {
+            VENTAPARTMENTS.Map map = VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
+
+            Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> on =
+                RVTLINKSELECTION.RoomsOn(TickedLinks(), _roomsOf, map, _storeys, arrangement);
+
+            List<RVTLINKSELECTION.LinkedRoom> rooms;
+
+            if (level == null || !on.TryGetValue(level, out rooms))
+                return new List<VENTARRANGE.Row>();
+
+            bool manyLinks = on.Values.SelectMany(r => r).Select(r => r.LinkId).Distinct().Count() > 1;
+
+            return rooms.Select(r =>
+            {
+                VENTAPARTMENTS.Apartment home = map == null ? null : map.Of(r.Key);
+
+                return new VENTARRANGE.Row
+                {
+                    Key = r.Key,
+                    Name = r.Name ?? string.Empty,
+                    Number = r.Number ?? string.Empty,
+                    LinkName = manyLinks ? r.LinkName ?? string.Empty : string.Empty,
+                    ApartmentKey = r.ApartmentKey,
+                    Apartment = r.Apartment,
+                    ApartmentNumber = r.ApartmentNumber,
+                    HomeKey = home == null ? null : home.Key,
+                    Home = home == null ? null : home.Name,
+                    HomeNumber = home == null ? null : home.Number,
+                    Exported = !unticked.Contains(r.Key)
+                };
+            }).ToList();
+        }
+
+        private void BtnArrange_Click(object sender, RoutedEventArgs e)
+        {
+            if (_reading)
+            {
+                Status("Still reading the linked models - Arrange rooms... once they are in.", false);
+                return;
+            }
+
+            // The levels that have rooms, in this model's order - the
+            // levels list, as it stands
+            List<string> levels = _levels.Where(l => l.Rooms.Count > 0).Select(l => l.Name).ToList();
+
+            if (levels.Count == 0)
+            {
+                Status("No level has rooms to arrange - tick a linked model first.", false);
+                return;
+            }
+
+            // Open on the level of the first row picked in the list, if any
+            LevelRow pickedLevel = _levels.FirstOrDefault(l => l.IsPicked || l.Rooms.Any(r => r.IsPicked));
+
+            var unticked = new HashSet<string>(
+                _levels.SelectMany(l => l.Rooms).Where(r => !r.IsOn).Select(r => r.Key),
+                StringComparer.Ordinal);
+
+            var dialog = new VENTARRANGEDIALOG(
+                levels,
+                pickedLevel == null ? null : pickedLevel.Name,
+                (level, arrangement) => ArrangeRows(level, arrangement, unticked),
+                VENTARRANGE.Current)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true || dialog.Result == null)
+                return;
+
+            VENTARRANGE.Current = dialog.Result;
+
+            SaveSettings();
+            RefreshLevels();
+
+            Status(VENTARRANGE.Current.IsEmpty
+                       ? "Rooms in the default order, every interior room under its apartment."
+                       : "The levels list and the export now follow the arrangement chosen.",
+                   false);
         }
 
         // ==================================================
@@ -1308,8 +1461,10 @@ namespace ATKINSMEC
             VENTAPARTMENTS.Map apartments =
                 VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
 
+            // In the order the sheet will have them, rooms taken out of
+            // their apartments as rows of their own (Arrange rooms...)
             Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> roomsOn =
-                RVTLINKSELECTION.RoomsOn(linkIds, _roomsOf, apartments, storeys);
+                RVTLINKSELECTION.RoomsOn(linkIds, _roomsOf, apartments, storeys, VENTARRANGE.Current);
 
             // What the apartment ticks find is worth saying even with no
             // link ticked
@@ -1386,7 +1541,7 @@ namespace ATKINSMEC
                                       ? "."
                                       : ", on " + room.LinkLevel + " there.") +
                                   (string.IsNullOrEmpty(room.ApartmentKey)
-                                      ? string.Empty
+                                      ? TakenOutTip(apartments, room.Key)
                                       : Environment.NewLine + "Inside apartment " +
                                         (room.ApartmentNumber + " " + room.Apartment).Trim() +
                                         " - written under it in the sheet.") +

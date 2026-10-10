@@ -67,6 +67,32 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: Arrange rooms... - take IND rooms out, drag rooms into order - 2026-10-10
+
+User: *"make option for user to list the IND rooms and he can select any
+IND room and make it ungrouped from ARCH rooms so it can be added
+directly to the excel sheet, also make an option for the user to arrange
+the IND rooms grouped under ARCH room by dragging in the list so it will
+come with same arrangement in the excel sheet, do the same also for ARCH
+rooms but keep everything under its level under its level"*.
+
+- **Arrange rooms...** (levels card, under All / None / Show in plan):
+  one level at a time as the sheet will have it - apartments as shaded
+  headings with their IND rooms under them, the architect's rooms as
+  rows. Drag, Move up/down or Ctrl+Up/Down; an apartment moves with its
+  rooms, a room inside an apartment only within it, nothing leaves its
+  level. **Take out of apartment** / **Put back** on any picked IND
+  rooms; **Reset this level**.
+- The levels list and every export follow it (`VENTARRANGE`, applied in
+  `RoomsOn` and `CollectRooms`); saved per model; the export report
+  says what was arranged. Taking a room out changes the sheet only - the
+  airflow write still finds it by its own name.
+- Verified: `ventleveltest` +25, `officetest` +7 (434, the real sheet in
+  the chosen order), `ventsettingstest` +5; all 20 harnesses pass; built
+  for all six and deployed, hash-checked; dialog and window rendered at
+  1x and 1.5x. **Never run in Revit; the drag itself has not been tried
+  by anyone** - Move up/down does the same thing if it misbehaves.
+
 ## AUTOVENT: every architect's room was ONE LEVEL UP - floors now from geometry - 2026-10-10
 
 User: *"LEVEL 03 showing no rooms despite having rooms in the models and

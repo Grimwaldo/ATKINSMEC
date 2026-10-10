@@ -24,6 +24,10 @@ namespace ATKINSMEC
         // four fields would be two things to keep in step
         public class Room
         {
+            // "link id:room id" (RVTLINKSELECTION.RoomKey) - what an
+            // arrangement by hand (VENTARRANGE) names the room by
+            public string Key { get; set; }
+
             public string Name { get; set; }
             public string Number { get; set; }
             public double AreaM2 { get; set; }

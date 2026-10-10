@@ -586,11 +586,247 @@ internal static class Program
                 RVTLINKSELECTION.RoomsOn(null, roomsOf, map, bands).Count == 0);
         }
 
+        // ---- VENTARRANGE: the rooms arranged by hand for the sheet ------
+        //
+        // User (2026-10-10): take any interior room out of its apartment so
+        // it is written as a row of its own; drag the rooms - inside an
+        // apartment, and the architect's rooms - into the order the sheet
+        // should have; "keep everything under its level under its level".
+        Arranging();
+
         Console.WriteLine();
         Console.WriteLine(_failed == 0
             ? "all checks passed"
             : _failed + " check(s) FAILED");
 
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Arranging()
+    {
+        Console.WriteLine();
+        Console.WriteLine("  arranged by hand (VENTARRANGE)");
+
+        var bands = new List<VENTLEVELMAP.Storey> { At("GR", 0.0), At("L01", 4.0) };
+
+        const long Arc = 10, Ind = 20;
+
+        RVTLINKSELECTION.LinkedRoom R(long link, long id, string number, string name, double floorMetres)
+        {
+            return new RVTLINKSELECTION.LinkedRoom
+            {
+                LinkId = link, RoomId = id, Number = number, Name = name,
+                LinkName = "link " + link, Floor = Mm(floorMetres * 1000.0)
+            };
+        }
+
+        string K(long link, long room) => RVTLINKSELECTION.RoomKey(link, room);
+
+        var roomsOf = new Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>>
+        {
+            [Arc] = new List<RVTLINKSELECTION.LinkedRoom>
+            {
+                R(Arc, 1, "G-001", "LOBBY", 0.0),
+                R(Arc, 2, "G-002", "APT A", 0.0),
+                R(Arc, 3, "G-003", "APT B", 0.0),
+                R(Arc, 5, "G-005", "CORRIDOR", 0.0),
+                R(Arc, 9, "101", "CORRIDOR", 4.0)
+            },
+            [Ind] = new List<RVTLINKSELECTION.LinkedRoom>
+            {
+                R(Ind, 21, "G-02-1", "Bed room", 0.0),
+                R(Ind, 22, "G-02-2", "Toilet", 0.0),
+                R(Ind, 23, "G-02-3", "Kitchen", 0.0),
+                R(Ind, 31, "G-03-1", "Bed room", 0.0)
+            }
+        };
+
+        var aptA = new VENTAPARTMENTS.Apartment { Key = K(Arc, 2), Name = "APT A", Number = "G-002" };
+        var aptB = new VENTAPARTMENTS.Apartment { Key = K(Arc, 3), Name = "APT B", Number = "G-003" };
+
+        var map = new VENTAPARTMENTS.Map();
+        map.Sources.Add(Arc);
+        map.FoundIn.Add(Ind);
+        map.Holding.Add(aptA.Key);
+        map.Holding.Add(aptB.Key);
+
+        foreach (long id in new long[] { 21, 22, 23 })
+            map.ByRoom[K(Ind, id)] = aptA;
+
+        map.ByRoom[K(Ind, 31)] = aptB;
+
+        List<string> Keys(VENTARRANGE.Arrangement a, string level = "GR")
+        {
+            var on = RVTLINKSELECTION.RoomsOn(new[] { Arc }, roomsOf, map, bands, a);
+            return on.ContainsKey(level) ? on[level].Select(r => r.Key).ToList() : new List<string>();
+        }
+
+        // The rows as the dialog sees them, with their apartment at home
+        List<VENTARRANGE.Row> Rows(VENTARRANGE.Arrangement a)
+        {
+            var on = RVTLINKSELECTION.RoomsOn(new[] { Arc }, roomsOf, map, bands, a);
+
+            return on["GR"].Select(r =>
+            {
+                VENTAPARTMENTS.Apartment home = map.Of(r.Key);
+
+                return new VENTARRANGE.Row
+                {
+                    Key = r.Key, Name = r.Name, Number = r.Number,
+                    ApartmentKey = r.ApartmentKey, Apartment = r.Apartment, ApartmentNumber = r.ApartmentNumber,
+                    HomeKey = home == null ? null : home.Key, Home = home == null ? null : home.Name
+                };
+            }).ToList();
+        }
+
+        List<string> plain = Keys(null);
+
+        var defaults = new List<string>
+        {
+            K(Arc, 1), K(Ind, 21), K(Ind, 22), K(Ind, 23), K(Ind, 31), K(Arc, 5)
+        };
+
+        Check("nothing arranged: exactly the default - by number, each apartment's rooms together",
+            plain.SequenceEqual(defaults) && Keys(new VENTARRANGE.Arrangement()).SequenceEqual(defaults));
+
+        // ---- the level's top rows in a chosen order
+        var a = new VENTARRANGE.Arrangement();
+        string level = VENTARRANGE.LevelContainer("GR");
+
+        List<VENTARRANGE.Row> rows = Rows(a);
+
+        Check("the level's top rows: each room of its own, each apartment ONCE",
+            VENTARRANGE.SequenceOf(rows, level).SequenceEqual(new[] { K(Arc, 1), aptA.Key, aptB.Key, K(Arc, 5) }));
+
+        Check("...and an apartment's own rooms",
+            VENTARRANGE.SequenceOf(rows, VENTARRANGE.ApartmentContainer(aptA.Key))
+                .SequenceEqual(new[] { K(Ind, 21), K(Ind, 22), K(Ind, 23) }));
+
+        VENTARRANGE.SetOrder(a, level, new[] { K(Arc, 5), aptB.Key, K(Arc, 1), aptA.Key },
+            VENTARRANGE.SequenceOf(rows, level));
+
+        Check("a level put in a chosen order comes out in it - an apartment moving with all its rooms",
+            Keys(a).SequenceEqual(new[] { K(Arc, 5), K(Ind, 31), K(Arc, 1), K(Ind, 21), K(Ind, 22), K(Ind, 23) }));
+
+        // ---- an apartment's own rooms in a chosen order
+        string inA = VENTARRANGE.ApartmentContainer(aptA.Key);
+
+        VENTARRANGE.SetOrder(a, inA, new[] { K(Ind, 23), K(Ind, 21), K(Ind, 22) },
+            VENTARRANGE.SequenceOf(Rows(new VENTARRANGE.Arrangement()), inA));
+
+        Check("an apartment's rooms in their chosen order, still together and still where the apartment is",
+            Keys(a).SequenceEqual(new[] { K(Arc, 5), K(Ind, 31), K(Arc, 1), K(Ind, 23), K(Ind, 21), K(Ind, 22) }));
+
+        // ---- the default is not a choice
+        var b = new VENTARRANGE.Arrangement();
+
+        VENTARRANGE.SetOrder(b, level, defaults.Take(1).Concat(new[] { aptA.Key, aptB.Key, K(Arc, 5) }).ToList(),
+            VENTARRANGE.SequenceOf(Rows(b), level));
+
+        Check("an order that is just the default is not kept - a room drawn later still lands by number",
+            b.IsEmpty);
+
+        var bb = new VENTARRANGE.Arrangement();
+        List<string> bDefault = VENTARRANGE.SequenceOf(Rows(bb), level);
+
+        VENTARRANGE.SetOrder(bb, level, VENTARRANGE.Moved(bDefault, K(Arc, 5), 0), bDefault);
+        bool changed = bb.Orders.ContainsKey(level);
+
+        VENTARRANGE.SetOrder(bb, level, bDefault, bDefault);
+
+        Check("...and one dragged away and back again is forgotten, not frozen",
+            changed && bb.IsEmpty);
+
+        // ---- nothing leaves its level
+        var c = new VENTARRANGE.Arrangement();
+        c.Orders[VENTARRANGE.LevelContainer("L01")] = new List<string> { K(Arc, 1), K(Arc, 9) };
+
+        Check("an order naming another level's room cannot move it there",
+            Keys(c, "L01").SequenceEqual(new[] { K(Arc, 9) }) && Keys(c).SequenceEqual(defaults));
+
+        // ---- an order with a key that has gone, and a room it never knew
+        var d = new VENTARRANGE.Arrangement();
+        d.Orders[level] = new List<string> { "10:999", K(Arc, 5), aptA.Key };
+
+        Check("a saved key nothing has any more is passed over; what the order never knew follows, by number",
+            Keys(d).SequenceEqual(new[] { K(Arc, 5), K(Ind, 21), K(Ind, 22), K(Ind, 23), K(Arc, 1), K(Ind, 31) }));
+
+        // ---- taking an interior room out of its apartment, and back
+        var e = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Row toilet = Rows(e).First(r => r.Key == K(Ind, 22));
+
+        VENTARRANGE.TakeOut(e, toilet, "GR");
+
+        var taken = RVTLINKSELECTION.RoomsOn(new[] { Arc }, roomsOf, map, bands, e)["GR"];
+
+        Check("taken out: a row of its own, with no apartment on it",
+            taken.Any(r => r.Key == K(Ind, 22) && r.ApartmentKey == null) &&
+            taken.Where(r => r.ApartmentKey == aptA.Key).Select(r => r.Key).SequenceEqual(new[] { K(Ind, 21), K(Ind, 23) }));
+
+        Check("...the apartments map untouched - the airflow write and fixtures do what they did",
+            map.Of(K(Ind, 22)) == aptA && map.Holding.Contains(aptA.Key));
+
+        Check("...and with no order chosen it lands by its own number among the rooms",
+            Keys(e).Last() == K(Ind, 22));
+
+        var f = new VENTARRANGE.Arrangement();
+        f.Orders[level] = new List<string> { K(Arc, 5), aptA.Key, aptB.Key, K(Arc, 1) };
+
+        VENTARRANGE.TakeOut(f, Rows(f).First(r => r.Key == K(Ind, 22)), "GR");
+
+        Check("with an order chosen, it is put straight under the apartment it came out of",
+            Keys(f).SequenceEqual(new[] { K(Arc, 5), K(Ind, 21), K(Ind, 23), K(Ind, 22), K(Ind, 31), K(Arc, 1) }));
+
+        VENTARRANGE.Row back = Rows(f).First(r => r.Key == K(Ind, 22));
+
+        Check("the dialog's row knows it was taken out, and of which apartment",
+            back.IsTakenOut && back.Home == "APT A");
+
+        VENTARRANGE.PutBack(f, back, "GR");
+
+        Check("put back: under its apartment again, and out of the level's own order",
+            !f.Ungrouped.Contains(K(Ind, 22)) && !f.Orders[level].Contains(K(Ind, 22)) &&
+            Keys(f).SequenceEqual(new[] { K(Arc, 5), K(Ind, 21), K(Ind, 22), K(Ind, 23), K(Ind, 31), K(Arc, 1) }));
+
+        Check("an architect's room cannot be 'taken out' - it is in no apartment",
+            !Rows(new VENTARRANGE.Arrangement()).First(r => r.Key == K(Arc, 1)).IsInterior);
+
+        // ---- reset a level
+        var g = a.Clone();
+        VENTARRANGE.TakeOut(g, Rows(g).First(r => r.Key == K(Ind, 31)), "GR");
+        VENTARRANGE.Reset(g, Rows(g), "GR");
+
+        Check("Reset this level forgets its order, its apartments' orders and its rooms taken out",
+            g.IsEmpty && Keys(g).SequenceEqual(defaults));
+
+        Check("...and the arrangement it was cloned from is untouched",
+            a.Orders.Count == 2);
+
+        // ---- moving one key
+        Check("Moved: one key to a new place, the rest in order; past either end goes to that end",
+            VENTARRANGE.Moved(new[] { "a", "b", "c", "d" }, "d", 1).SequenceEqual(new[] { "a", "d", "b", "c" }) &&
+            VENTARRANGE.Moved(new[] { "a", "b", "c" }, "a", 99).SequenceEqual(new[] { "b", "c", "a" }) &&
+            VENTARRANGE.Moved(new[] { "a", "b", "c" }, "c", -5).SequenceEqual(new[] { "c", "a", "b" }) &&
+            VENTARRANGE.Moved(new[] { "a", "b" }, "x", 0).SequenceEqual(new[] { "a", "b" }));
+
+        // ---- a link loaded again under a new id
+        var h = new VENTARRANGE.Arrangement();
+        h.Ungrouped.Add("20:22");
+        h.Orders["level:GR"] = new List<string> { "10:5", "apt:10:2".Substring(4), "20:22" };
+        h.Orders["apt:10:2"] = new List<string> { "20:23", "20:21" };
+
+        Check("the arrangement names its links, to be saved with their labels",
+            VENTARRANGE.Links(h).OrderBy(i => i).SequenceEqual(new long[] { 10, 20 }));
+
+        VENTARRANGE.Remap(h, new Dictionary<long, long> { [10] = 110, [20] = 120 });
+
+        Check("re-pointed to the new ids: rooms taken out, every order and the apartment containers",
+            h.Ungrouped.SetEquals(new[] { "120:22" }) &&
+            h.Orders["level:GR"].SequenceEqual(new[] { "110:5", "110:2", "120:22" }) &&
+            h.Orders.ContainsKey("apt:110:2") && !h.Orders.ContainsKey("apt:10:2") &&
+            h.Orders["apt:110:2"].SequenceEqual(new[] { "120:23", "120:21" }));
+
+        Check("...a level's container is not a key and is left alone",
+            VENTARRANGE.LinkOf("level:GR") == 0 && VENTARRANGE.LinkOf("apt:7:3") == 7 && VENTARRANGE.LinkOf("7:3") == 7);
     }
 }

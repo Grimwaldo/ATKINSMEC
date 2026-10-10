@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATKINSMEC
 {
@@ -65,11 +66,18 @@ namespace ATKINSMEC
         // A link not in roomsOf has not been read yet, and gives nothing.
         // The rooms handed back are COPIES, so marking one with its
         // apartment never touches what was read.
+        //
+        // ARRANGED BY HAND when `arrangement` is given (VENTARRANGE): an
+        // interior room taken out of its apartment is listed as a room of
+        // its own, and each level comes in the order chosen for the sheet -
+        // the export applies the same arrangement, so the list still shows
+        // exactly what the sheet will get. Null: the default order.
         public static Dictionary<string, List<LinkedRoom>> RoomsOn(
             IEnumerable<long> tickedLinks,
             IDictionary<long, List<LinkedRoom>> roomsOf,
             VENTAPARTMENTS.Map apartments,
-            IList<VENTLEVELMAP.Storey> storeys)
+            IList<VENTLEVELMAP.Storey> storeys,
+            VENTARRANGE.Arrangement arrangement = null)
         {
             var byLevel = new Dictionary<string, List<LinkedRoom>>(
                 StringComparer.OrdinalIgnoreCase);
@@ -112,6 +120,10 @@ namespace ATKINSMEC
 
                     VENTAPARTMENTS.Apartment apartment = apartments.Of(key);
 
+                    // Taken out of its apartment by hand: a row of its own
+                    if (apartment != null && arrangement != null && arrangement.Ungrouped.Contains(key))
+                        apartment = null;
+
                     List<LinkedRoom> list;
 
                     if (!byLevel.TryGetValue(level, out list))
@@ -138,6 +150,15 @@ namespace ATKINSMEC
 
             foreach (List<LinkedRoom> list in byLevel.Values)
                 list.Sort(ByApartmentThenNumber);
+
+            if (arrangement != null)
+            {
+                foreach (string level in byLevel.Keys.ToList())
+                {
+                    byLevel[level] = VENTARRANGE.Order(
+                        byLevel[level], level, arrangement, r => r.Key, r => r.ApartmentKey);
+                }
+            }
 
             return byLevel;
         }

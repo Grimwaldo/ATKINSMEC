@@ -17,5 +17,6 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTROWS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSHEET.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTTEMPLATE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTARRANGE.cs" />
   </ItemGroup>
 </Project>

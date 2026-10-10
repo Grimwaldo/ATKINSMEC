@@ -74,6 +74,15 @@ namespace ATKINSMEC
             // follow the keyword; an empty list = chose none.
             public string InteriorKeyword;
             public List<InteriorPick> InteriorPicks;
+
+            // The rooms arranged by hand for the sheet (VENTARRANGE): room
+            // keys taken out of their apartment, and each container's
+            // chosen order. Keys carry a link id, so every link they name
+            // is kept with its label too (ArrangeLinks) - a link loaded
+            // again under a new id is found by its label (Resolve).
+            public List<string> Ungrouped = new List<string>();
+            public List<KeyValuePair<string, List<string>>> Orders = new List<KeyValuePair<string, List<string>>>();
+            public List<LinkRef> ArrangeLinks = new List<LinkRef>();
         }
 
         // One placement ticked as an interior model on one storey
@@ -323,6 +332,16 @@ namespace ATKINSMEC
                              pick.Link.Id.ToString(CultureInfo.InvariantCulture), pick.Link.Label);
                     }
                 }
+
+                foreach (string key in m.Ungrouped)
+                    Line(text, "ungrouped", key);
+
+                // One line per container: its name, then its keys in order
+                foreach (KeyValuePair<string, List<string>> order in m.Orders)
+                    Line(text, "order", new[] { order.Key }.Concat(order.Value ?? new List<string>()).ToArray());
+
+                foreach (LinkRef link in m.ArrangeLinks)
+                    Line(text, "arrangelink", link.Id.ToString(CultureInfo.InvariantCulture), link.Label);
             }
 
             return text.ToString();
@@ -441,6 +460,25 @@ namespace ATKINSMEC
                             });
                         }
 
+                        break;
+
+                    case "ungrouped":
+                        if (a.Trim().Length > 0)
+                            m.Ungrouped.Add(a.Trim());
+                        break;
+
+                    case "order":
+                        // A container with no keys orders nothing
+                        if (a.Trim().Length > 0 && f.Length > 2)
+                        {
+                            m.Orders.Add(new KeyValuePair<string, List<string>>(
+                                a, f.Skip(2).Select(k => k.Trim()).Where(k => k.Length > 0).ToList()));
+                        }
+
+                        break;
+
+                    case "arrangelink":
+                        Add(m.ArrangeLinks, a, b);
                         break;
 
                     // Anything else is from a later version: kept out

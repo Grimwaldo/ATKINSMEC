@@ -105,6 +105,8 @@ namespace ventpreview
 
             Interiors(folder);
 
+            Arrange(folder);
+
             window.ShowAssign();
 
             // And bigger, since it resizes
@@ -247,6 +249,115 @@ namespace ventpreview
             ATKINSMEC.VENTSETTINGS.InteriorKeyword = ATKINSMEC.VENTSETTINGS.DefaultInteriorKeyword;
             ATKINSMEC.VENTSETTINGS.InteriorChosen = false;
             ATKINSMEC.VENTSETTINGS.InteriorPicks.Clear();
+        }
+
+        // The Arrange rooms... dialog on LEVEL 03 of a tower: two architect's
+        // apartments with their interior rooms, a third with one room taken
+        // out, the cores, and one room unticked - the large apartment moved
+        // to the top and its rooms reordered, as a person would have left it
+        private static void Arrange(string folder)
+        {
+            const string Level = "LEVEL 03";
+
+            ATKINSMEC.VENTARRANGE.Row Room(string key, string number, string name, string aptKey = null,
+                                           string apt = null, string aptNumber = null, bool exported = true)
+            {
+                return new ATKINSMEC.VENTARRANGE.Row
+                {
+                    Key = key, Number = number, Name = name,
+                    ApartmentKey = aptKey, Apartment = apt, ApartmentNumber = aptNumber,
+                    HomeKey = aptKey, Home = apt, HomeNumber = aptNumber, Exported = exported
+                };
+            }
+
+            var all = new System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>
+            {
+                Room("10:31", "TA-03-31", "CORRIDOR"),
+                Room("10:33", "TA-03-33", "STAIR 01"),
+                Room("10:34", "TA-03-34", "ELEVATOR LOBBY", exported: false),
+                Room("20:55", "121.055", "LIVING/DINING", "11:9", "2BDR-A1", "TA-03-09"),
+                Room("20:56", "121.056", "MASTER BEDROOM", "11:9", "2BDR-A1", "TA-03-09"),
+                Room("20:57", "121.057", "DRESSING", "11:9", "2BDR-A1", "TA-03-09"),
+                Room("20:58", "121.058", "ENSUITE", "11:9", "2BDR-A1", "TA-03-09"),
+                Room("21:05", "121.105", "MASTER BEDROOM", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("21:06", "121.106", "LIVING/DINING", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("21:07", "121.107", "KITCHEN", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("22:15", "121.315", "LIVING/DINING", "11:6", "1BDR-C", "TA-03-06"),
+                Room("22:17", "121.317", "BALCONY", "11:6", "1BDR-C", "TA-03-06")
+            };
+
+            int Compare(string a, string b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+
+            // The default order, the way RoomsOn has it: units by number,
+            // an apartment's rooms by theirs - then the arrangement
+            System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row> RowsOf(string level, ATKINSMEC.VENTARRANGE.Arrangement a)
+            {
+                var rows = all.Select(r => new ATKINSMEC.VENTARRANGE.Row
+                {
+                    Key = r.Key, Number = r.Number, Name = r.Name, Exported = r.Exported,
+                    HomeKey = r.HomeKey, Home = r.Home, HomeNumber = r.HomeNumber,
+                    ApartmentKey = a.Ungrouped.Contains(r.Key) ? null : r.ApartmentKey,
+                    Apartment = a.Ungrouped.Contains(r.Key) ? null : r.Apartment,
+                    ApartmentNumber = a.Ungrouped.Contains(r.Key) ? null : r.ApartmentNumber
+                }).ToList();
+
+                rows.Sort((x, y) =>
+                {
+                    int unit = Compare(x.ApartmentNumber ?? x.Number, y.ApartmentNumber ?? y.Number);
+                    return unit != 0 ? unit : Compare(x.Number, y.Number);
+                });
+
+                return ATKINSMEC.VENTARRANGE.Order(rows, level, a, r => r.Key, r => r.ApartmentKey);
+            }
+
+            var arrangement = new ATKINSMEC.VENTARRANGE.Arrangement();
+            arrangement.Ungrouped.Add("22:17");
+            arrangement.Orders[ATKINSMEC.VENTARRANGE.LevelContainer(Level)] =
+                new System.Collections.Generic.List<string> { "11:9", "10:31", "10:33", "11:4", "11:6", "22:17", "10:34" };
+            arrangement.Orders[ATKINSMEC.VENTARRANGE.ApartmentContainer("11:9")] =
+                new System.Collections.Generic.List<string> { "20:56", "20:57", "20:58", "20:55" };
+
+            var dialog = new ATKINSMEC.VENTARRANGEDIALOG(
+                new[] { Level, "LEVEL 04A", "LEVEL 05A" }, Level, RowsOf, arrangement)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000,
+                Top = -4000
+            };
+
+            dialog.Show();
+            dialog.UpdateLayout();
+
+            // One room picked, so the buttons show as they would
+            var list = FindChild<System.Windows.Controls.ListBox>(dialog);
+
+            if (list != null && list.Items.Count > 2)
+                ((System.Windows.Controls.ListBoxItem)list.Items[2]).IsSelected = true;
+
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange.png"));
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-1.5x.png"), 1.5);
+
+            dialog.Close();
+        }
+
+        private static T FindChild<T>(DependencyObject from) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(from); i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(from, i);
+
+                if (child is T found)
+                    return found;
+
+                T deeper = FindChild<T>(child);
+
+                if (deeper != null)
+                    return deeper;
+            }
+
+            return null;
         }
 
         private static void Shoot(Window window, string path, double scale)

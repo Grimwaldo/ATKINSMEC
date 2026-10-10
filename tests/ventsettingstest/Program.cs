@@ -478,6 +478,11 @@ internal static class Program
         return new VENTSAVED.LinkRef { Id = id, Label = label };
     }
 
+    private static VENTSAVED.Model plainModel()
+    {
+        return new VENTSAVED.Model { Key = "file:c:\\jobs\\plain.rvt" };
+    }
+
     private static void Saved()
     {
         Console.WriteLine();
@@ -598,6 +603,42 @@ internal static class Program
 
             Check("...and bad lines alone do not turn 'follow the keyword' into a choice",
                 VENTSAVED.Parse("model\tk\ninterior\t\t5\tx\n")[0].InteriorPicks == null);
+
+            // ---- the rooms arranged by hand ---------------------------------
+            var arranged = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\arranged.rvt",
+                Ungrouped = { "3589272:121055", "3589274:121106" },
+                Orders =
+                {
+                    new System.Collections.Generic.KeyValuePair<string, System.Collections.Generic.List<string>>(
+                        "level:LEVEL 03", new System.Collections.Generic.List<string> { "3001198:7", "3589272:121055", "3001202:41" }),
+                    new System.Collections.Generic.KeyValuePair<string, System.Collections.Generic.List<string>>(
+                        "apt:3001198:7", new System.Collections.Generic.List<string> { "3589274:121107", "3589274:121106" })
+                },
+                ArrangeLinks = { L(3001198, "5232535-ATR-TRA-ZZZ-3DM-ARC-000100"), L(3589272, "IND-001120 : TOWER A - TIER 259") }
+            };
+
+            var arrangedBack = VENTSAVED.Parse(VENTSAVED.Compose(new[] { arranged, plainModel() }));
+
+            Check("the rooms taken out of their apartments survive",
+                arrangedBack[0].Ungrouped.Count == 2 && arrangedBack[0].Ungrouped.Contains("3589274:121106"));
+
+            Check("each order survives in sequence, a level's name with its space, an apartment's key with its colons",
+                arrangedBack[0].Orders.Count == 2 &&
+                arrangedBack[0].Orders[0].Key == "level:LEVEL 03" &&
+                string.Join(",", arrangedBack[0].Orders[0].Value) == "3001198:7,3589272:121055,3001202:41" &&
+                arrangedBack[0].Orders[1].Key == "apt:3001198:7" &&
+                string.Join(",", arrangedBack[0].Orders[1].Value) == "3589274:121107,3589274:121106");
+
+            Check("the links the keys name survive with their labels",
+                arrangedBack[0].ArrangeLinks.Count == 2 && arrangedBack[0].ArrangeLinks[1].Label == "IND-001120 : TOWER A - TIER 259");
+
+            Check("...and none of it leaks onto the next model",
+                arrangedBack[1].Ungrouped.Count == 0 && arrangedBack[1].Orders.Count == 0 && arrangedBack[1].ArrangeLinks.Count == 0);
+
+            Check("an order line with no keys, or no container, is passed over",
+                VENTSAVED.Parse("model\tk\norder\tlevel:GR\norder\t\t1:2\n")[0].Orders.Count == 0);
 
             // ---- what the file must survive -------------------------------
             var awkward = new VENTSAVED.Model

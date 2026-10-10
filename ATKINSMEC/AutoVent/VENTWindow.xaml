@@ -530,6 +530,19 @@
                                     Click="BtnShowRoom_Click"/>
                         </StackPanel>
 
+                        <!-- The order the rooms are written in, and interior
+                             rooms taken out of their apartments -
+                             VENTARRANGEDIALOG. A row of its own: the one
+                             above is full at 100% -->
+                        <Button x:Name="BtnArrange"
+                                DockPanel.Dock="Top"
+                                HorizontalAlignment="Left"
+                                Style="{StaticResource FlatButton}"
+                                Margin="0,6,0,0"
+                                Content="Arrange rooms..."
+                                ToolTip="Drag the rooms of a level into the order the sheet should have them, and take interior (IND) rooms out of their apartments as rows of their own"
+                                Click="BtnArrange_Click"/>
+
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
                                       Margin="0,10,0,0">
                             <StackPanel>
