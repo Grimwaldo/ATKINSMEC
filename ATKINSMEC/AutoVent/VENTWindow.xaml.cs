@@ -1617,7 +1617,67 @@ namespace ATKINSMEC
                     storeys.Count, withRooms, linkIds.Count,
                     sheetLevels.Count, matched, sheetOnly.Count));
 
+            // A rebuilt list keeps the search typed over it
+            Search.Apply(_levels, LevelQuery, _openBeforeSearch);
+
             ShowButton();
+        }
+
+        // ==================================================
+        // Searching the levels list (VENTLEVELROWS.Search)
+        // ==================================================
+
+        // How each level stood before the search opened it, by name - put
+        // back when the search is cleared, and kept here so it outlives the
+        // list being rebuilt in the middle of a search
+        private readonly Dictionary<string, bool> _openBeforeSearch =
+            new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        private string LevelQuery
+        {
+            get { return TxtLevelSearch == null ? string.Empty : TxtLevelSearch.Text ?? string.Empty; }
+        }
+
+        private void TxtLevelSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // Raised while the XAML is still being parsed - the controls
+            // declared after the box are not there yet (the radio trap)
+            if (TxtLevelSearchHint == null || ListLevels == null)
+                return;
+
+            // Visibility in full: Autodesk.Revit.DB has one too
+            TxtLevelSearchHint.Visibility = string.IsNullOrEmpty(TxtLevelSearch.Text)
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
+            string query = LevelQuery.Trim();
+
+            int found = Search.Apply(_levels, LevelQuery, _openBeforeSearch);
+
+            ShowButton();
+
+            if (query.Length == 0)
+            {
+                Status("Every level and room showing again.", false);
+                return;
+            }
+
+            int levels = _levels.Count(l => l.IsShown);
+
+            Status(found == 0
+                       ? "No room matches \"" + query + "\" - nothing is hidden from the runs. Esc clears the search."
+                       : found + " room(s) on " + levels + " level(s) match \"" + query + "\". Hidden rooms keep their " +
+                         "ticks; All, None and a level's tick act on the rooms showing.",
+                   false);
+        }
+
+        private void TxtLevelSearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && TxtLevelSearch.Text.Length > 0)
+            {
+                TxtLevelSearch.Clear();
+                e.Handled = true;
+            }
         }
 
         // Feet to "+4.500 m"
@@ -1660,17 +1720,19 @@ namespace ATKINSMEC
             Ask(new VENTREAD.Ask { Links = true });
         }
 
-        // A level's click ticks every room under it, and so do these
+        // A level's click ticks every room under it, and so do these -
+        // every room SHOWING, while a search hides some (TickShown); with
+        // no search on that is every room, as it always was
         private void BtnAllLevels_Click(object sender, RoutedEventArgs e)
         {
-            foreach (LevelRow level in _levels)
-                level.Checked = true;
+            foreach (LevelRow level in _levels.Where(l => l.IsShown))
+                level.TickShown(true);
         }
 
         private void BtnNoLevels_Click(object sender, RoutedEventArgs e)
         {
-            foreach (LevelRow level in _levels)
-                level.Checked = false;
+            foreach (LevelRow level in _levels.Where(l => l.IsShown))
+                level.TickShown(false);
         }
 
         // ==================================================
@@ -1800,7 +1862,7 @@ namespace ATKINSMEC
                 return;
 
             bool on = level != null
-                ? level.Checked != true
+                ? level.ClickMeans()
                 : !room.IsOn;
 
             if (Picks.IsPicked(row))
@@ -1809,7 +1871,7 @@ namespace ATKINSMEC
             }
             else if (level != null)
             {
-                level.Checked = on;
+                level.TickShown(on);
             }
             else
             {
@@ -1836,12 +1898,14 @@ namespace ATKINSMEC
             if (level == null)
                 return;
 
-            bool on = level.Checked != true;
+            // While a search hides some of its rooms, the click is about the
+            // rooms showing (ClickMeans, TickShown); otherwise exactly as above
+            bool on = level.ClickMeans();
 
             if (level.IsPicked)
                 Picks.Tick(_levels, on);
             else
-                level.Checked = on;
+                level.TickShown(on);
         }
 
         // A room's box has no third state, so WPF's toggle is the right

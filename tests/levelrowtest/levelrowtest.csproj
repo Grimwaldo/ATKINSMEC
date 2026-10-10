@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELROWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
   </ItemGroup>
 </Project>

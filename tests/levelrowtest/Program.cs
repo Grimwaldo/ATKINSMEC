@@ -154,6 +154,7 @@ internal static class Program
             VENTWindow.RoomRow.KeyOf(12345678901, 42) == "12345678901:42");
 
         Picking();
+        Searching();
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0
@@ -186,6 +187,168 @@ internal static class Program
             .Select(r => r is VENTWindow.LevelRow
                 ? ((VENTWindow.LevelRow)r).Name
                 : ((VENTWindow.RoomRow)r).Number));
+    }
+
+    // ---- searching the levels list --------------------------------------
+    //
+    // User (2026-10-10): "add search bar also into the rooms to process".
+    // It only HIDES rows - ticks stand and still count - and what a person
+    // does while it is on acts on the rows SHOWING.
+    private static List<VENTWindow.LevelRow> Tower(Dictionary<string, bool> choices, bool l03Open = false)
+    {
+        VENTWindow.RoomRow R(long id, string number, string name) =>
+            new VENTWindow.RoomRow { LinkId = 9, RoomId = id, Number = number, Name = name };
+
+        var l03 = VENTWindow.LevelRow.Build("LEVEL 03", "", true, true, new[]
+        {
+            R(1, "TA-03-31", "CORRIDOR"),
+            R(2, "121.056", "2BDR-A1  /  MASTER BEDROOM"),
+            R(3, "121.057", "2BDR-A1  /  DRESSING"),
+            R(4, "121.105", "2BDR-A2  /  MASTER BEDROOM")
+        }, choices);
+
+        var l04 = VENTWindow.LevelRow.Build("LEVEL 04A", "", true, true, new[]
+        {
+            R(11, "TA-04-31", "CORRIDOR"),
+            R(12, "121.401", "2BDR-A1  /  BEDROOM")
+        }, choices);
+
+        var roof = VENTWindow.LevelRow.Build("ROOF", "", true, false, new VENTWindow.RoomRow[0], choices);
+
+        l03.IsExpanded = l03Open;
+        l04.IsExpanded = true;
+
+        return new List<VENTWindow.LevelRow> { l03, l04, roof };
+    }
+
+    private static string Showing(List<VENTWindow.LevelRow> tree)
+    {
+        return string.Join(",", VENTWindow.Picks.Visible(tree).Select(r =>
+            r is VENTWindow.LevelRow ? ((VENTWindow.LevelRow)r).Name : ((VENTWindow.RoomRow)r).Number));
+    }
+
+    private static void Searching()
+    {
+        Console.WriteLine();
+        Console.WriteLine("  searching the levels list");
+        Console.WriteLine();
+
+        var choices = new Dictionary<string, bool>();
+        var tree = Tower(choices);
+        var l03 = tree[0];
+        var l04 = tree[1];
+        var open = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        // A pick made before the search, on a row it will hide
+        l03.Rooms[0].IsPicked = true;
+
+        int found = VENTWindow.Search.Apply(tree, "bedroom", open);
+
+        Check("a search shows the rooms it finds, under their levels, and hides the rest",
+            found == 3 && Showing(tree) == "LEVEL 03,121.056,121.105,LEVEL 04A,121.401");
+
+        Check("...a level with nothing found is hidden",
+            !tree[2].IsShown);
+
+        Check("...a level showing what was found is OPENED - and how it stood is remembered",
+            l03.IsExpanded && open.Count == 3 && open["LEVEL 03"] == false && open["LEVEL 04A"] == true);
+
+        Check("...and a pick on a row it hides is let go",
+            !l03.Rooms[0].IsPicked);
+
+        Check("hidden is not unticked: every room still ticked, every count still whole",
+            tree.SelectMany(l => l.Rooms).All(r => r.IsOn) && l03.Label == "LEVEL 03     4 room(s)" &&
+            choices.Count == 0);
+
+        Check("each room is found with its LEVEL's name: 'level 03 bedroom' leaves LEVEL 03's alone",
+            VENTWindow.Search.Apply(tree, "level 03 bedroom", open) == 2 &&
+            Showing(tree) == "LEVEL 03,121.056,121.105");
+
+        Check("...a level's name alone finds the whole level - and a level with no rooms by its name",
+            VENTWindow.Search.Apply(tree, "level 04a", open) == 2 && Showing(tree) == "LEVEL 04A,TA-04-31,121.401" &&
+            VENTWindow.Search.Apply(tree, "roof", open) == 0 && Showing(tree) == "ROOF");
+
+        // ---- a level's tick while the search is on
+        VENTWindow.Search.Apply(tree, "bedroom", open);
+
+        bool means = l03.ClickMeans();
+
+        l03.TickShown(means);
+
+        Check("a level's tick acts on its rooms SHOWING: both bedrooms unticked, the corridor and dressing left ticked",
+            !means && !l03.Rooms[1].IsOn && !l03.Rooms[3].IsOn && l03.Rooms[0].IsOn && l03.Rooms[2].IsOn);
+
+        Check("...the level now part-ticked, and only those two remembered as chosen",
+            l03.Checked == null && choices.Count == 2 && choices["9:2"] == false && choices["9:4"] == false);
+
+        Check("...and the next click ticks the rooms showing again - never stuck on the third state",
+            l03.ClickMeans() && Act(l03) && l03.Rooms[1].IsOn && l03.Rooms[3].IsOn && l03.Checked == true);
+
+        // ---- All / None (what the window's buttons do)
+        foreach (VENTWindow.LevelRow level in tree.Where(l => l.IsShown))
+            level.TickShown(false);
+
+        Check("None with a search on unticks the rooms showing - only",
+            tree.SelectMany(l => l.Rooms).Count(r => !r.IsOn) == 3 &&
+            !l04.Rooms[1].IsOn && l04.Rooms[0].IsOn && l03.Rooms[0].IsOn);
+
+        foreach (VENTWindow.LevelRow level in tree.Where(l => l.IsShown))
+            level.TickShown(true);
+
+        // ---- picking while the search is on
+        VENTWindow.Picks.PickShown(tree);
+
+        Check("Ctrl+A picks the rows showing - nothing hidden",
+            !l03.Rooms[0].IsPicked && !l03.Rooms[2].IsPicked && l03.IsPicked && l03.Rooms[1].IsPicked);
+
+        VENTWindow.Picks.Clear(tree);
+        l03.IsPicked = true;
+
+        Check("a picked level stands for its rooms SHOWING - for Show in plan",
+            string.Join(",", VENTWindow.Picks.Rooms(tree).Select(r => r.Number)) == "121.056,121.105");
+
+        VENTWindow.Picks.Tick(tree, false);
+
+        Check("...and for ticking a picked row",
+            !l03.Rooms[1].IsOn && !l03.Rooms[3].IsOn && l03.Rooms[0].IsOn && l03.Rooms[2].IsOn);
+
+        VENTWindow.Picks.Tick(tree, true);
+        VENTWindow.Picks.Clear(tree);
+
+        // ---- clearing it
+        Check("cleared: everything shows again, and the levels it opened are put back as they were",
+            VENTWindow.Search.Apply(tree, "", open) == 0 &&
+            tree.All(l => l.IsShown && l.Rooms.All(r => r.IsShown)) &&
+            !l03.IsExpanded && l04.IsExpanded && open.Count == 0);
+
+        // ---- no search: exactly as before
+        var plain = Tower(new Dictionary<string, bool>())[0];
+        plain.Rooms[0].IsOn = false;
+
+        Check("no search: a level's click means what it always did - part-ticked goes to ticked, all of it",
+            plain.ClickMeans() && Act(plain) && plain.Rooms.All(r => r.IsOn) && plain.Checked == true);
+
+        // ---- the list rebuilt in the middle of a search
+        var memory = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var before = Tower(new Dictionary<string, bool>());
+
+        VENTWindow.Search.Apply(before, "bedroom", memory);
+
+        // Rebuilt the way the window rebuilds it: open where it was open
+        var rebuilt = Tower(new Dictionary<string, bool>(), l03Open: true);
+
+        VENTWindow.Search.Apply(rebuilt, "bedroom", memory);
+        VENTWindow.Search.Apply(rebuilt, "", memory);
+
+        Check("rebuilt mid-search, the levels still go back to how they stood BEFORE the search",
+            !rebuilt[0].IsExpanded && rebuilt[1].IsExpanded);
+    }
+
+    // A click on the level's box, as the window makes it
+    private static bool Act(VENTWindow.LevelRow level)
+    {
+        level.TickShown(level.ClickMeans());
+        return true;
     }
 
     private static void Picking()

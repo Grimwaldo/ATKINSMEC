@@ -82,6 +82,19 @@ namespace ventpreview
 
             window.UpdateLayout();
 
+            // The levels search: "bed room" - the rooms found under their
+            // levels, every level with one opened, the rest hidden
+            window.SearchLevels("bed room");
+
+            window.UpdateLayout();
+
+            Shoot(window, Path.Combine(folder, "autovent-levels-search.png"));
+            Shoot(window, Path.Combine(folder, "autovent-levels-search-1.5x.png"), 1.5);
+
+            window.SearchLevels("");
+
+            window.UpdateLayout();
+
             // The worst case for the levels card: a sheet naming ten
             // levels this model has not got
             window.Levels(9, 2, 1, 12, 2, "B1_BASEMENT", "B2_BASEMENT",

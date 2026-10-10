@@ -706,6 +706,34 @@ What is worth knowing:
   the row again as soon as the row changes - also tested. A room's box
   has no third state and stays `TwoWay`.
 
+**THE LEVELS LIST HAS A SEARCH BOX** (`TxtLevelSearch`, in the card's
+heading row; `VENTLEVELROWS.Search`), at the user's request - *"add
+search bar also into the rooms to process"*. The links search's rule
+(`VENTLINKFILTER`) over each room's LEVEL name, number and name as the
+list shows it (apartment and model included), so `level 03 bedroom`
+finds LEVEL 03's bedrooms and a level's name alone the whole level.
+
+- **It only HIDES rows** (`IsShown` on both rows, bound to each
+  container's `Visibility`): every room keeps its tick, a level's count
+  still counts them all, and every run does what the ticks say. Rows it
+  hides are unpicked - nobody can see a hidden pick.
+- **What a person DOES while it is on acts on the rows SHOWING**, so
+  nothing hidden changes by surprise: a level's tick
+  (`LevelRow.ClickMeans` / `TickShown` - decided from its rooms showing,
+  so a part-ticked level never gets stuck), All and None, Space, Ctrl+A
+  and Shift ranges (`Picks.Visible`), and a picked level (`Picks.Rooms`,
+  `Picks.Tick`) for ticking and Show in plan. **With no search every row
+  is showing and all of it behaves exactly as before** - tested.
+- A level with a room found is OPENED, and put back as it stood when the
+  search is cleared. How each stood is kept by the window by level name
+  (`_openBeforeSearch`), so it survives `RefreshLevels` rebuilding the
+  list mid-search, which re-applies the search at its end.
+- `LevelRow.IsExpanded` now notifies: the search sets it after the row
+  is in the tree, which nothing did before.
+- Tested in `tests/levelrowtest` (17 checks, three of the rules
+  mutation-checked); rendered at 1x and 1.5x
+  (`autovent-levels-search*.png`). Never run in Revit.
+
 **THE RUNS ARE HANDED THE UNTICKED ROOMS**, not the ticked ones
 (`RVTLINKSELECTION.ExcludedRooms`, keys from `RoomKey`, whose one
 definition is `VENTWindow.RoomRow.KeyOf` - "link id:room id", the key

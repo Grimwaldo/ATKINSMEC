@@ -67,6 +67,18 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: a search box on Levels to process - 2026-10-10
+
+User: *"add search bar also into the rooms to process"*. In the levels
+card's heading: finds rooms by level, number and name (apartment and
+model included); only hides rows - ticks stand and still count; while it
+is on, a level's tick, All, None, Ctrl+A, ranges and picked levels act
+on the rooms showing. Levels it opens close again when it is cleared.
+`levelrowtest` +17 (mutation-checked), all 20 harnesses pass, rendered
+at 1x and 1.5x, built and deployed to all six (hash-checked - 2024
+included, so the Arrange rooms search below is now in 2024 too). Never
+run in Revit.
+
 ## AUTOVENT: a search box in Arrange rooms... - 2026-10-10
 
 User: *"add a search bar inside the Arrange rooms for the sheet window to

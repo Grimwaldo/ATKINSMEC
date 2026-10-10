@@ -115,6 +115,37 @@ namespace ATKINSMEC
 
         private void TxtLinkSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
 
+        // The levels search, with the REAL rule (VENTLEVELROWS.Search), as
+        // VENTWindow.TxtLevelSearch_TextChanged does
+        private readonly System.Collections.Generic.Dictionary<string, bool> _openBeforeSearch =
+            new System.Collections.Generic.Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        private void TxtLevelSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (TxtLevelSearchHint == null || ListLevels == null || _levels == null)
+                return;
+
+            TxtLevelSearchHint.Visibility = string.IsNullOrEmpty(TxtLevelSearch.Text)
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
+            int found = Search.Apply(_levels, TxtLevelSearch.Text, _openBeforeSearch);
+
+            string query = TxtLevelSearch.Text.Trim();
+
+            TxtStatus.Text = query.Length == 0
+                ? "Every level and room showing again."
+                : found + " room(s) on " + _levels.Count(l => l.IsShown) + " level(s) match \"" + query +
+                  "\". Hidden rooms keep their ticks; All, None and a level's tick act on the rooms showing.";
+        }
+
+        private void TxtLevelSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
+
+        public void SearchLevels(string text)
+        {
+            TxtLevelSearch.Text = text;
+        }
+
         public void SearchLinks(string text)
         {
             TxtLinkSearch.Text = text;
