@@ -171,19 +171,26 @@ plain status lines.
 - **Endcaps and bellmouths, by family name** (two boxes, comma-separated,
   matched like the links search). An **endcap** (`EndcapNames`, default
   and empty = `Endcap`) is always traced to the nearest unit. A
-  **bellmouth** (`BellmouthNames`, default `BellMouth`, empty = none)
-  feeds a unit **only when its mouth faces one within the reach**
-  (`VENTFACING`: a ray from the duct connector, away from the duct — sign
-  checked against the body, since the API does not say which way a
-  connector's Z points — into the unit's box grown 150 mm); otherwise it
-  serves the room it stands in. That is what tells "bellmouth into the
-  room, FCU in the room" from "bellmouth into an FCU over another room":
-  the second sits in the void at the unit's height. A unit on the
-  bellmouth's OWN duct system is never fed (an AHU's intake faces its
-  AHU). Each bellmouth's decision is in the debug log (`BELLMOUTH ...`).
+  **bellmouth** (`BellmouthNames`, default `BellMouth`, empty = none) is
+  decided by `VENTFACING.Bellmouth`, in order: faces a unit within the
+  reach (a ray from the duct connector, away from the duct, sign checked
+  against the body, into the box grown 150 mm) → within 300 mm of a
+  unit's casing → no unit in reach = its room → mouth pointing down =
+  its room → in no room in scope, the nearest unit supplying its room, or
+  its room needing none of that air (the SHEET) = feeds the nearest unit
+  → otherwise its room. **Facing alone found 8 of 32 on the first real
+  job** (kifaf, 2026-10-11) and left four rooms with no fresh air. A
+  unit on the bellmouth's own duct system is never fed. Every decision
+  and its reason is in the debug log (`BELLMOUTH ...`).
+- **A terminal's room is the room IN FRONT of its face** (300 mm along
+  `VENTFACING.Mouth`, falling back to where it stands): a sidewall
+  grille's insertion point in the kitchen wall made kitchens "served by
+  2 FCUs". Logged as `TERMINAL ... faces into`. The log also lists the
+  rooms each FCU supplies.
 - **Air with nowhere to go is reported** (`VENTFCUCHECK.Nowhere`): a
   room with air in the sheet and no terminal in it or endcap carrying
-  it — in the run's dialog and the log.
+  it — in the run's dialog and the log. The divided-between-endcaps list
+  names only sides the sheet gives air to (`Worth(tally, fresh, extract)`).
 - **Endcaps split a room's air between the endcaps bound to its units**
   (`VENTFCUCHECK`: `Tally`, `Share`, `Carried`) — the shares always add
   back to the whole. One unit, one endcap divides by one; counts per side.
@@ -272,7 +279,10 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   apartments get no row and no terminals. An unticked placement gives
   only its apartment rooms (`Takes`).
 - `VENTROWS.Apartments` writes the groups; the importer reads a row's
-  name from the block's last column (`VENTSHEET.NameOf`).
+  name from the block's last column (`VENTSHEET.NameOf`). The column
+  beside the apartment name (G) holds the apartment's number from the
+  architect's model, as text (user, 2026-10-11) - the importer never
+  reads it.
 - **`Desktop\ATKINSMEC_apartments_log.txt`** is written on every map
   build: each model's level error, rooms per level, what each interior
   room was found in, what other models have there. **Read it before
@@ -295,6 +305,9 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
 ### Logs and video
 - `Desktop\ATKINSMEC_debug_log.txt` on every airflow run (levels of each
   link, a room's floor checked two ways).
+- `Desktop\ATKINSMEC_export_log.txt` on every export: the full report.
+  The dialog itself is one line - "The sheet has been exported to
+  <path>" - and nothing on screen mentions "the office" (user, 2026-10-11).
 - Tutorial video: `tests/ventpreview tutorial` + `tests/video`
   (`make_video.py`, `music.py` — composed, no samples, `mp4enc` — Media
   Foundation). RGB32 needs a positive stride; crop a WPF render's

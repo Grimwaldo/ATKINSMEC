@@ -113,6 +113,7 @@ namespace ventpreview
             window.UpdateLayout();
 
             Shoot(window, Path.Combine(folder, "autovent-export.png"));
+            Shoot(window, Path.Combine(folder, "autovent-export-1.5x.png"), 1.5);
 
             Fixtures(folder);
 
