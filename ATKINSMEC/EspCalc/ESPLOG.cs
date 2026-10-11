@@ -44,7 +44,7 @@ namespace ATKINSMEC
                           F(settings.FlexRoughnessMm, "0.###") + " mm), terminal default " +
                           F(settings.TerminalDropPa, "0.#") + " Pa");
             sb.AppendLine(settings.TableIsBuiltIn()
-                ? "coefficients: the BUILT-IN rough table - not the office's"
+                ? "coefficients: the BUILT-IN rough table"
                 : "coefficients: edited in the window");
             sb.AppendLine(settings.Families.Count + " family value(s) typed in");
             sb.AppendLine();

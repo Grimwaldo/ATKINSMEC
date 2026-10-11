@@ -316,18 +316,8 @@ namespace ATKINSMEC
         {
             TabActions.SelectedIndex = 1;
 
-            // The REAL wording (VENTEXPORTNOTE is compiled in), and
-            // the longest of the three hints, so the render shows the
-            // worst case rather than the best
-            TxtExportHint.Text = new[]
-                {
-                    VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.Fill),
-                    VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.NewWorkbook),
-                    VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.AddWorksheet)
-                }
-                .OrderByDescending(h => h.Length).First();
-
-            // A family ticked from a plumbing model: the longer line
+            // The REAL wording (VENTEXPORTNOTE is compiled in). A family
+            // ticked from a plumbing model: the longer line
             TxtFixtures.Text = VENTEXPORTNOTE.Fixtures(true, 2, 1);
         }
         public void ShowAssign() { TabActions.SelectedIndex = 0; }
@@ -366,7 +356,7 @@ namespace ATKINSMEC
         }
 
         // The export tab as it looks with a NEW workbook chosen: the
-        // worksheet box off, the name box on, and that way's own hint
+        // worksheet box off, the name box on
         public void TutorialNewWorkbook()
         {
             TabActions.SelectedIndex = 1;
@@ -376,7 +366,6 @@ namespace ATKINSMEC
             TxtNewSheet.IsEnabled = true;
             TxtNewSheet.Text = "Ventilation";
 
-            TxtExportHint.Text = VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.NewWorkbook);
             TxtFixtures.Text = VENTEXPORTNOTE.Fixtures(true, 0, 0);
         }
 

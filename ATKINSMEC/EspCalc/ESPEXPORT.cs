@@ -54,7 +54,7 @@ namespace ATKINSMEC
                                    " kg/m3   joint tolerance between models " + settings.ToleranceMm + " mm";
 
             ws.Cells[3, 1].Value = settings.TableIsBuiltIn()
-                ? "Fitting coefficients: the add-in's BUILT-IN rough values, not the office's - check before relying on these figures."
+                ? "Fitting coefficients: the add-in's BUILT-IN rough values - check before relying on these figures."
                 : "Fitting coefficients: as edited in the window.";
             ws.Cells[3, 1].Style.Font.Color.SetColor(
                 settings.TableIsBuiltIn() ? Color.FromArgb(154, 91, 0) : Color.FromArgb(31, 41, 51));

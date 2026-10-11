@@ -118,10 +118,8 @@ namespace ATKINSMEC
                 if (stream == null)
                 {
                     throw new Exception(
-                        "The office ventilation template is missing from " +
-                        "the add-in (" + ResourceName + "). It is built " +
-                        "in from Resources\\VentTemplate.xlsx - rebuild " +
-                        "the add-in.");
+                        "The ventilation template is missing from the " +
+                        "add-in (" + ResourceName + "). Rebuild the add-in.");
                 }
 
                 using (var memory = new MemoryStream())
@@ -372,7 +370,7 @@ namespace ATKINSMEC
             {
                 throw new Exception(
                     "Worksheet \"" + ws.Name + "\" does not mark its level " +
-                    "rows in blue, so it is not the office layout.");
+                    "rows in blue, so its layout is not recognised.");
             }
 
             // ---- 1. The room number column ------------------------
@@ -1273,8 +1271,7 @@ namespace ATKINSMEC
 
             result.Notes.Add(
                 "The equipment summary under the Total was kept with its " +
-                "formulas; the API job's " + units + " unit tag(s) in it " +
-                "were cleared.");
+                "formulas; its " + units + " unit tag(s) were cleared.");
         }
 
         private static bool IsNumber(object value)
@@ -1632,7 +1629,7 @@ namespace ATKINSMEC
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine("Worksheet \"" + r.Sheet + "\", in the office layout (copied from " + r.Pattern + "):");
+            sb.AppendLine("Worksheet \"" + r.Sheet + "\" (copied from " + r.Pattern + "):");
             sb.AppendLine("    " + r.Levels + " level(s), " + r.Rooms + " room(s)");
             sb.AppendLine("    name, number, area and height from the model; the room number is column " +
                           ExcelCellAddress.GetColumnLetter(r.RoomNumberCol));

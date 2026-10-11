@@ -29,7 +29,7 @@ namespace ventpreview
             "TabActions", "TxtFreshTypes", "LstFresh", "TxtExtractTypes",
             "LstExtract", "TxtEndcapReach", "BtnRun",
             "RdoIntoImported", "CboExportSheet", "RdoNewWorkbook",
-            "RdoAddWorksheet", "TxtNewSheet", "BtnExport", "TxtExportHint"
+            "RdoAddWorksheet", "TxtNewSheet", "BtnExport"
         };
 
         public static void Shoot(ATKINSMEC.VENTWindow window, string folder)

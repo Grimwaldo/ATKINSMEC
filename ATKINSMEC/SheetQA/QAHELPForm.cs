@@ -134,7 +134,7 @@ namespace ATKINSMEC
 
             Heading("Grids: grid bubbles");
             Body(
-                "Which end the bubbles belong on is an office " +
+                "Which end the bubbles belong on is a drawing " +
                 "convention, not something Revit enforces, so choose the " +
                 "corner on the right: top or bottom for the grids running " +
                 "up the sheet, left or right for those running across.");
@@ -340,7 +340,7 @@ namespace ATKINSMEC
 
             Heading("CHW: pipe size against flow");
             Body(
-                "The sizing table is BUILT IN - the office's own ASHRAE " +
+                "The sizing table is BUILT IN - an ASHRAE " +
                 "90.1 sheet for ASTM A53, seventeen sizes from DN20 to " +
                 "DN600. There is nothing to load and nowhere for it to " +
                 "go missing, and every machine checks against the same " +

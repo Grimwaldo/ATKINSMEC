@@ -73,13 +73,38 @@ namespace ATKINSMEC
             {
                 string report = ExportCore();
 
-                TaskDialog.Show("AUTOVENT export", report);
+                // ONE LINE ON SCREEN, at the user's request (2026-10-11):
+                // the whole report used to be the dialog. It goes to the
+                // Desktop log instead, as the airflow run's does.
+                SaveLog(report);
+
+                TaskDialog.Show(
+                    "AUTOVENT",
+                    "The sheet has been exported to " + TargetPath);
             }
             catch (Exception ex)
             {
                 TaskDialog.Show(
                     "AUTOVENT export failed",
                     ex.Message);
+            }
+        }
+
+        // Desktop\ATKINSMEC_export_log.txt - what the export did, in full
+        private static void SaveLog(string report)
+        {
+            try
+            {
+                File.WriteAllText(
+                    Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                        "ATKINSMEC_export_log.txt"),
+                    "=== AUTOVENT export " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                    " ===\r\n\r\n" + report + "\r\n");
+            }
+            catch
+            {
+                // logging must never break the add-in
             }
         }
 
@@ -253,11 +278,10 @@ namespace ATKINSMEC
                 unitsCol = made.UnitsCol;
                 groups = made.Apartments;
 
-                return "A new workbook was written from the office " +
-                       "template.\r\n\r\n" +
+                return "A new workbook was written.\r\n\r\n" +
                        VENTOFFICE.Describe(made) +
                        "\r\n\r\nIt also holds the three ASHRAE worksheets " +
-                       "the formulas read, exactly as the office has them." +
+                       "the formulas read." +
                        saved;
             }
 
@@ -271,9 +295,8 @@ namespace ATKINSMEC
             unitsCol = added.UnitsCol;
             groups = added.Apartments;
 
-            return "A worksheet was added in the office layout; every " +
-                   "worksheet already in the workbook was left as it " +
-                   "was.\r\n\r\n" +
+            return "A worksheet was added; every worksheet already in " +
+                   "the workbook was left as it was.\r\n\r\n" +
                    VENTOFFICE.Describe(added) +
                    saved;
         }

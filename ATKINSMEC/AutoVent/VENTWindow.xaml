@@ -215,7 +215,7 @@
                           Style="{StaticResource TickRow}"
                           Margin="4,3,10,3"
                           VerticalAlignment="Top"
-                          ToolTip="This model's rooms are APARTMENTS. The rooms of interior models standing inside them - found in every placement, on the same level of this model - are written under them, as the office's Tower-1 sheet does. Its rooms with nothing inside stay ordinary rooms.">
+                          ToolTip="This model's rooms are apartments. Interior rooms inside them are grouped under them.">
                     <TextBlock Text="Apartments"
                                FontSize="11.5"
                                Foreground="{StaticResource Muted}"/>
@@ -928,25 +928,13 @@
 
                             </StackPanel>
 
-                            <!-- The hint, and under it the fixtures line:
-                                 water closets and urinals counted into the
-                                 sheet's "No. of Units". In this column
-                                 because the tab has no other room and the
-                                 window no height to give. -->
+                            <!-- The fixtures line: water closets and urinals
+                                 counted into the sheet's "No. of Units". At
+                                 the foot of the column, level with the last
+                                 radio. (A paragraph explaining each way sat
+                                 above it until the user asked for it to go.) -->
                             <Grid Grid.Column="2" Margin="22,0,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-
-                                <TextBlock x:Name="TxtExportHint"
-                                           Grid.Row="0"
-                                           VerticalAlignment="Top"
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource Hint}"
-                                           Text=""/>
-
-                                <DockPanel Grid.Row="1" Margin="0,6,0,0">
+                                <DockPanel VerticalAlignment="Bottom">
                                     <Button x:Name="BtnFixtures"
                                             DockPanel.Dock="Right"
                                             Style="{StaticResource FlatButton}"

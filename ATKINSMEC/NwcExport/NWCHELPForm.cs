@@ -61,9 +61,9 @@ namespace ATKINSMEC
             Body(
                 "A 3D view is named, and that NAME is looked for in " +
                 "every model - it is the only thing models have in " +
-                "common, since each has its own views. Most offices keep " +
-                "a view called Navisworks in every model for exactly " +
-                "this reason.");
+                "common, since each has its own views. Keep a view " +
+                "called Navisworks in every model for exactly this " +
+                "reason.");
             Body(
                 "A MODEL WITHOUT THAT VIEW IS REPORTED, NOT GUESSED AT. " +
                 "Exporting the whole model instead would quietly swap " +

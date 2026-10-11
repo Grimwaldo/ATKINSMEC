@@ -771,7 +771,7 @@ namespace ATKINSMEC
         {
             string text = _settings.TableIsBuiltIn()
                 ? "These are the add-in's BUILT-IN rough coefficients - typical figures chosen for it, not the ASHRAE " +
-                  "Duct Fitting Database or CIBSE Guide C. Put the office's values in; they are saved and used from then on."
+                  "Duct Fitting Database or CIBSE Guide C. Put your own values in; they are saved and used from then on."
                 : string.Empty;
 
             _lblTableNote.Text = text;

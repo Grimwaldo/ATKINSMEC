@@ -1283,8 +1283,6 @@ namespace ATKINSMEC
             RdoAddWorksheet.IsEnabled = imported;
             RdoIntoImported.IsEnabled = imported;
 
-            TxtExportHint.Text = Explain();
-
             if (string.IsNullOrEmpty(VENTSHEET.sheetpath))
             {
                 TxtSheetPath.Text = hasLinks
@@ -2324,24 +2322,6 @@ namespace ATKINSMEC
             return REVITEXPORT.Way.IntoImported;
         }
 
-        // The wording is VENTEXPORTNOTE's, so the preview renders the
-        // real text - one paragraph each now, to leave the fixtures line
-        // room under it
-        private string Explain()
-        {
-            switch (Chosen())
-            {
-                case REVITEXPORT.Way.NewWorkbook:
-                    return VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.NewWorkbook);
-
-                case REVITEXPORT.Way.AddWorksheet:
-                    return VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.AddWorksheet);
-
-                default:
-                    return VENTEXPORTNOTE.Hint(VENTEXPORTNOTE.Fill);
-            }
-        }
-
         // Stops the "nothing imported, so pick the new workbook" rule
         // in Gate from deciding twice - see there
         private bool _gating;
@@ -2355,7 +2335,7 @@ namespace ATKINSMEC
             // a window that throws while it is being built never
             // appears at all.
             if (TxtNewSheet == null || BtnExport == null ||
-                TxtExportHint == null || RdoAddWorksheet == null ||
+                RdoAddWorksheet == null ||
                 RdoNewWorkbook == null || RdoIntoImported == null)
                 return;
 
@@ -2441,44 +2421,24 @@ namespace ATKINSMEC
 
             REVITEXPORT.TargetPath = dialog.FileName;
 
+            // One short question - the user: keep these dialogs short
             string question;
 
             switch (way)
             {
                 case REVITEXPORT.Way.NewWorkbook:
-                    question =
-                        "Write a new workbook with worksheet \"" +
-                        sheetName + "\" in the office layout, holding " +
-                        levels.Count + " level(s) from " + linkIds.Count +
-                        " model(s)?" +
-                        Environment.NewLine + Environment.NewLine +
-                        "Every office formula is kept and every typed " +
-                        "value left blank; the three ASHRAE worksheets " +
-                        "come with it.";
+                    question = "Export " + levels.Count + " level(s) to a new workbook, " +
+                               "worksheet \"" + sheetName + "\"?";
                     break;
 
                 case REVITEXPORT.Way.AddWorksheet:
-                    question =
-                        "Add worksheet \"" + sheetName + "\" in the " +
-                        "office layout to the imported workbook, holding " +
-                        levels.Count + " level(s) from " + linkIds.Count +
-                        " model(s)?" +
-                        Environment.NewLine + Environment.NewLine +
-                        "Everything already in the workbook is left as " +
-                        "it is; the ASHRAE worksheets are added only if " +
-                        "it has not got them.";
+                    question = "Add worksheet \"" + sheetName + "\" with " + levels.Count +
+                               " level(s) to the imported workbook?";
                     break;
 
                 default:
-                    question =
-                        "Replace the level and room rows of worksheet \"" +
-                        target + "\" with " + levels.Count +
-                        " level(s) from " + linkIds.Count + " model(s)?" +
-                        Environment.NewLine + Environment.NewLine +
-                        "Other columns keep their formulas; cells that " +
-                        "held a typed-in value are left blank. A Room " +
-                        "Number column is added if the worksheet has " +
-                        "none.";
+                    question = "Replace the rooms in worksheet \"" + target + "\" with " +
+                               levels.Count + " level(s)?";
                     break;
             }
 
@@ -2489,8 +2449,7 @@ namespace ATKINSMEC
             if (left.Count > 0)
             {
                 question += Environment.NewLine + Environment.NewLine +
-                            left.Count + " room(s) unticked in the levels " +
-                            "list will be left out.";
+                            left.Count + " unticked room(s) will be left out.";
             }
 
             MessageBoxResult go = MessageBox.Show(
