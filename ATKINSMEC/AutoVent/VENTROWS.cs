@@ -399,10 +399,16 @@ namespace ATKINSMEC
         // THE OFFICE'S OWN PATTERN, from Tower-1 of the office workbook
         // (38 of them there): the APARTMENT's name in the Space column,
         // merged DOWN over the apartment's rooms - and the column beside
-        // it the same, empty - each room's OWN name in the last column of
-        // the Space block, and "No of Bedrooms" merged down over them,
-        // being one figure for the dwelling unit. Everything else - area,
+        // it the same - each room's OWN name in the last column of the
+        // Space block, and "No of Bedrooms" merged down over them, being
+        // one figure for the dwelling unit. Everything else - area,
         // height, occupancy, every formula - stays per room.
+        //
+        // THE COLUMN BESIDE THE APARTMENT HOLDS ITS NUMBER - the
+        // apartment room's number in the architect's model - at the
+        // user's request (2026-10-11); Tower-1 leaves it empty. As text,
+        // like every room number. The importer reads only the first and
+        // last columns of the block, so it changes nothing on the way back.
         //
         // Run AFTER the rows are written, over (sheet row, room) pairs:
         // consecutive rooms of one apartment become one group. The room
@@ -439,6 +445,7 @@ namespace ATKINSMEC
                 }
 
                 Group(ws, layout, rows[i].Key, rows[j].Key, room.Apartment,
+                      room.ApartmentNumber,
                       rows.Skip(i).Take(j - i + 1).Select(r => r.Value).ToList());
 
                 groups++;
@@ -454,6 +461,7 @@ namespace ATKINSMEC
             int top,
             int bottom,
             string apartment,
+            string number,
             List<VENTTEMPLATE.Room> rooms)
         {
             int nameCol = layout.SpaceNameCol;
@@ -483,6 +491,14 @@ namespace ATKINSMEC
             }
 
             ws.Cells[top, nameCol].Value = apartment ?? string.Empty;
+
+            // Its number in the column beside it - only where the block
+            // has one between the apartment and the rooms' own names
+            if (endCol - nameCol >= 2 && !string.IsNullOrWhiteSpace(number))
+            {
+                ws.Cells[top, nameCol + 1].Style.Numberformat.Format = "@";
+                ws.Cells[top, nameCol + 1].Value = number.Trim();
+            }
 
             if (bottom > top)
             {

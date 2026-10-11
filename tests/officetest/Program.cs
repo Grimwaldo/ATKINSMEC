@@ -217,6 +217,20 @@ internal static class Program
             Check(ws.Cells[c1, f].Text == "STUDIO" && ws.Cells[c1, h].Text == "Studio room" && Merge(c1, f) == null,
                   "a one-room apartment: the apartment in F, the room in H, nothing to merge down");
 
+            // User (2026-10-11): the apartment's number from the
+            // architect's model in the column beside it, which Tower-1
+            // leaves empty
+            Check(ws.Cells[a1, g].Text == "P04-01" && ws.Cells[b1, g].Text == "P04-02" &&
+                  ws.Cells[c1, g].Text == "P04-03",
+                  "each apartment's own number in G, at the top of its merge: " +
+                  ws.Cells[a1, g].Text + ", " + ws.Cells[b1, g].Text + ", " + ws.Cells[c1, g].Text);
+
+            Check(ws.Cells[a1, g].Value is string && ws.Cells[a1, g].Style.Numberformat.Format == "@",
+                  "written as text, like every room number");
+
+            Check(ws.Cells[a2, g].Value == null && ws.Cells[lobby, g].Value == null,
+                  "nothing in G below the top of an apartment, or on an ordinary room");
+
             p.Workbook.Calculate();
 
             int errors = 0;
