@@ -1,6 +1,7 @@
 using ATKINSMEC;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 // A room's air divided equally between the ENDCAPS that serve it.
 //
@@ -223,6 +224,91 @@ internal static class Program
             VENTFACING.RoleOf(bellmouth, true) == VENTFACING.Role.InRoom);
 
         VENTSETTINGS.BellmouthNames = VENTSETTINGS.DefaultBellmouthNames;
+
+        Decisions();
+    }
+
+    // ==================================================================
+    // VENTFACING.Bellmouth - the whole decision, after the first real run
+    // (kifaf LEVEL 04A, 2026-10-11): facing alone found 8 of 32, and four
+    // rooms got no fresh air.
+    // ==================================================================
+
+    private static VENTFACING.Role Decide(bool faces, bool touching, bool inReach, double mouthZ,
+                                          bool inRoom, bool serves, double air, out VENTFACING.Reason why)
+    {
+        return VENTFACING.Bellmouth(faces, touching, inReach, mouthZ, inRoom, serves, air, out why);
+    }
+
+    private static void Decisions()
+    {
+        Console.WriteLine();
+        Console.WriteLine("  bellmouths - the decision");
+
+        VENTFACING.Reason why;
+
+        // The kifaf cases, as the log described them
+        Check("an ensuite bellmouth beside the bedroom's FCU, pointing past it: the ensuite needs no fresh air, so it feeds the FCU",
+            Decide(false, false, true, 0, true, false, 0, out why) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.ItsRoomNeedsNone);
+
+        Check("the living FCU's bellmouth in the kitchen, the FCU supplying the kitchen too: feeds it - living and kitchen air both",
+            Decide(false, false, true, 0, true, true, 70, out why) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.UnitServesItsRoom);
+
+        Check("...and touching the FCU's casing, it feeds it whatever the room needs",
+            Decide(false, true, true, 0, true, false, 70, out why) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.Touching);
+
+        Check("a corridor bellmouth that needs fresh air, beside an FCU that does not supply the corridor: the corridor's",
+            Decide(false, false, true, 0, true, false, 40, out why) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.ItsRoomNeedsAir);
+
+        // The user's four cases
+        Check("case 1: discharging DOWN into its room, an FCU beside it - the room's",
+            Decide(false, false, true, -1, true, true, 60, out why) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.IntoRoomBelow);
+
+        Check("case 2: no unit within the reach - the room's",
+            Decide(false, false, false, 0, true, false, 60, out why) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.NoUnit);
+
+        Check("case 4: facing the unit - feeds it, before anything else is asked",
+            Decide(true, false, true, -1, true, false, 60, out why) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.Faces);
+
+        Check("a bellmouth in no room in scope, a unit within the reach: feeds it",
+            Decide(false, false, true, 0, false, false, 0, out why) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.InNoRoom);
+
+        Check("a mouth only a little down (30 degrees) is not 'into the room below'",
+            Decide(false, false, true, -0.5, true, false, 0, out why) == VENTFACING.Role.Feeds);
+
+        Check("every reason has words for the log",
+            ((VENTFACING.Reason[])Enum.GetValues(typeof(VENTFACING.Reason)))
+                .All(r => !string.IsNullOrEmpty(VENTFACING.Say(r))));
+
+        // ---- the two geometry helpers --------------------------------
+        Check("distance to a box: 0 inside, along one axis outside, and diagonally past a corner",
+            VENTFACING.Distance(V(4.5, 2.2, 3.0), Fcu) == 0 &&
+            Near(Math.Round(VENTFACING.Distance(V(4.5, 1.8, 3.0), Fcu), 9), 0.2) &&
+            Near(Math.Round(VENTFACING.Distance(V(3.7, 1.6, 3.0), Fcu), 9), 0.5));
+
+        Check("...and a bellmouth 200 mm off the casing is beside it (300 mm), 400 mm is not",
+            VENTFACING.Distance(V(4.5, 1.8, 3.0), Fcu) <= VENTFACING.TouchingM &&
+            VENTFACING.Distance(V(4.5, 1.6, 3.0), Fcu) > VENTFACING.TouchingM);
+
+        // A sidewall grille in a wall at x = 0, facing +x: its room is the
+        // one it blows into, not whichever side its insertion point is on
+        double[] front = VENTFACING.InFront(V(0, 5, 2.6), V(1, 0, 0), 0.3);
+        double[] down = VENTFACING.InFront(V(3, 4, 2.7), V(0, 0, -1), 0.3);
+
+        Check("a sidewall grille's room is judged 300 mm in front of its face",
+            Near(front[0], 0.3) && Near(front[1], 5));
+
+        Check("...a ceiling diffuser's in the same place in plan, as before",
+            Near(down[0], 3) && Near(down[1], 4) &&
+            VENTFACING.InFront(V(1, 1, 1), null, 0.3)[0] == 1);
     }
 
     private static int Main()
@@ -502,6 +588,40 @@ internal static class Program
             Check("...nothing given is nothing said, and does not throw",
                 VENTFCUCHECK.Nowhere(null, null, null).Count == 0 &&
                 VENTFCUCHECK.CarriedRooms(null, fresh).Count == 0);
+        }
+
+        // ---- ONLY ROOMS WITH AIR ARE WORTH A LINE --------------------
+        //
+        // kifaf (2026-10-11): KITCHEN 121.126, no fresh air in the sheet,
+        // listed as "1 unit(s) have NO fresh endcap".
+        {
+            var job = new Job();
+
+            job.Unit(1, 1, "KITCHEN", "LIVING");
+            job.Unit(2, 0, "KITCHEN");
+            job.ExtractOn[1] = 1;
+            job.ExtractOn[2] = 0;
+
+            Dictionary<string, VENTFCUCHECK.Room> tally = job.Tally();
+
+            var fresh = new Dictionary<string, double> { ["KITCHEN"] = 0, ["LIVING"] = 80 };
+            var extract = new Dictionary<string, double> { ["KITCHEN"] = 0 };
+
+            Check("a room flagged on the fresh side but with no fresh air in the sheet is not listed",
+                VENTFCUCHECK.Worth(tally.Values).Count == 1 &&
+                VENTFCUCHECK.Worth(tally, fresh, extract).Count == 0);
+
+            fresh["KITCHEN"] = 70;
+
+            List<VENTFCUCHECK.Room> worth = VENTFCUCHECK.Worth(tally, fresh, extract);
+
+            Check("...with fresh air it is, and the line speaks of fresh only - its extract side has no air",
+                worth.Count == 1 && worth[0].Key == "KITCHEN" &&
+                VENTFCUCHECK.Line(worth[0], fresh, extract).Contains("NO fresh endcap") &&
+                !VENTFCUCHECK.Line(worth[0], fresh, extract).Contains("extract"));
+
+            Check("...a room the sheet has not got counts as none",
+                VENTFCUCHECK.Worth(tally, null, null).Count == 0);
         }
 
         Facing();

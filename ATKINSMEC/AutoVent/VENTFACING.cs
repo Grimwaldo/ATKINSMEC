@@ -13,14 +13,11 @@ namespace ATKINSMEC
     //      does not serve (the kifaf master bedroom: unit and bellmouth
     //      over the ensuite).
     //
-    // 1 and 4 look alike from above - a bellmouth near an FCU. What
-    // differs is where its MOUTH points: a bellmouth feeding a unit sits
-    // in the ceiling void at the unit's height, its mouth on the unit; a
-    // bellmouth serving the room discharges into the room, below the
-    // ceiling, where no unit is in front of it. So a bellmouth feeds the
-    // unit its air would hit within the endcap reach, and otherwise
-    // serves the room it stands in. An ENDCAP is a blank cap with no
-    // mouth, and is traced to the nearest unit as it always was.
+    // 1 and 4 look alike from above - a bellmouth near an FCU. The mouth
+    // was meant to tell them apart on its own and could not in a real
+    // model (see Bellmouth below): it is now the first of several tests.
+    // An ENDCAP is a blank cap with no mouth, and is traced to the
+    // nearest unit as it always was.
     //
     // Revit-free, so the geometry is tested (tests/ventfcutest); any
     // unit of length, as long as it is one unit.
@@ -48,11 +45,164 @@ namespace ATKINSMEC
             return Role.InRoom;
         }
 
+        // ==================================================
+        // A bellmouth near an FCU: does it feed it?
+        // ==================================================
+        //
+        // "FACES THE UNIT" ALONE WAS TOO STRICT. The first real run
+        // (kifaf LEVEL 04A, 2026-10-11) found 8 of 32 bellmouths feeding a
+        // unit - most of those only because they sat inside its box - and
+        // four rooms got no fresh air: bellmouths drawn BESIDE their FCU's
+        // plenum, pointing past it, were taken for terminals of the
+        // ensuite or kitchen they stood in. So the mouth is now one test
+        // of several, tried in this order:
+        //
+        //   faces a unit within the reach          -> feeds it
+        //   within `Touching` of a unit's casing   -> feeds it
+        //   no unit within the reach               -> its room   (case 2)
+        //   mouth points down into the room        -> its room   (case 1)
+        //   stands in no room in scope             -> feeds the nearest
+        //   the nearest unit supplies its room     -> feeds it   (same air)
+        //   its room needs none of this air        -> feeds it   (case 4)
+        //   otherwise                              -> its room
+        //
+        // The last two use the SHEET: a bellmouth over an ensuite that
+        // needs no fresh air, beside an FCU, is that FCU's fresh air; one
+        // in a corridor that needs fresh air, beside an FCU that does not
+        // supply the corridor, is the corridor's.
+        public enum Reason
+        {
+            Faces,
+            Touching,
+            NoUnit,
+            IntoRoomBelow,
+            InNoRoom,
+            UnitServesItsRoom,
+            ItsRoomNeedsNone,
+            ItsRoomNeedsAir
+        }
+
+        // A mouth pointing more than ~45 degrees down discharges into the
+        // room under it
+        public const double DownZ = -0.7;
+
+        public static Role Bellmouth(
+            bool faces,
+            bool touching,
+            bool unitInReach,
+            double mouthZ,
+            bool inRoom,
+            bool unitServesItsRoom,
+            double itsRoomAir,
+            out Reason why)
+        {
+            if (faces)
+            {
+                why = Reason.Faces;
+                return Role.Feeds;
+            }
+
+            if (touching)
+            {
+                why = Reason.Touching;
+                return Role.Feeds;
+            }
+
+            if (!unitInReach)
+            {
+                why = Reason.NoUnit;
+                return Role.InRoom;
+            }
+
+            if (mouthZ < DownZ)
+            {
+                why = Reason.IntoRoomBelow;
+                return Role.InRoom;
+            }
+
+            if (!inRoom)
+            {
+                why = Reason.InNoRoom;
+                return Role.Feeds;
+            }
+
+            if (unitServesItsRoom)
+            {
+                why = Reason.UnitServesItsRoom;
+                return Role.Feeds;
+            }
+
+            if (itsRoomAir <= 0)
+            {
+                why = Reason.ItsRoomNeedsNone;
+                return Role.Feeds;
+            }
+
+            why = Reason.ItsRoomNeedsAir;
+            return Role.InRoom;
+        }
+
+        public static string Say(Reason why)
+        {
+            switch (why)
+            {
+                case Reason.Faces: return "faces the unit";
+                case Reason.Touching: return "beside the unit's casing";
+                case Reason.NoUnit: return "no unit within the reach";
+                case Reason.IntoRoomBelow: return "mouth points down into its room";
+                case Reason.InNoRoom: return "stands in no room in scope";
+                case Reason.UnitServesItsRoom: return "the unit supplies the room it stands in";
+                case Reason.ItsRoomNeedsNone: return "the room it stands in needs none of this air";
+                default: return "the room it stands in needs this air and the unit does not supply it";
+            }
+        }
+
+        // How close to a unit's casing counts as beside it, whichever
+        // way the mouth points (metres; REVITROOMS converts)
+        public const double TouchingM = 0.3;
+
         // A box, as Revit's bounding box gives it
         public class Box
         {
             public double[] Min;
             public double[] Max;
+        }
+
+        // How far a point is from a box - 0 inside it
+        public static double Distance(double[] point, Box box)
+        {
+            if (point == null || box == null || box.Min == null || box.Max == null)
+                return double.MaxValue;
+
+            double sum = 0;
+
+            for (int axis = 0; axis < 3; axis++)
+            {
+                double low = Math.Min(box.Min[axis], box.Max[axis]);
+                double high = Math.Max(box.Min[axis], box.Max[axis]);
+                double d = point[axis] < low ? low - point[axis]
+                         : point[axis] > high ? point[axis] - high
+                         : 0;
+
+                sum += d * d;
+            }
+
+            return Math.Sqrt(sum);
+        }
+
+        // Where a terminal's air goes in or out: a step in front of its
+        // face. A sidewall grille's insertion point is often in the wall,
+        // on whichever side the family put it, so the room it blows into
+        // is found from here rather than from where it stands.
+        public static double[] InFront(double[] at, double[] mouth, double step)
+        {
+            if (at == null)
+                return null;
+
+            if (mouth == null)
+                return at;
+
+            return new[] { at[0] + mouth[0] * step, at[1] + mouth[1] * step, at[2] + mouth[2] * step };
         }
 
         // THE DIRECTION THE MOUTH FACES, from the duct connector: away

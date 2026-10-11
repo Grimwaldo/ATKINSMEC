@@ -38,7 +38,10 @@ namespace ATKINSMEC
     {
         public class Room
         {
-            // What the log and the report call it
+            // The room key ("link id:room id"), and what the log and the
+            // report call it
+            public string Key { get; set; }
+
             public string Name { get; set; }
 
             // Equipment whose supply system reaches a terminal standing
@@ -107,6 +110,7 @@ namespace ATKINSMEC
                     {
                         room = new Room
                         {
+                            Key = roomKey,
                             Name = nameOf == null
                                 ? roomKey
                                 : nameOf(roomKey)
@@ -279,6 +283,99 @@ namespace ATKINSMEC
             return parts.Count == 0
                 ? text
                 : text + "  -  " + string.Join("; ", parts.ToArray());
+        }
+
+        // ONLY A SIDE THE SHEET GIVES AIR TO IS WORTH A LINE. A room with
+        // no fresh air in the sheet is not short of a fresh endcap -
+        // nothing is written for it either way - and listing it was
+        // noise: user-reported (kifaf, 2026-10-11), kitchens with no fresh
+        // air in the sheet in the result. Room keys to their sheet values;
+        // a room the sheet has not got counts as none.
+        public static List<Room> Worth(
+            IDictionary<string, Room> tally,
+            IDictionary<string, double> fresh,
+            IDictionary<string, double> extract)
+        {
+            var found = new List<Room>();
+
+            if (tally == null)
+                return found;
+
+            foreach (KeyValuePair<string, Room> each in tally)
+            {
+                if (Sides(each.Value, Air(fresh, each.Key), Air(extract, each.Key)) != Side.None)
+                    found.Add(each.Value);
+            }
+
+            found.Sort(delegate (Room a, Room b)
+            {
+                return string.Compare(a.Name ?? string.Empty, b.Name ?? string.Empty,
+                                      StringComparison.OrdinalIgnoreCase);
+            });
+
+            return found;
+        }
+
+        // The line for a room, saying only the sides with air
+        public static string Line(Room room, IDictionary<string, double> fresh,
+                                  IDictionary<string, double> extract)
+        {
+            if (room == null)
+                return string.Empty;
+
+            Side sides = Sides(room, Air(fresh, room.Key), Air(extract, room.Key));
+
+            var parts = new List<string>();
+
+            if ((sides & Side.Fresh) != 0)
+            {
+                if (room.FreshEndcaps > 1)
+                    parts.Add("fresh divided between " + room.FreshEndcaps + " endcaps");
+
+                if (UnitWithoutFresh(room))
+                    parts.Add((room.Fcus - room.FcusWithFresh) +
+                              " unit(s) have NO fresh endcap, so the others carry all of it");
+            }
+
+            if ((sides & Side.Extract) != 0)
+            {
+                if (room.ExtractEndcaps > 1)
+                    parts.Add("extract divided between " + room.ExtractEndcaps + " endcaps");
+
+                if (UnitWithoutExtract(room))
+                    parts.Add((room.Fcus - room.FcusWithExtract) +
+                              " unit(s) have NO extract endcap, so the others carry all of it");
+            }
+
+            string text = room.Name + ":  " + room.Fcus + " FCU(s)";
+
+            return parts.Count == 0 ? text : text + "  -  " + string.Join("; ", parts.ToArray());
+        }
+
+        [Flags]
+        private enum Side { None = 0, Fresh = 1, Extract = 2 }
+
+        private static Side Sides(Room room, double fresh, double extract)
+        {
+            if (room == null)
+                return Side.None;
+
+            Side sides = Side.None;
+
+            if (fresh > 0 && (room.FreshEndcaps > 1 || UnitWithoutFresh(room)))
+                sides |= Side.Fresh;
+
+            if (extract > 0 && (room.ExtractEndcaps > 1 || UnitWithoutExtract(room)))
+                sides |= Side.Extract;
+
+            return sides;
+        }
+
+        private static double Air(IDictionary<string, double> values, string key)
+        {
+            double value;
+
+            return values != null && key != null && values.TryGetValue(key, out value) ? value : 0;
         }
 
         // The rooms worth a line, in a settled order so two runs of one

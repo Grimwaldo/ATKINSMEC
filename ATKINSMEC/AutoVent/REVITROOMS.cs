@@ -297,21 +297,15 @@ namespace ATKINSMEC
             foreach (RoomInfo info in allRooms)
                 roomByKey[info.Key] = info;
 
-            foreach (FamilyInstance terminal in allTerminals)
+            RoomInfo RoomAt(XYZ point)
             {
-                LocationPoint lp =
-                    terminal.Location as LocationPoint;
-
-                if (lp == null)
-                    continue;
-
-                RoomInfo matched = null;
-                double matchedBaseZ = double.MinValue;
+                RoomInfo found = null;
+                double foundBaseZ = double.MinValue;
 
                 foreach (LinkRooms group in linkGroups)
                 {
                     XYZ pointInLink =
-                        group.InverseTransform.OfPoint(lp.Point);
+                        group.InverseTransform.OfPoint(point);
 
                     foreach (RoomInfo info in group.Rooms)
                     {
@@ -325,7 +319,7 @@ namespace ATKINSMEC
                             pointInLink.Y > info.Bbox.Max.Y + 0.1)
                             continue;
 
-                        if (info.BaseZ <= matchedBaseZ)
+                        if (info.BaseZ <= foundBaseZ)
                             continue;
 
                         XYZ testPoint = new XYZ(
@@ -335,14 +329,49 @@ namespace ATKINSMEC
 
                         if (info.Room.IsPointInRoom(testPoint))
                         {
-                            matched = info;
-                            matchedBaseZ = info.BaseZ;
+                            found = info;
+                            foundBaseZ = info.BaseZ;
                         }
                     }
                 }
 
+                return found;
+            }
+
+            // A TERMINAL BELONGS TO THE ROOM ITS AIR GOES INTO: a step in
+            // front of its face, and only failing that the room it stands
+            // in. A sidewall grille's insertion point is often in the wall,
+            // on whichever side the family put it - user-reported (kifaf,
+            // 2026-10-11): kitchens counted as served by TWO FCUs because
+            // the next room's grille, in the kitchen wall, was taken for
+            // one of the kitchen's. A ceiling diffuser faces down, so its
+            // step lands in the room it stands in, as before.
+            int turned = 0;
+
+            foreach (FamilyInstance terminal in allTerminals)
+            {
+                LocationPoint lp =
+                    terminal.Location as LocationPoint;
+
+                if (lp == null)
+                    continue;
+
+                RoomInfo standing = RoomAt(lp.Point);
+                RoomInfo matched = null;
+
+                double[] mouth = MouthOf(terminal);
+
+                if (mouth != null)
+                    matched = RoomAt(X(VENTFACING.InFront(P(lp.Point), mouth, FrontStepFeet)));
+
+                if (matched == null)
+                    matched = standing;
+
                 if (matched == null)
                     continue;
+
+                if (standing != null && standing.Key != matched.Key && ++turned <= 60)
+                    L($"TERMINAL {terminal.Id.ToValue()} '{terminal.Symbol?.FamilyName}' stands in {standing.RoomNumber} {standing.RoomName} but faces into {matched.RoomNumber} {matched.RoomName}");
 
                 List<FamilyInstance> terminalList;
 
@@ -358,6 +387,35 @@ namespace ATKINSMEC
             }
 
             L($"Rooms containing terminals: {roomTerminalMap.Count}");
+
+            if (turned > 0)
+                L($"Terminals facing into another room than the one they stand in: {turned}" +
+                  (turned > 60 ? " (the first 60 listed)" : string.Empty));
+
+            var terminalRoom =
+                new Dictionary<ElementId, string>();
+
+            foreach (var kvp in roomTerminalMap)
+            {
+                foreach (FamilyInstance t in kvp.Value)
+                    terminalRoom[t.Id] = kvp.Key;
+            }
+
+            // Each room's air in the sheet, per side - asked by the
+            // bellmouth decision, the report and the write
+            var sheetFresh = new Dictionary<string, double>();
+            var sheetExtract = new Dictionary<string, double>();
+
+            foreach (RoomInfo info in allRooms)
+            {
+                VENTSHEET.AirData air;
+
+                if (ventilationData.TryGetValue(KeyOf(info), out air))
+                {
+                    sheetFresh[info.Key] = air.FreshAir;
+                    sheetExtract[info.Key] = air.ExhaustAir;
+                }
+            }
 
             List<FamilyInstance> equipment =
                 new FilteredElementCollector(doc2)
@@ -380,11 +438,12 @@ namespace ATKINSMEC
             // Bellmouths: into the room, or into an FCU?
             // ==================================================
             //
-            // A bellmouth whose mouth faces a unit within the reach feeds
-            // that unit; any other serves the room it stands in. See
-            // VENTFACING for the four cases this tells apart.
+            // VENTFACING.Bellmouth decides; every bellmouth's answer and
+            // why is in the log.
             Dictionary<ElementId, Faced> faced =
-                BellmouthsFeeding(allTerminals, equipment, connectorTolerance, out int bellmouths);
+                BellmouthsFeeding(allTerminals, equipment, connectorTolerance,
+                                  terminalRoom, sheetFresh, sheetExtract, allRooms,
+                                  out int bellmouths);
 
             // ==================================================
             // Classify the in-room terminals as fresh / extract
@@ -433,15 +492,6 @@ namespace ATKINSMEC
             // grilles inside a room -> that room's sheet value
             // ==================================================
 
-            var terminalRoom =
-                new Dictionary<ElementId, string>();
-
-            foreach (var kvp in roomTerminalMap)
-            {
-                foreach (FamilyInstance t in kvp.Value)
-                    terminalRoom[t.Id] = kvp.Key;
-            }
-
             // Rooms present in the sheet, so an endcap standing in an
             // unmatched room (a corridor, say) still traces to its FCU
             var matchedRoomKeys = new HashSet<string>();
@@ -489,12 +539,12 @@ namespace ATKINSMEC
                         terminal.Id,
                         out inRoomKey);
 
-                // Endcaps, and bellmouths whose mouth faces a unit, are
-                // traced through an FCU: they serve another space, even
-                // when standing in a matched room. Every other terminal -
-                // a bellmouth facing nothing included - is in-room only:
-                // its value comes from the room it stands in, so an
-                // unmatched room simply means nothing is written.
+                // Endcaps, and bellmouths VENTFACING.Bellmouth gave to a
+                // unit, are traced through an FCU: they serve another
+                // space, even when standing in a matched room. Every other
+                // terminal is in-room only: its value comes from the room
+                // it stands in, so an unmatched room means nothing is
+                // written.
                 bool endcap = IsEndcap(terminal);
 
                 Faced facedUnit;
@@ -524,11 +574,11 @@ namespace ATKINSMEC
 
                 if (feeds)
                 {
-                    // The unit its mouth faces - already settled, within
-                    // the reach by construction
+                    // The unit already settled - within the reach by
+                    // construction
                     fcu = faced[terminal.Id].Unit;
 
-                    L($"  faces FCU {fcu.Id.ToValue()} at {faced[terminal.Id].Distance * 304.8:F0} mm");
+                    L($"  feeds FCU {fcu.Id.ToValue()} at {faced[terminal.Id].Distance * 304.8:F0} mm - {VENTFACING.Say(faced[terminal.Id].Why)}");
                 }
                 else
                 {
@@ -612,6 +662,13 @@ namespace ATKINSMEC
                     roomsOfFcu[unit.Id.ToValue()] = served;
             }
 
+            // What each unit was found to supply - the rooms behind every
+            // "N FCU(s)" in the report
+            L($"Units supplying rooms in scope: {roomsOfFcu.Count}");
+
+            foreach (var unit in roomsOfFcu.OrderBy(u => u.Key))
+                L($"  FCU {unit.Key}: " + string.Join(", ", unit.Value.Select(k => RoomLabel(allRooms, k))));
+
             // Every room, its units, and the endcaps the trace bound to
             // them. Worked out in VENTFCUCHECK, which is Revit-free, so
             // the split can be tested end to end with no model open.
@@ -622,15 +679,16 @@ namespace ATKINSMEC
                     extractEndcapsOn,
                     key => RoomLabel(allRooms, key));
 
+            // Only rooms the sheet gives air to on the side concerned
             List<VENTFCUCHECK.Room> divided =
-                VENTFCUCHECK.Worth(tally.Values);
+                VENTFCUCHECK.Worth(tally, sheetFresh, sheetExtract);
 
             L($"Endcap split: {tally.Count} room(s) served by equipment, " +
-              $"{divided.Count} divided between endcaps or with a unit " +
+              $"{divided.Count} with air divided between endcaps or a unit " +
               "that has none");
 
             foreach (VENTFCUCHECK.Room room in divided)
-                L("  " + VENTFCUCHECK.Line(room));
+                L("  " + VENTFCUCHECK.Line(room, sheetFresh, sheetExtract));
 
             // ==================================================
             // Write the airflows
@@ -850,7 +908,7 @@ namespace ATKINSMEC
                         break;
                     }
 
-                    report += "    " + VENTFCUCHECK.Line(room) + "\n";
+                    report += "    " + VENTFCUCHECK.Line(room, sheetFresh, sheetExtract) + "\n";
 
                     listed++;
                 }
@@ -1146,11 +1204,12 @@ namespace ATKINSMEC
             }
         }
 
-        // A bellmouth and the unit its mouth faces
+        // A bellmouth, the unit it feeds, and why
         private class Faced
         {
             public FamilyInstance Unit;
             public double Distance;
+            public VENTFACING.Reason Why;
         }
 
         // How much a unit's box is grown before asking whether a mouth
@@ -1158,9 +1217,16 @@ namespace ATKINSMEC
         // still feeds it
         private const double FacingMarginFeet = 150 / 304.8;
 
-        // EVERY BELLMOUTH ON A FRESH OR EXTRACT SYSTEM, decided once: the
-        // unit its mouth faces within the reach, or - absent from the
-        // answer - none, and it serves its room.
+        // Within this of a unit's casing, a bellmouth is beside it
+        private const double TouchingFeet = VENTFACING.TouchingM / 0.3048;
+
+        // How far in front of a terminal's face its room is judged
+        private const double FrontStepFeet = 0.3 / 0.3048;
+
+        // EVERY BELLMOUTH ON A FRESH OR EXTRACT SYSTEM, decided once by
+        // VENTFACING.Bellmouth: the unit it feeds, or - absent from the
+        // answer - it serves the room it stands in. Every one is logged
+        // with its reason.
         //
         // A UNIT ON THE BELLMOUTH'S OWN DUCT SYSTEM IS NOT FED THROUGH ITS
         // MOUTH: an AHU's fresh air intake faces the AHU, but its duct
@@ -1169,6 +1235,10 @@ namespace ATKINSMEC
             List<FamilyInstance> terminals,
             List<FamilyInstance> units,
             double reach,
+            Dictionary<ElementId, string> terminalRoom,
+            Dictionary<string, double> sheetFresh,
+            Dictionary<string, double> sheetExtract,
+            List<RoomInfo> allRooms,
             out int bellmouths)
         {
             var feeding = new Dictionary<ElementId, Faced>();
@@ -1187,6 +1257,22 @@ namespace ATKINSMEC
                     : new VENTFACING.Box { Min = P(box.Min), Max = P(box.Max) });
 
                 systemsOf.Add(SystemsOf(unit));
+            }
+
+            // The rooms each unit supplies, asked once per unit
+            var servedBy = new Dictionary<long, List<string>>();
+
+            List<string> Served(FamilyInstance unit)
+            {
+                List<string> rooms;
+
+                if (!servedBy.TryGetValue(unit.Id.ToValue(), out rooms))
+                {
+                    rooms = GetServedRoomKeys(unit, terminalRoom);
+                    servedBy[unit.Id.ToValue()] = rooms;
+                }
+
+                return rooms;
             }
 
             foreach (FamilyInstance terminal in terminals)
@@ -1210,9 +1296,17 @@ namespace ATKINSMEC
 
                 // The units it could feed: not on its own system
                 var candidates = new List<VENTFACING.Box>();
+                var candidateUnits = new List<FamilyInstance>();
 
                 for (int i = 0; i < units.Count; i++)
-                    candidates.Add(systemsOf[i].Overlaps(own) ? null : boxes[i]);
+                {
+                    bool mine = systemsOf[i].Overlaps(own);
+
+                    candidates.Add(mine ? null : boxes[i]);
+
+                    if (!mine)
+                        candidateUnits.Add(units[i]);
+                }
 
                 BoundingBoxXYZ body = terminal.get_BoundingBox(null);
 
@@ -1220,8 +1314,19 @@ namespace ATKINSMEC
                     ? null
                     : P((body.Min + body.Max) / 2);
 
+                // Its own points, for "beside a unit"
+                var points = new List<double[]>();
+
+                if (centre != null)
+                    points.Add(centre);
+
+                if (terminal.Location is LocationPoint lp)
+                    points.Add(P(lp.Point));
+
+                // 1. what its mouth faces
                 int best = -1;
                 double bestDistance = -1;
+                double mouthZ = 0;
                 string mouth = "no direction";
 
                 foreach (Connector c in GetHvacConnectors(terminal))
@@ -1239,9 +1344,12 @@ namespace ATKINSMEC
                         continue;
                     }
 
+                    points.Add(at);
+
                     if (direction == null)
                         continue;
 
+                    mouthZ = direction[2];
                     mouth = $"mouth ({direction[0]:0.00}, {direction[1]:0.00}, {direction[2]:0.00})";
 
                     double distance;
@@ -1255,21 +1363,116 @@ namespace ATKINSMEC
                     }
                 }
 
-                if (best >= 0)
-                {
-                    feeding[terminal.Id] = new Faced { Unit = units[best], Distance = bestDistance };
+                // 2. a unit's casing right beside it
+                int touch = -1;
+                double touchDistance = double.MaxValue;
 
-                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}: faces unit {units[best].Id.ToValue()} '{units[best].Symbol?.FamilyName}' at {bestDistance * 304.8:F0} mm -> feeds it");
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    if (candidates[i] == null)
+                        continue;
+
+                    foreach (double[] point in points)
+                    {
+                        double d = VENTFACING.Distance(point, candidates[i]);
+
+                        if (d <= TouchingFeet && d < touchDistance)
+                        {
+                            touch = i;
+                            touchDistance = d;
+                        }
+                    }
+                }
+
+                // 3. the nearest unit within the reach, as an endcap's
+                double nearestDistance;
+
+                FamilyInstance nearest = FindNearestEquipment(terminal, candidateUnits, out nearestDistance);
+
+                bool inReach = nearest != null && nearestDistance <= reach;
+
+                string room;
+                bool inRoom = terminalRoom.TryGetValue(terminal.Id, out room);
+
+                bool unitServesItsRoom = inReach && inRoom && Served(nearest).Contains(room);
+
+                double air = 0;
+
+                if (inRoom)
+                    (isFresh ? sheetFresh : sheetExtract).TryGetValue(room, out air);
+
+                VENTFACING.Reason why;
+
+                VENTFACING.Role role = VENTFACING.Bellmouth(
+                    best >= 0, touch >= 0, inReach, mouthZ, inRoom, unitServesItsRoom, air, out why);
+
+                string where = inRoom ? "in " + RoomLabel(allRooms, room) : "in no room in scope";
+
+                if (role == VENTFACING.Role.Feeds)
+                {
+                    FamilyInstance unit = why == VENTFACING.Reason.Faces ? units[best]
+                                        : why == VENTFACING.Reason.Touching ? units[touch]
+                                        : nearest;
+
+                    double distance = why == VENTFACING.Reason.Faces ? bestDistance
+                                    : why == VENTFACING.Reason.Touching ? touchDistance
+                                    : nearestDistance;
+
+                    feeding[terminal.Id] = new Faced { Unit = unit, Distance = distance, Why = why };
+
+                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}, {where}: feeds unit {unit.Id.ToValue()} '{unit.Symbol?.FamilyName}' at {distance * 304.8:F0} mm - {VENTFACING.Say(why)}");
                 }
                 else
                 {
-                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}: faces no unit within {reach * 304.8:F0} mm -> serves its room");
+                    L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}, {where}: serves its room - {VENTFACING.Say(why)}" +
+                      (nearest == null ? string.Empty : $" (nearest unit {nearest.Id.ToValue()} at {nearestDistance * 304.8:F0} mm)"));
                 }
             }
 
             L($"Bellmouths: {bellmouths}, feeding a unit: {feeding.Count}");
 
             return feeding;
+        }
+
+        // Which way a terminal's face points (VENTFACING.Mouth), from its
+        // duct connector and its body; null when it cannot say
+        private static double[] MouthOf(FamilyInstance terminal)
+        {
+            double[] centre = null;
+
+            try
+            {
+                BoundingBoxXYZ body = terminal.get_BoundingBox(null);
+
+                if (body != null)
+                    centre = P((body.Min + body.Max) / 2);
+            }
+            catch
+            {
+                // no body, no check - the connector alone
+            }
+
+            foreach (Connector c in GetHvacConnectors(terminal))
+            {
+                try
+                {
+                    double[] mouth = VENTFACING.Mouth(P(c.CoordinateSystem.BasisZ), P(c.Origin), centre);
+
+                    if (mouth != null)
+                        return mouth;
+                }
+                catch
+                {
+                    // a connector that cannot say
+                }
+            }
+
+            return null;
+        }
+
+        private static XYZ X(double[] point)
+        {
+            return new XYZ(point[0], point[1], point[2]);
         }
 
         // The duct systems an element's connectors are on
