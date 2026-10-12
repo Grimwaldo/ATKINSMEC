@@ -162,6 +162,14 @@ namespace ATKINSMEC
         {
             public double FreshAir { get; set; }
             public double ExhaustAir { get; set; }
+
+            // MERGED ROOMS (VENTROWS.MergeAir): the address of the merge
+            // its fresh air / extract cell is part of, when that merge runs
+            // down more than one row - rows sharing one are one group, whose
+            // total sits on the first row and whose air goes to one
+            // connection. Null for a room on its own.
+            public string FreshMerge { get; set; }
+            public string ExhaustMerge { get; set; }
         }
 
         public class SheetLayout
@@ -305,7 +313,9 @@ namespace ATKINSMEC
                     var value = new AirData
                     {
                         FreshAir = ReadDouble(xlWorksheet, i, layout.FreshAirCol),
-                        ExhaustAir = ReadDouble(xlWorksheet, i, layout.ExhaustAirCol)
+                        ExhaustAir = ReadDouble(xlWorksheet, i, layout.ExhaustAirCol),
+                        FreshMerge = DownMerge(xlWorksheet, i, layout.FreshAirCol),
+                        ExhaustMerge = DownMerge(xlWorksheet, i, layout.ExhaustAirCol)
                     };
 
                     dict[key] = value;
@@ -315,6 +325,22 @@ namespace ATKINSMEC
 
                 return dict;
             }
+        }
+
+        // The merge a cell is part of, when it runs down more than one row
+        private static string DownMerge(ExcelWorksheet ws, int row, int col)
+        {
+            if (col <= 0)
+                return null;
+
+            string merged = ws.MergedCells[row, col];
+
+            if (string.IsNullOrEmpty(merged))
+                return null;
+
+            var address = new ExcelAddress(merged);
+
+            return address.Start.Row == address.End.Row ? null : merged;
         }
 
         // ==================================================

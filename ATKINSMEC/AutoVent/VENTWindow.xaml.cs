@@ -66,11 +66,16 @@ namespace ATKINSMEC
 
             Restore(_saved);
 
+            // The rooms ticked by hand, as they were left
+            if (_saved != null)
+            {
+                foreach (KeyValuePair<string, bool> room in _saved.Rooms)
+                    _roomChoice[room.Key] = room.Value;
+            }
+
             ListLinks.ItemsSource = _links;
             ListLevels.ItemsSource = _levels;
 
-            LstFresh.ItemsSource = _fresh;
-            LstExtract.ItemsSource = _extract;
 
             TxtEndcapReach.Text =
                 VENTSETTINGS.EndcapReachMm.ToString("0");
@@ -350,6 +355,9 @@ namespace ATKINSMEC
 
                 foreach (KeyValuePair<string, string> name in saved.Names)
                     VENTARRANGE.Current.Names[name.Key] = name.Value;
+
+                foreach (List<string> group in saved.Merges)
+                    VENTARRANGE.Current.Merges.Add(new List<string>(group));
             }
         }
 
@@ -413,7 +421,19 @@ namespace ATKINSMEC
                 .OrderBy(n => n.Key, StringComparer.Ordinal)
                 .ToList();
 
-            foreach (long id in VENTARRANGE.Links(VENTARRANGE.Current).OrderBy(i => i))
+            now.Merges = VENTARRANGE.Current.Merges.Select(g => g.ToList()).ToList();
+
+            // Every room ticked or unticked by hand - a room of a link not
+            // loaded now included, so it is as it was when the link is back
+            now.Rooms = _roomChoice
+                .OrderBy(r => r.Key, StringComparer.Ordinal)
+                .ToList();
+
+            HashSet<long> named = VENTARRANGE.Links(VENTARRANGE.Current);
+            named.UnionWith(_roomChoice.Keys.Select(VENTARRANGE.LinkOf));
+            named.Remove(0);
+
+            foreach (long id in named.OrderBy(i => i))
             {
                 Tick link = _links.FirstOrDefault(l => l.Id == id);
 
@@ -434,7 +454,78 @@ namespace ATKINSMEC
                 VENTSAVED.KeepUnloaded(now.FixtureSources, _saved.FixtureSources, loaded);
             }
 
+            // The workbook open now - or, with none opened yet, the one
+            // remembered (a drive not there today does not forget it)
+            if (!string.IsNullOrEmpty(VENTSHEET.sheetpath))
+            {
+                now.Workbook = VENTSHEET.sheetpath;
+                now.Worksheet = VENTSHEET.sheetname ?? string.Empty;
+            }
+            else if (_saved != null)
+            {
+                now.Workbook = _saved.Workbook;
+                now.Worksheet = _saved.Worksheet;
+            }
+
+            if (RdoIntoImported != null)
+            {
+                REVITEXPORT.Way way = Chosen();
+
+                now.ExportWay = way == REVITEXPORT.Way.NewWorkbook ? "new"
+                              : way == REVITEXPORT.Way.AddWorksheet ? "add"
+                              : "into";
+
+                now.ExportSheet = CboExportSheet.SelectedItem as string ??
+                                  (_saved == null ? string.Empty : _saved.ExportSheet);
+
+                now.NewSheet = TxtNewSheet.Text ?? string.Empty;
+            }
+
             return now;
+        }
+
+        // The workbook, worksheets and export as they were left - before
+        // the links are shown, so the levels are built once, on the sheet.
+        // Says so when the workbook is not there any more.
+        private string RestoreSheet()
+        {
+            string note = string.Empty;
+
+            if (_saved == null)
+                return note;
+
+            if (!string.IsNullOrEmpty(_saved.Workbook))
+            {
+                if (File.Exists(_saved.Workbook))
+                {
+                    // Opened on the worksheet it was left on - read once
+                    LoadWorkbook(_saved.Workbook, _saved.Worksheet);
+
+                    _filling = true;
+
+                    if (CboExportSheet.Items.Contains(_saved.ExportSheet))
+                        CboExportSheet.SelectedItem = _saved.ExportSheet;
+
+                    _filling = false;
+                }
+                else
+                {
+                    note = " Workbook not found: " + Path.GetFileName(_saved.Workbook);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_saved.NewSheet))
+                TxtNewSheet.Text = _saved.NewSheet;
+
+            RadioButton way = _saved.ExportWay == "new" ? RdoNewWorkbook
+                            : _saved.ExportWay == "add" ? RdoAddWorksheet
+                            : _saved.ExportWay == "into" ? RdoIntoImported
+                            : null;
+
+            if (way != null && way.IsEnabled)
+                way.IsChecked = true;
+
+            return note;
         }
 
         // The interior picks as they stand, each placement named by id AND
@@ -494,6 +585,24 @@ namespace ATKINSMEC
             return TxtEndcapReach != null && double.TryParse(TxtEndcapReach.Text, out mm) && mm > 0
                 ? mm
                 : VENTSETTINGS.EndcapReachMm;
+        }
+
+        // A level ticked ticks every room in it, one at a time: saved once
+        // they are all done, not once a room
+        private bool _savePending;
+
+        private void SaveSoon()
+        {
+            if (_savePending || !_ready)
+                return;
+
+            _savePending = true;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _savePending = false;
+                SaveSettings();
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
         // Called on every change. A file that cannot be written says so
@@ -658,7 +767,10 @@ namespace ATKINSMEC
         {
             TxtDocument.Text = _docTitle;
 
-            // The links read in the constructor
+            // The workbook as it was left, then the links read in the
+            // constructor - which build the levels on it
+            string sheetNote = RestoreSheet();
+
             Take(_first);
             _first = null;
 
@@ -672,7 +784,8 @@ namespace ATKINSMEC
             if (_recalled)
             {
                 Status("Set-up restored" +
-                       (string.IsNullOrEmpty(_saved.When) ? "." : " (" + _saved.When + ")."), false);
+                       (string.IsNullOrEmpty(_saved.When) ? "." : " (" + _saved.When + ").") +
+                       sheetNote, false);
             }
 
             // The body to the window, once its rows have their real heights
@@ -807,9 +920,10 @@ namespace ATKINSMEC
                 }
             }
 
-            // The rooms arranged by hand name their link by id: one loaded
-            // again under a new id is found by its label, as every other
-            // remembered link is, and its rooms' keys are re-pointed
+            // The rooms arranged or ticked by hand name their link by id:
+            // one loaded again under a new id is found by its label, as
+            // every other remembered link is, and its rooms' keys are
+            // re-pointed
             if (_saved != null && _saved.ArrangeLinks.Count > 0)
             {
                 var moved = new Dictionary<long, long>();
@@ -823,6 +937,16 @@ namespace ATKINSMEC
                 }
 
                 VENTARRANGE.Remap(VENTARRANGE.Current, moved);
+
+                if (moved.Count > 0)
+                {
+                    List<KeyValuePair<string, bool>> rooms = _roomChoice.ToList();
+
+                    _roomChoice.Clear();
+
+                    foreach (KeyValuePair<string, bool> room in rooms)
+                        _roomChoice[VENTARRANGE.Repointed(room.Key, moved)] = room.Value;
+                }
             }
 
             foreach (VENTREAD.LinkRow link in links)
@@ -969,7 +1093,7 @@ namespace ATKINSMEC
             return home == null || !VENTARRANGE.Current.Ungrouped.Contains(key)
                 ? string.Empty
                 : Environment.NewLine + "Stands in apartment " + (home.Number + " " + home.Name).Trim() +
-                  ", but taken out of it in Arrange rooms... - a row of its own in the sheet.";
+                  ", but ungrouped in Arrange rooms... - a row of its own in the sheet.";
         }
 
         // Every level's rows as the dialog shows them, worked out with the
@@ -1369,22 +1493,61 @@ namespace ATKINSMEC
             SaveSettings();
         }
 
-        // The headings count what is TICKED - which is the name guess
-        // until somebody changes it, and what they chose after
+        private const string FreshNames = "Fresh";
+        private const string ExtractNames = "Extract or Exhaust";
+
+        // The line under each button says what is TICKED - the name
+        // guess until somebody changes it, what they chose after - and
+        // its tooltip lists them all
         private void CountSystemTypes()
         {
-            int types = _fresh.Count;
+            Summarise(_fresh, TxtFreshTypes, FreshNames);
+            Summarise(_extract, TxtExtractTypes, ExtractNames);
+        }
 
-            // Short enough to fit the heading, because the render
-            // showed both of these truncated with a longer wording
-            TxtFreshTypes.Text = types == 0
-                ? "Fresh air  -  no system types"
-                : "Fresh air  -  " + _fresh.Count(t => t.IsOn) + " of " + types;
+        private static void Summarise(IList<Tick> ticks, TextBlock line, string names)
+        {
+            List<string> on = ticks.Where(t => t.IsOn).Select(t => t.Name).ToList();
 
-            TxtExtractTypes.Text = types == 0
-                ? "Extract / exhaust  -  none"
-                : "Extract / exhaust  -  " + _extract.Count(t => t.IsOn) +
-                  " of " + types;
+            line.Text = VENTSYSTEMDIALOG.Summary(on, ticks.Count, names);
+            line.ToolTip = on.Count == 0 ? null : string.Join(Environment.NewLine, on);
+        }
+
+        private void BtnFreshTypes_Click(object sender, RoutedEventArgs e)
+        {
+            ChooseSystemTypes("Fresh air", _fresh, FreshNames);
+        }
+
+        private void BtnExtractTypes_Click(object sender, RoutedEventArgs e)
+        {
+            ChooseSystemTypes("Extract", _extract, ExtractNames);
+        }
+
+        // The dialog works on a copy: Cancel changes nothing, OK sets the
+        // ticks - quietly, then counts and saves once
+        private void ChooseSystemTypes(string side, IList<Tick> ticks, string names)
+        {
+            var dialog = new VENTSYSTEMDIALOG(
+                side,
+                ticks.Select(t => new VENTSYSTEMDIALOG.Item { Name = t.Name, On = t.IsOn }),
+                names)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true || dialog.Ticked == null)
+                return;
+
+            foreach (Tick tick in ticks)
+            {
+                Action toggled = tick.Toggled;
+
+                tick.Toggled = null;
+                tick.IsOn = dialog.Ticked.Contains(tick.Name);
+                tick.Toggled = toggled;
+            }
+
+            SystemTypeToggled();
         }
 
         private void ReadSystemTypes()
@@ -1611,6 +1774,16 @@ namespace ATKINSMEC
                     preTicked,
                     roomRows,
                     _roomChoice);
+
+                // ...and remembered for next time
+                Action<RoomRow> chosen = row.RoomChosen;
+                row.RoomChosen = r =>
+                {
+                    if (chosen != null)
+                        chosen(r);
+
+                    SaveSoon();
+                };
 
                 row.IsExpanded = open.Contains(name);
 
@@ -2117,7 +2290,8 @@ namespace ATKINSMEC
             LoadWorkbook(dialog.FileName);
         }
 
-        private void LoadWorkbook(string path)
+        // `sheet`: the worksheet to open on, when the workbook has it
+        private void LoadWorkbook(string path, string sheet = null)
         {
             ClearSheet();
 
@@ -2162,8 +2336,11 @@ namespace ATKINSMEC
             CboWorksheet.IsEnabled = true;
             CboExportSheet.IsEnabled = true;
 
-            // Pre-select the usual sheet when it is there
-            int index = CboWorksheet.Items.IndexOf("MLCP");
+            // Pre-select the sheet asked for, else the usual one, when
+            // it is there
+            int index = sheet != null && CboWorksheet.Items.Contains(sheet)
+                ? CboWorksheet.Items.IndexOf(sheet)
+                : CboWorksheet.Items.IndexOf("MLCP");
 
             _filling = false;
 
@@ -2225,6 +2402,8 @@ namespace ATKINSMEC
             }
 
             RefreshLevels();
+
+            SaveSettings();
         }
 
         private void ClearSheet()
@@ -2340,6 +2519,28 @@ namespace ATKINSMEC
                 return;
 
             Gate();
+
+            // Not the way Gate picks for want of a workbook - that is not
+            // a choice
+            if (!_gating)
+                SaveSettings();
+        }
+
+        private void CboExportSheet_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_filling)
+                SaveSettings();
+        }
+
+        private void TxtNewSheet_LostFocus(object sender, RoutedEventArgs e)
+        {
+            SaveSettings();
+        }
+
+        // The reach, endcap and bellmouth boxes: saved on leaving one
+        private void Setting_LostFocus(object sender, RoutedEventArgs e)
+        {
+            SaveSettings();
         }
 
         // Rewrite the worksheet's level/room rows from the Revit models

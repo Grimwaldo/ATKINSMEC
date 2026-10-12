@@ -22,6 +22,11 @@ namespace ATKINSMEC
     //     ordinary rooms and its apartments, each apartment one unit), or
     //     an apartment's own rooms ("apt:<apartment key>"). Nothing moves
     //     between containers, so nothing leaves its level or its apartment.
+    //   - MERGES: rooms one FCU serves through one fresh air connection
+    //     (2026-10-12). Their fresh air and extract cells are merged in the
+    //     sheet into one total (VENTROWS.MergeAir), they are kept next to
+    //     each other in every order (Together), and the airflow write gives
+    //     the total to their connection once.
     //   - AN ORDER THAT IS ONLY THE DEFAULT IS NOT A CHOICE (SetOrder), the
     //     rule the system-type lists and the dialogs follow - so a room drawn
     //     later still lands by its number. Keys in an order that no longer
@@ -50,9 +55,16 @@ namespace ATKINSMEC
             // its room.
             public Dictionary<string, string> Names = new Dictionary<string, string>(StringComparer.Ordinal);
 
+            // MERGED, at the user's request (2026-10-12): rooms one FCU
+            // serves through ONE fresh air connection. Each group's fresh
+            // air and extract are one merged cell in the sheet, holding the
+            // rooms' total, and the airflow write gives that total to the
+            // group's connection once. Groups of room keys, two or more.
+            public List<List<string>> Merges = new List<List<string>>();
+
             public bool IsEmpty
             {
-                get { return Ungrouped.Count == 0 && Orders.Count == 0 && Names.Count == 0; }
+                get { return Ungrouped.Count == 0 && Orders.Count == 0 && Names.Count == 0 && Merges.Count == 0; }
             }
 
             public Arrangement Clone()
@@ -67,7 +79,24 @@ namespace ATKINSMEC
                 foreach (KeyValuePair<string, string> name in Names)
                     copy.Names[name.Key] = name.Value;
 
+                foreach (List<string> group in Merges)
+                    copy.Merges.Add(new List<string>(group));
+
                 return copy;
+            }
+
+            // The group a room is merged into, or null
+            public List<string> MergeOf(string key)
+            {
+                return key == null ? null : Merges.FirstOrDefault(g => g.Contains(key));
+            }
+
+            // A group's id: its first room's key - what the export writes
+            // on each room it merges
+            public string MergeIdOf(string key)
+            {
+                List<string> group = MergeOf(key);
+                return group == null ? null : group[0];
             }
 
             // The name a room or apartment is written by: its new one, or
@@ -154,11 +183,108 @@ namespace ATKINSMEC
                 return units.SelectMany(u => u.Members).ToList();
 
             foreach (Unit<T> unit in units.Where(u => u.IsApartment))
-                unit.Members = Sequence(unit.Members, arrangement.OrderOf(ApartmentContainer(unit.Key)), key);
+            {
+                unit.Members = Together(
+                    Sequence(unit.Members, arrangement.OrderOf(ApartmentContainer(unit.Key)), key),
+                    key, arrangement);
+            }
 
-            return Sequence(units, arrangement.OrderOf(LevelContainer(level)), u => u.Key)
+            return Together(Sequence(units, arrangement.OrderOf(LevelContainer(level)), u => u.Key),
+                            u => u.Key, arrangement)
                 .SelectMany(u => u.Members)
                 .ToList();
+        }
+
+        // MERGED ROOMS STAY TOGETHER: each group's members moved up to
+        // where its first one stands, in their own order - the sheet merges
+        // their cells down a column, so nothing may come between them
+        public static List<T> Together<T>(IList<T> items, Func<T, string> key, Arrangement arrangement)
+        {
+            if (items == null)
+                return new List<T>();
+
+            if (arrangement == null || arrangement.Merges.Count == 0)
+                return items.ToList();
+
+            var result = new List<T>();
+            var placed = new bool[items.Count];
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (placed[i])
+                    continue;
+
+                List<string> group = arrangement.MergeOf(key(items[i]));
+
+                if (group == null)
+                {
+                    result.Add(items[i]);
+                    placed[i] = true;
+                    continue;
+                }
+
+                for (int j = i; j < items.Count; j++)
+                {
+                    if (!placed[j] && group.Contains(key(items[j])))
+                    {
+                        result.Add(items[j]);
+                        placed[j] = true;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        // MERGE ROOMS, and any group they are already in, into one. Only
+        // rooms written in one place - one apartment's rooms, or the
+        // level's own rows - since their cells merge down one column and
+        // nothing may stand between. Returns why not, or null.
+        public static string Merge(Arrangement arrangement, IList<Row> rows)
+        {
+            if (arrangement == null || rows == null || rows.Count < 2)
+                return "Pick two or more rooms.";
+
+            if (rows.Select(r => r.ApartmentKey ?? string.Empty).Distinct().Count() > 1)
+                return "Merge rooms of one apartment, or rooms outside apartments.";
+
+            var keys = new List<string>();
+
+            foreach (Row row in rows)
+            {
+                List<string> group = arrangement.MergeOf(row.Key);
+
+                foreach (string key in group ?? new List<string> { row.Key })
+                {
+                    if (!keys.Contains(key))
+                        keys.Add(key);
+                }
+
+                if (group != null)
+                    arrangement.Merges.Remove(group);
+            }
+
+            arrangement.Merges.Add(keys);
+
+            return null;
+        }
+
+        // ...AND APART AGAIN: each room given leaves its group; a group
+        // left with one room is no group
+        public static void Unmerge(Arrangement arrangement, IEnumerable<string> keys)
+        {
+            if (arrangement == null || keys == null)
+                return;
+
+            foreach (string key in keys)
+            {
+                List<string> group = arrangement.MergeOf(key);
+
+                if (group != null)
+                    group.Remove(key);
+            }
+
+            arrangement.Merges.RemoveAll(g => g.Count < 2);
         }
 
         // The keys in `saved` first, in that order; everything else after,
@@ -278,13 +404,16 @@ namespace ATKINSMEC
 
         // TAKE AN INTERIOR ROOM OUT OF ITS APARTMENT: a row of its own, and
         // - where the level has an order of its own - put straight under
-        // its apartment rather than at the end of the level
+        // its apartment rather than at the end of the level. It leaves any
+        // merge: its cells no longer sit beside the others'.
         public static void TakeOut(Arrangement arrangement, Row row, string level)
         {
             if (arrangement == null || row == null || !row.IsInterior)
                 return;
 
             arrangement.Ungrouped.Add(row.Key);
+
+            Unmerge(arrangement, new[] { row.Key });
 
             List<string> inApartment = arrangement.OrderOf(ApartmentContainer(row.HomeKey));
 
@@ -301,13 +430,16 @@ namespace ATKINSMEC
         }
 
         // ...AND PUT IT BACK: under its apartment again, last among its rooms
-        // unless the apartment's own order says otherwise
+        // unless the apartment's own order says otherwise - leaving any
+        // merge, as taking it out does
         public static void PutBack(Arrangement arrangement, Row row, string level)
         {
             if (arrangement == null || row == null)
                 return;
 
             arrangement.Ungrouped.Remove(row.Key);
+
+            Unmerge(arrangement, new[] { row.Key });
 
             List<string> top = arrangement.OrderOf(LevelContainer(level));
 
@@ -378,6 +510,8 @@ namespace ATKINSMEC
                 return;
 
             arrangement.Orders.Remove(LevelContainer(level));
+
+            Unmerge(arrangement, (rows ?? Enumerable.Empty<Row>()).Select(r => r.Key).ToList());
 
             foreach (Row row in rows ?? Enumerable.Empty<Row>())
             {
@@ -512,9 +646,27 @@ namespace ATKINSMEC
             foreach (string key in arrangement.Names.Keys)
                 ids.Add(LinkOf(key));
 
+            foreach (string key in arrangement.Merges.SelectMany(g => g))
+                ids.Add(LinkOf(key));
+
             ids.Remove(0);
 
             return ids;
+        }
+
+        // One key re-pointed from an old link id to its new one
+        public static string Repointed(string key, IDictionary<long, long> ids)
+        {
+            long old = LinkOf(key);
+            long now;
+
+            if (old == 0 || ids == null || !ids.TryGetValue(old, out now) || now == old)
+                return key;
+
+            string prefix = key.StartsWith("apt:", StringComparison.Ordinal) ? "apt:" : string.Empty;
+            string body = key.Substring(prefix.Length);
+
+            return prefix + now + body.Substring(body.IndexOf(':'));
         }
 
         // Every key re-pointed from an old link id to its new one
@@ -523,19 +675,7 @@ namespace ATKINSMEC
             if (arrangement == null || ids == null || ids.Count == 0)
                 return;
 
-            Func<string, string> moved = key =>
-            {
-                long old = LinkOf(key);
-                long now;
-
-                if (old == 0 || !ids.TryGetValue(old, out now) || now == old)
-                    return key;
-
-                string prefix = key.StartsWith("apt:", StringComparison.Ordinal) ? "apt:" : string.Empty;
-                string body = key.Substring(prefix.Length);
-
-                return prefix + now + body.Substring(body.IndexOf(':'));
-            };
+            Func<string, string> moved = key => Repointed(key, ids);
 
             var ungrouped = arrangement.Ungrouped.Select(moved).ToList();
             arrangement.Ungrouped.Clear();
@@ -552,6 +692,9 @@ namespace ATKINSMEC
 
             foreach (KeyValuePair<string, string> name in names)
                 arrangement.Names[moved(name.Key)] = name.Value;
+
+            for (int i = 0; i < arrangement.Merges.Count; i++)
+                arrangement.Merges[i] = arrangement.Merges[i].Select(moved).ToList();
         }
     }
 }

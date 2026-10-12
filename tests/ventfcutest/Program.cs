@@ -119,6 +119,78 @@ internal static class Program
         return VENTFACING.Faced(connectorAt, mouth, units, Reach, Margin, out distance);
     }
 
+    // ==================================================================
+    // MERGED ROOMS - one FCU, one fresh air connection, several spaces
+    // (the user, 2026-10-12): merged in the sheet, or in Arrange rooms,
+    // their air is one total, given to their connection once.
+    // ==================================================================
+
+    private static void Merged()
+    {
+        string[] rooms = { "KITCHEN", "LIVING", "BED", "BATH" };
+
+        Dictionary<string, string> none = VENTFCUCHECK.Groups(rooms, null);
+
+        Check("no merges: every room its own group",
+            rooms.All(r => none[r] == r));
+
+        // The sheet merges LIVING's cell over KITCHEN's; Arrange merges
+        // BED with LIVING - the two sources overlap into one group
+        Dictionary<string, string> groups = VENTFCUCHECK.Groups(rooms, new[]
+        {
+            new[] { "LIVING", "KITCHEN" },
+            new[] { "BED", "LIVING" }
+        });
+
+        Check("merges that share a room are one group, led by the earliest room",
+            groups["KITCHEN"] == "KITCHEN" && groups["LIVING"] == "KITCHEN" &&
+            groups["BED"] == "KITCHEN" && groups["BATH"] == "BATH");
+
+        Check("a room the model has not got merges nothing",
+            VENTFCUCHECK.Groups(rooms, new[] { new[] { "STORE", "BATH" } })["BATH"] == "BATH" &&
+            !VENTFCUCHECK.Groups(rooms, new[] { new[] { "STORE", "BATH" } }).ContainsKey("STORE"));
+
+        var fresh = new Dictionary<string, double>
+        {
+            ["KITCHEN"] = 30, ["LIVING"] = 50, ["BED"] = 20, ["BATH"] = 0
+        };
+
+        Dictionary<string, double> totals = VENTFCUCHECK.Totals(fresh, groups);
+
+        Check("a group's air is its rooms' added, once",
+            Near(totals["KITCHEN"], 100) && Near(totals["BATH"], 0) && totals.Count == 2);
+
+        Check("...and nothing is gained or lost by merging",
+            Near(totals.Values.Sum(), fresh.Values.Sum()));
+
+        Check("rooms as groups: each group once, in the order first met",
+            VENTFCUCHECK.AsGroups(new[] { "LIVING", "BATH", "KITCHEN", "BED" }, groups)
+                .SequenceEqual(new[] { "KITCHEN", "BATH" }));
+
+        // The case: KITCHEN and LIVING on one unit with ONE fresh endcap.
+        // As groups, the endcap carries the total - once
+        var job = new Job();
+
+        Dictionary<string, string> pair = VENTFCUCHECK.Groups(rooms, new[] { new[] { "KITCHEN", "LIVING" } });
+
+        job.RoomsOfFcu[1] = VENTFCUCHECK.AsGroups(new[] { "KITCHEN", "LIVING" }, pair);
+        job.FreshOn[1] = 1;
+
+        foreach (KeyValuePair<string, double> group in VENTFCUCHECK.Totals(fresh, pair))
+            job.Fresh[group.Key] = group.Value;
+
+        Check("one unit, one endcap, two merged rooms: the endcap is written their total",
+            Near(job.EndcapOn(1), 80) && Near(job.Written(), 80));
+
+        // ...and the same pair with a second unit, also with an endcap,
+        // serving the merged group: the total split, not doubled
+        job.RoomsOfFcu[2] = VENTFCUCHECK.AsGroups(new[] { "LIVING" }, pair);
+        job.FreshOn[2] = 1;
+
+        Check("a second unit on the group: the total shared between the endcaps, never doubled",
+            Near(job.Written(), 80) && Near(job.EndcapOn(1), 40));
+    }
+
     private static void Facing()
     {
         Console.WriteLine();
@@ -623,6 +695,8 @@ internal static class Program
             Check("...a room the sheet has not got counts as none",
                 VENTFCUCHECK.Worth(tally, null, null).Count == 0);
         }
+
+        Merged();
 
         Facing();
 

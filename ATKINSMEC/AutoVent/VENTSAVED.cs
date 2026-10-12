@@ -21,6 +21,11 @@ namespace ATKINSMEC
     //     the next model opened: link ids from one project, applied to
     //     another, can count no fixtures at all.
     //
+    // And later, asked again ("any editing done while working with the
+    // add-in can be saved if it was closed and opened again"): the rooms
+    // ticked by hand, the workbook and worksheet open, the export's
+    // choices and the merged rooms.
+    //
     // ONE BLOCK PER MODEL, keyed by where the model lives (VENTWindow.
     // ModelKey: the ACC model's GUID, a workshared model's central, or the
     // file), so every local copy of a central shares one set-up and every
@@ -89,7 +94,28 @@ namespace ATKINSMEC
             public List<string> Ungrouped = new List<string>();
             public List<KeyValuePair<string, List<string>>> Orders = new List<KeyValuePair<string, List<string>>>();
             public List<KeyValuePair<string, string>> Names = new List<KeyValuePair<string, string>>();
+
+            // Rooms whose fresh air and extract are one total (VENTARRANGE.
+            // Merges), each group its room keys
+            public List<List<string>> Merges = new List<List<string>>();
+
+            // Each room a person ticked or unticked in the levels list, by
+            // room key; a room never touched follows its level
+            public List<KeyValuePair<string, bool>> Rooms = new List<KeyValuePair<string, bool>>();
+
             public List<LinkRef> ArrangeLinks = new List<LinkRef>();
+
+            // The workbook last opened and its worksheet - opened again
+            // with the window when the file is still there
+            public string Workbook = string.Empty;
+            public string Worksheet = string.Empty;
+
+            // The export: which way ("into", "new", "add"; empty = the
+            // window's default), the worksheet filled, the name of a
+            // worksheet to add
+            public string ExportWay = string.Empty;
+            public string ExportSheet = string.Empty;
+            public string NewSheet = string.Empty;
         }
 
         // One placement ticked as an interior model on one storey
@@ -357,8 +383,24 @@ namespace ATKINSMEC
                 foreach (KeyValuePair<string, string> name in m.Names)
                     Line(text, "rename", name.Key, name.Value);
 
+                // One line per group: its keys
+                foreach (List<string> group in m.Merges)
+                {
+                    if (group != null && group.Count > 1)
+                        Line(text, "merge", group.ToArray());
+                }
+
+                foreach (KeyValuePair<string, bool> room in m.Rooms)
+                    Line(text, "room", room.Key, room.Value ? "on" : "off");
+
                 foreach (LinkRef link in m.ArrangeLinks)
                     Line(text, "arrangelink", link.Id.ToString(CultureInfo.InvariantCulture), link.Label);
+
+                if (!string.IsNullOrEmpty(m.Workbook))
+                    Line(text, "workbook", m.Workbook, m.Worksheet);
+
+                if (!string.IsNullOrEmpty(m.ExportWay))
+                    Line(text, "export", m.ExportWay, m.ExportSheet, m.NewSheet);
             }
 
             return text.ToString();
@@ -510,6 +552,36 @@ namespace ATKINSMEC
                     case "rename":
                         if (a.Trim().Length > 0 && b.Trim().Length > 0)
                             m.Names.Add(new KeyValuePair<string, string>(a.Trim(), b.Trim()));
+                        break;
+
+                    case "merge":
+                        List<string> group = f.Skip(1).Select(k => k.Trim()).Where(k => k.Length > 0)
+                                              .Distinct(StringComparer.Ordinal).ToList();
+
+                        // One room merges with nothing
+                        if (group.Count > 1)
+                            m.Merges.Add(group);
+
+                        break;
+
+                    case "room":
+                        if (a.Trim().Length > 0)
+                        {
+                            m.Rooms.Add(new KeyValuePair<string, bool>(
+                                a.Trim(), !string.Equals(b.Trim(), "off", StringComparison.OrdinalIgnoreCase)));
+                        }
+
+                        break;
+
+                    case "workbook":
+                        m.Workbook = a.Trim();
+                        m.Worksheet = b;
+                        break;
+
+                    case "export":
+                        m.ExportWay = a.Trim().ToLowerInvariant();
+                        m.ExportSheet = b;
+                        m.NewSheet = c;
                         break;
 
                     // Anything else is from a later version: kept out

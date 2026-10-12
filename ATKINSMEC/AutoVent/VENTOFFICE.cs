@@ -102,6 +102,9 @@ namespace ATKINSMEC
             // How many apartment groups were written
             public int Apartments { get; set; }
 
+            // How many merged groups' air was written as one total
+            public int Merged { get; set; }
+
             public List<string> Brought { get; } = new List<string>();
             public List<string> Notes { get; } = new List<string>();
         }
@@ -607,6 +610,9 @@ namespace ATKINSMEC
 
             // ---- 8b. Apartments, in the office's Tower-1 pattern -------
             result.Apartments = VENTROWS.Apartments(ws, layout, roomRows);
+
+            // ---- 8c. Rooms merged in Arrange rooms: one air total -------
+            result.Merged = VENTROWS.MergeAir(ws, layout, roomRows);
 
             // ---- 9. The Total, and the SUMIFs under it --------------
             TotalOfSubTotals(ws, newTotal, lastCol, subRows);
@@ -1637,6 +1643,9 @@ namespace ATKINSMEC
 
             if (r.Brought.Count > 0)
                 sb.AppendLine("    brought in for the formulas: " + string.Join(", ", r.Brought));
+
+            if (r.Merged > 0)
+                sb.AppendLine("    " + r.Merged + " merged group(s): fresh air and extract as one total");
 
             foreach (string note in r.Notes)
             {

@@ -523,6 +523,123 @@ namespace ATKINSMEC
             ws.Cells[top, nameCol, bottom, endCol - 1].Style.WrapText = true;
         }
 
+        // ==================================================
+        // Merged rooms' air
+        // ==================================================
+        //
+        // ROOMS ONE FCU SERVES THROUGH ONE FRESH AIR CONNECTION, merged in
+        // Arrange rooms (user, 2026-10-12): their fresh air and extract
+        // cells - the two columns AUTOVENT reads back - are merged down over
+        // the group and hold the rooms' TOTAL. A live total: each room's
+        // own formula, added, so a change of occupancy still flows through;
+        // a typed number is added as it is. Only rooms on consecutive rows
+        // merge, and VENTARRANGE.Together keeps them so. The importer reads
+        // a merged cell back as one group (VENTSHEET.AirData).
+        //
+        // Run after the rows are written, over (sheet row, room) pairs.
+        // Returns how many groups were merged.
+        internal static int MergeAir(
+            ExcelWorksheet ws,
+            VENTSHEET.SheetLayout layout,
+            IList<KeyValuePair<int, VENTTEMPLATE.Room>> rows)
+        {
+            int groups = 0;
+
+            for (int i = 0; i < rows.Count;)
+            {
+                VENTTEMPLATE.Room room = rows[i].Value;
+
+                if (room == null || string.IsNullOrEmpty(room.Merge))
+                {
+                    i++;
+                    continue;
+                }
+
+                int j = i;
+
+                while (j + 1 < rows.Count &&
+                       rows[j + 1].Value != null &&
+                       rows[j + 1].Value.Merge == room.Merge &&
+                       rows[j + 1].Key == rows[j].Key + 1)
+                {
+                    j++;
+                }
+
+                if (j > i)
+                {
+                    int[] cols = new[] { layout.FreshAirCol, layout.ExhaustAirCol }.Where(c => c > 0).Distinct().ToArray();
+
+                    // Every column's sum worked out before any cell is
+                    // emptied - one column's formula may read another's
+                    string[] sums = cols.Select(c => Sum(ws, rows[i].Key, rows[j].Key, c)).ToArray();
+
+                    for (int c = 0; c < cols.Length; c++)
+                        Total(ws, rows[i].Key, rows[j].Key, cols[c], sums[c]);
+
+                    groups++;
+                }
+
+                i = j + 1;
+            }
+
+            return groups;
+        }
+
+        // One column of a group added up: every row's own formula, or
+        // number. A row not set up yet gives "" - and "" + 5 is #VALUE!,
+        // which the subtotal and the Total would carry - so each part
+        // counts through N(), and the cell is "" while every part is.
+        // Null when there is nothing to add.
+        private static string Sum(ExcelWorksheet ws, int top, int bottom, int col)
+        {
+            var parts = new List<string>();
+
+            for (int row = top; row <= bottom; row++)
+            {
+                ExcelRange cell = ws.Cells[row, col];
+                string formula = cell.Formula;
+                double number;
+
+                if (!string.IsNullOrEmpty(formula))
+                    parts.Add(formula.TrimStart('='));
+                else if (cell.Value != null &&
+                         double.TryParse(Convert.ToString(cell.Value, System.Globalization.CultureInfo.InvariantCulture),
+                                         System.Globalization.NumberStyles.Float,
+                                         System.Globalization.CultureInfo.InvariantCulture, out number))
+                    parts.Add(number.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            if (parts.Count == 0)
+                return null;
+
+            string sum = string.Join("+", parts.Select(p => "N(" + p + ")"));
+            string blank = "IF(" + string.Join("&", parts.Select(p => "(" + p + ")")) + "=\"\",\"\"," + sum + ")";
+
+            // Excel takes 8192 characters: past that, a 0 for a blank group
+            return blank.Length <= 8000 ? blank : sum;
+        }
+
+        // One column of a group: its sum in the first cell; the others
+        // emptied; the lot merged
+        private static void Total(ExcelWorksheet ws, int top, int bottom, int col, string sum)
+        {
+            for (int row = top; row <= bottom; row++)
+                Unmerge(ws, row, col, col);
+
+            for (int row = top + 1; row <= bottom; row++)
+            {
+                ws.Cells[row, col].Formula = null;
+                ws.Cells[row, col].Value = null;
+            }
+
+            if (sum != null)
+                ws.Cells[top, col].Formula = sum;
+
+            ws.Cells[top, col, bottom, col].Merge = true;
+            ws.Cells[top, col, bottom, col].Style.VerticalAlignment =
+                OfficeOpenXml.Style.ExcelVerticalAlignment.Center;
+        }
+
         // Undoes every merge touching this row between two columns
         private static void Unmerge(ExcelWorksheet ws, int row, int fromCol, int toCol)
         {

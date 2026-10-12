@@ -417,6 +417,63 @@ namespace ATKINSMEC
                 }
             }
 
+            // MERGED ROOMS ARE ONE (user, 2026-10-12): rooms one FCU serves
+            // through one fresh air connection - their fresh air or extract
+            // cell merged down in the sheet, or merged in Arrange rooms.
+            // Their air is added up and given once; everything below works
+            // on these groups, a room on its own being a group of one.
+            var mergeSets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            foreach (RoomInfo info in allRooms)
+            {
+                VENTSHEET.AirData air;
+
+                if (!ventilationData.TryGetValue(KeyOf(info), out air))
+                    continue;
+
+                foreach (string token in new[]
+                         {
+                             air.FreshMerge == null ? null : "fresh " + air.FreshMerge,
+                             air.ExhaustMerge == null ? null : "extract " + air.ExhaustMerge
+                         })
+                {
+                    if (token == null)
+                        continue;
+
+                    List<string> set;
+
+                    if (!mergeSets.TryGetValue(token, out set))
+                        mergeSets[token] = set = new List<string>();
+
+                    set.Add(info.Key);
+                }
+            }
+
+            Dictionary<string, string> groupOf = VENTFCUCHECK.Groups(
+                allRooms.Select(r => r.Key),
+                mergeSets.Values.Cast<IEnumerable<string>>().Concat(VENTARRANGE.Current.Merges));
+
+            Dictionary<string, double> groupFresh = VENTFCUCHECK.Totals(sheetFresh, groupOf);
+            Dictionary<string, double> groupExtract = VENTFCUCHECK.Totals(sheetExtract, groupOf);
+
+            // What to call a group: its rooms, joined
+            string Label(string group) =>
+                string.Join(" + ", allRooms.Where(r => groupOf.TryGetValue(r.Key, out string g) && g == group)
+                                           .Select(r => RoomLabel(allRooms, r.Key))
+                                           .DefaultIfEmpty(RoomLabel(allRooms, group)));
+
+            var merged = groupOf.GroupBy(g => g.Value).Where(g => g.Count() > 1).ToList();
+
+            L($"Merged groups: {merged.Count}");
+
+            foreach (var group in merged)
+            {
+                groupFresh.TryGetValue(group.Key, out double fresh);
+                groupExtract.TryGetValue(group.Key, out double extract);
+
+                L($"  MERGED {Label(group.Key)}: fresh {fresh} l/s, extract {extract} l/s");
+            }
+
             List<FamilyInstance> equipment =
                 new FilteredElementCollector(doc2)
                 .OfCategory(BuiltInCategory.OST_MechanicalEquipment)
@@ -442,7 +499,7 @@ namespace ATKINSMEC
             // why is in the log.
             Dictionary<ElementId, Faced> faced =
                 BellmouthsFeeding(allTerminals, equipment, connectorTolerance,
-                                  terminalRoom, sheetFresh, sheetExtract, allRooms,
+                                  terminalRoom, groupOf, groupFresh, groupExtract, allRooms,
                                   out int bellmouths);
 
             // ==================================================
@@ -621,16 +678,19 @@ namespace ATKINSMEC
 
                 long fcuId = fcu.Id.ToValue();
 
+                // As groups: a merged group's rooms are carried once
+                List<string> servedGroups = VENTFCUCHECK.AsGroups(servedRooms, groupOf);
+
                 if (isFresh)
                 {
-                    outsideFresh[terminal] = servedRooms;
+                    outsideFresh[terminal] = servedGroups;
 
                     Bump(freshEndcapsOn, fcuId);
                 }
 
                 if (isExtract)
                 {
-                    outsideExtract[terminal] = servedRooms;
+                    outsideExtract[terminal] = servedGroups;
 
                     Bump(extractEndcapsOn, fcuId);
                 }
@@ -659,7 +719,7 @@ namespace ATKINSMEC
                 // not an FCU as far as this is concerned - pumps and
                 // air handling units drop out here on their own
                 if (served.Count > 0)
-                    roomsOfFcu[unit.Id.ToValue()] = served;
+                    roomsOfFcu[unit.Id.ToValue()] = VENTFCUCHECK.AsGroups(served, groupOf);
             }
 
             // What each unit was found to supply - the rooms behind every
@@ -667,28 +727,28 @@ namespace ATKINSMEC
             L($"Units supplying rooms in scope: {roomsOfFcu.Count}");
 
             foreach (var unit in roomsOfFcu.OrderBy(u => u.Key))
-                L($"  FCU {unit.Key}: " + string.Join(", ", unit.Value.Select(k => RoomLabel(allRooms, k))));
+                L($"  FCU {unit.Key}: " + string.Join(", ", unit.Value.Select(Label)));
 
-            // Every room, its units, and the endcaps the trace bound to
-            // them. Worked out in VENTFCUCHECK, which is Revit-free, so
-            // the split can be tested end to end with no model open.
+            // Every room - or merged group - its units, and the endcaps the
+            // trace bound to them. Worked out in VENTFCUCHECK, which is
+            // Revit-free, so the split can be tested with no model open.
             Dictionary<string, VENTFCUCHECK.Room> tally =
                 VENTFCUCHECK.Tally(
                     roomsOfFcu,
                     freshEndcapsOn,
                     extractEndcapsOn,
-                    key => RoomLabel(allRooms, key));
+                    Label);
 
             // Only rooms the sheet gives air to on the side concerned
             List<VENTFCUCHECK.Room> divided =
-                VENTFCUCHECK.Worth(tally, sheetFresh, sheetExtract);
+                VENTFCUCHECK.Worth(tally, groupFresh, groupExtract);
 
             L($"Endcap split: {tally.Count} room(s) served by equipment, " +
               $"{divided.Count} with air divided between endcaps or a unit " +
               "that has none");
 
             foreach (VENTFCUCHECK.Room room in divided)
-                L("  " + VENTFCUCHECK.Line(room, sheetFresh, sheetExtract));
+                L("  " + VENTFCUCHECK.Line(room, groupFresh, groupExtract));
 
             // ==================================================
             // Write the airflows
@@ -711,9 +771,6 @@ namespace ATKINSMEC
             {
                 t.Start();
 
-                var roomAirData =
-                    new Dictionary<string, VENTSHEET.AirData>();
-
                 foreach (RoomInfo info in allRooms)
                 {
                     VENTSHEET.AirData airData;
@@ -728,75 +785,84 @@ namespace ATKINSMEC
                     L($"MATCHED room {info.Key} '{info.RoomName}' | '{info.RoomNumber}' | '{info.LevelName}': Fresh={airData.FreshAir}, Exhaust={airData.ExhaustAir}");
 
                     matchedRooms++;
-                    roomAirData[info.Key] = airData;
+                }
 
+                // IN-ROOM TERMINALS, BY GROUP: a room's air shared equally
+                // between its terminals on that side - a merged group's
+                // total between the terminals standing in any of its rooms
+                var freshIn = new Dictionary<string, List<FamilyInstance>>(StringComparer.Ordinal);
+                var extractIn = new Dictionary<string, List<FamilyInstance>>(StringComparer.Ordinal);
+
+                foreach (var kvp in supplyMap)
+                    Gather(freshIn, groupOf, kvp.Key, kvp.Value);
+
+                foreach (var kvp in exhaustMap)
+                    Gather(extractIn, groupOf, kvp.Key, kvp.Value);
+
+                foreach (var group in groupFresh)
+                {
                     List<FamilyInstance> supplyTerminals;
 
-                    if (supplyMap.TryGetValue(info.Key, out supplyTerminals) &&
-                        supplyTerminals.Count > 0 &&
-                        airData.FreshAir > 0)
+                    if (group.Value <= 0 ||
+                        !freshIn.TryGetValue(group.Key, out supplyTerminals) ||
+                        supplyTerminals.Count == 0)
+                        continue;
+
+                    landedFresh.Add(group.Key);
+
+                    double perTerminal = group.Value / supplyTerminals.Count;
+
+                    foreach (FamilyInstance diffuser in supplyTerminals)
                     {
-                        landedFresh.Add(info.Key);
-
-                        double perTerminal =
-                            airData.FreshAir / supplyTerminals.Count;
-
-                        foreach (FamilyInstance diffuser in supplyTerminals)
+                        if (WriteFlow(diffuser, perTerminal))
                         {
-                            if (WriteFlow(diffuser, perTerminal))
-                            {
-                                terminalsUpdated++;
-                                L($"  WRITE fresh {perTerminal} l/s -> in-room terminal {diffuser.Id.ToValue()}");
-                            }
-                            else
-                            {
-                                terminalsSkipped++;
-                                L($"  SKIP in-room terminal {diffuser.Id.ToValue()}: Flow parameter missing or read-only");
-                            }
+                            terminalsUpdated++;
+                            L($"  WRITE fresh {perTerminal} l/s -> in-room terminal {diffuser.Id.ToValue()} ({Label(group.Key)})");
                         }
-                    }
-
-                    List<FamilyInstance> exhaustTerminals;
-
-                    if (exhaustMap.TryGetValue(info.Key, out exhaustTerminals) &&
-                        exhaustTerminals.Count > 0 &&
-                        airData.ExhaustAir > 0)
-                    {
-                        landedExtract.Add(info.Key);
-
-                        double perTerminal =
-                            airData.ExhaustAir / exhaustTerminals.Count;
-
-                        foreach (FamilyInstance grille in exhaustTerminals)
+                        else
                         {
-                            if (WriteFlow(grille, perTerminal))
-                            {
-                                terminalsUpdated++;
-                                L($"  WRITE exhaust {perTerminal} l/s -> in-room terminal {grille.Id.ToValue()}");
-                            }
-                            else
-                            {
-                                terminalsSkipped++;
-                                L($"  SKIP in-room terminal {grille.Id.ToValue()}: Flow parameter missing or read-only");
-                            }
+                            terminalsSkipped++;
+                            L($"  SKIP in-room terminal {diffuser.Id.ToValue()}: Flow parameter missing or read-only");
                         }
                     }
                 }
 
-                // ENDCAPS: EACH ONE CARRIES ITS SHARE of every room its
-                // unit serves - the room's air divided equally between
-                // ALL the endcaps on ALL the units serving that room.
+                foreach (var group in groupExtract)
+                {
+                    List<FamilyInstance> exhaustTerminals;
+
+                    if (group.Value <= 0 ||
+                        !extractIn.TryGetValue(group.Key, out exhaustTerminals) ||
+                        exhaustTerminals.Count == 0)
+                        continue;
+
+                    landedExtract.Add(group.Key);
+
+                    double perTerminal = group.Value / exhaustTerminals.Count;
+
+                    foreach (FamilyInstance grille in exhaustTerminals)
+                    {
+                        if (WriteFlow(grille, perTerminal))
+                        {
+                            terminalsUpdated++;
+                            L($"  WRITE exhaust {perTerminal} l/s -> in-room terminal {grille.Id.ToValue()} ({Label(group.Key)})");
+                        }
+                        else
+                        {
+                            terminalsSkipped++;
+                            L($"  SKIP in-room terminal {grille.Id.ToValue()}: Flow parameter missing or read-only");
+                        }
+                    }
+                }
+
+                // ENDCAPS: EACH ONE CARRIES ITS SHARE of every room - or
+                // merged group - its unit serves: its air divided equally
+                // between ALL the endcaps on ALL the units serving it.
                 // Nothing is written twice and nothing is lost; one unit
                 // with one endcap divides by one, so the ordinary room is
                 // untouched. See VENTFCUCHECK.
-                var freshValues = new Dictionary<string, double>();
-                var extractValues = new Dictionary<string, double>();
-
-                foreach (var each in roomAirData)
-                {
-                    freshValues[each.Key] = each.Value.FreshAir;
-                    extractValues[each.Key] = each.Value.ExhaustAir;
-                }
+                Dictionary<string, double> freshValues = groupFresh;
+                Dictionary<string, double> extractValues = groupExtract;
 
                 foreach (var kvp in outsideFresh)
                 {
@@ -850,11 +916,9 @@ namespace ATKINSMEC
                     }
                 }
 
-                nowhereFresh = VENTFCUCHECK.Nowhere(
-                    freshValues, landedFresh, key => RoomLabel(allRooms, key));
+                nowhereFresh = VENTFCUCHECK.Nowhere(freshValues, landedFresh, Label);
 
-                nowhereExtract = VENTFCUCHECK.Nowhere(
-                    extractValues, landedExtract, key => RoomLabel(allRooms, key));
+                nowhereExtract = VENTFCUCHECK.Nowhere(extractValues, landedExtract, Label);
 
                 t.Commit();
             }
@@ -1204,6 +1268,26 @@ namespace ATKINSMEC
             }
         }
 
+        // A room's terminals added to its group's
+        private static void Gather(
+            Dictionary<string, List<FamilyInstance>> into,
+            Dictionary<string, string> groupOf,
+            string room,
+            List<FamilyInstance> terminals)
+        {
+            string group;
+
+            if (!groupOf.TryGetValue(room, out group))
+                group = room;
+
+            List<FamilyInstance> list;
+
+            if (!into.TryGetValue(group, out list))
+                into[group] = list = new List<FamilyInstance>();
+
+            list.AddRange(terminals);
+        }
+
         // A bellmouth, the unit it feeds, and why
         private class Faced
         {
@@ -1236,8 +1320,9 @@ namespace ATKINSMEC
             List<FamilyInstance> units,
             double reach,
             Dictionary<ElementId, string> terminalRoom,
-            Dictionary<string, double> sheetFresh,
-            Dictionary<string, double> sheetExtract,
+            Dictionary<string, string> groupOf,
+            Dictionary<string, double> groupFresh,
+            Dictionary<string, double> groupExtract,
             List<RoomInfo> allRooms,
             out int bellmouths)
         {
@@ -1394,12 +1479,19 @@ namespace ATKINSMEC
                 string room;
                 bool inRoom = terminalRoom.TryGetValue(terminal.Id, out room);
 
-                bool unitServesItsRoom = inReach && inRoom && Served(nearest).Contains(room);
+                // Its room's GROUP - merged rooms are one
+                string group = null;
+
+                if (inRoom && !groupOf.TryGetValue(room, out group))
+                    group = room;
+
+                bool unitServesItsRoom = inReach && inRoom &&
+                                         VENTFCUCHECK.AsGroups(Served(nearest), groupOf).Contains(group);
 
                 double air = 0;
 
                 if (inRoom)
-                    (isFresh ? sheetFresh : sheetExtract).TryGetValue(room, out air);
+                    (isFresh ? groupFresh : groupExtract).TryGetValue(group, out air);
 
                 VENTFACING.Reason why;
 

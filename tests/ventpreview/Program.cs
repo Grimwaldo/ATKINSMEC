@@ -117,6 +117,8 @@ namespace ventpreview
 
             Fixtures(folder);
 
+            SystemTypes(folder);
+
             Interiors(folder);
 
             Arrange(folder);
@@ -160,6 +162,49 @@ namespace ventpreview
 
         // The Fixtures... dialog, as it opens over a job with an
         // architect's model and a plumbing model linked - at 1x and 1.5x
+        // The system types dialog behind the assign tab's two buttons:
+        // twenty types, as the user's model has, then searched
+        private static void SystemTypes(string folder)
+        {
+            string[] names =
+            {
+                "ATK_ME_Fresh Air", "ATK_ME_Extract", "ATK_ME_Supply Air", "ATK_ME_Return Air",
+                "ATK_ME_Toilet Exhaust", "ATK_ME_Kitchen Exhaust", "ATK_ME_Transfer Air",
+                "ATK_ME_Car Park Exhaust", "ATK_ME_Car Park Makeup Air", "ATK_ME_Battery Exhaust",
+                "ATK_ME_Smoke Exhaust", "ATK_ME_Stair Pressurisation", "ATK_ME_Lift Pressurisation",
+                "ATK_ME_OA Supply", "ATK_ME_General Extract", "ATK_ME_Kitchen Makeup Air",
+                "ATK_ME_Relief Air", "ATK_ME_Plant Room Ventilation", "ATK_ME_Generator Exhaust",
+                "ATK_ME_Bin Store Extract"
+            };
+
+            var dialog = new ATKINSMEC.VENTSYSTEMDIALOG(
+                "Extract",
+                names.Select(n => new ATKINSMEC.VENTSYSTEMDIALOG.Item
+                {
+                    Name = n,
+                    On = ATKINSMEC.VENTSETTINGS.LooksExtract(n)
+                }),
+                "Extract or Exhaust")
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000,
+                Top = -4000
+            };
+
+            dialog.Show();
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-systems.png"));
+            Shoot(dialog, Path.Combine(folder, "autovent-systems-1.5x.png"), 1.5);
+
+            dialog.Search = "car park";
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-systems-search.png"));
+
+            dialog.Close();
+        }
+
         private static void Fixtures(string folder)
         {
             var sources = new System.Collections.Generic.List<ATKINSMEC.VENTFIXTUREDIALOG.Source>
@@ -387,6 +432,10 @@ namespace ventpreview
             arrangement.Orders[ATKINSMEC.VENTARRANGE.ApartmentContainer("11:9")] =
                 new System.Collections.Generic.List<string> { "20:56", "20:57", "20:58", "20:55" };
 
+            // The kitchen and living of 2BDR-A2 on one FCU, one fresh air
+            // connection
+            arrangement.Merges.Add(new System.Collections.Generic.List<string> { "21:06", "21:07" });
+
             var dialog = new ATKINSMEC.VENTARRANGEDIALOG(
                 new[] { Level, "LEVEL 04A", "LEVEL 05A" }, Level, RowsOf, arrangement)
             {
@@ -408,6 +457,16 @@ namespace ventpreview
 
             Shoot(dialog, Path.Combine(folder, "autovent-arrange.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-1.5x.png"), 1.5);
+
+            // At its smallest the side buttons scroll rather than clip
+            double tall = dialog.Height;
+            dialog.Height = dialog.MinHeight;
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-short.png"));
+
+            dialog.Height = tall;
+            dialog.UpdateLayout();
 
             // Searching: "bedroom" - the rooms found, each under its
             // apartment heading, and the other levels with matches named

@@ -318,8 +318,8 @@ def build(shots):
             ("Find and show", "Search by room number or name. Show in plan - or "
              "a double-click on a room - zooms to it in a plan of its level."))):
         x = 0.6 + i * 4.14
-        card(s, x, 4.2, 3.85, 2.55)
-        heading_and_body(s, x + 0.25, 4.38, 3.4, 2.25, head, body)
+        card(s, x, 4.4, 3.85, 2.35)
+        heading_and_body(s, x + 0.25, 4.56, 3.4, 2.1, head, body)
     footer(s, 7)
 
     # 8 ------------------------------------------------------------ matching
@@ -367,8 +367,8 @@ def build(shots):
     s.pic(img, 0.6, 1.5, w, w / img.width * img.height,
           "The Write airflows into the model tab")
     for i, (head, body) in enumerate((
-            ("Fresh air  ·  Extract", "Tick the duct system types. Tick none "
-             "and names with Fresh, Extract or Exhaust decide."),
+            ("Fresh air  ·  Extract", "Each button opens the duct system "
+             "types to tick. Tick none and the names decide."),
             ("Endcap reach", "How far an endcap or bellmouth looks for the FCU "
              "it feeds. 1500 mm unless you change it."),
             ("Endcaps  ·  Bellmouths", "Family names, a comma between. "
@@ -544,8 +544,8 @@ def build(shots):
                        "is matched when airflows are written."),
             ("Find and replace", "Change text in many names at once - one "
                                  "level or all."),
-            ("Take out of apartment", "Write an interior room as an ordinary "
-                                      "room. Put back undoes it."))
+            ("Ungroup", "Write an interior room as an ordinary room. "
+                        "Regroup puts it back under its apartment."))
     for i, (head, body) in enumerate(rows):
         y = 1.55 + i * 1.18
         heading_and_body(s, x0, y, 12.73 - x0, 1.1, head, body, head_size=17,
@@ -735,14 +735,35 @@ def shots_from(folder):
         flat.paste(img, mask=img.split()[-1])
         return flat
 
+    # THE CARDS ARE FOUND, NOT MEASURED: white panels on the grey window,
+    # read down a column just inside their left edge. Fixed coordinates
+    # broke the first time the bottom card changed height.
+    def cards(name):
+        img = Image.open(os.path.join(folder, name)).convert("RGB")
+        x = 45
+        runs, start = [], None
+        for y in range(img.height):
+            white = min(img.getpixel((x, y))) >= 250
+            if white and start is None:
+                start = y
+            elif not white and start is not None:
+                if y - start > 100:
+                    runs.append((start, y))
+                start = None
+        return runs
+
+    def card(name, index, left=25, right=1543):
+        top, bottom = cards(name)[index]
+        return crop(name, (left, top - 10, right, bottom + 10))
+
     main = "autovent-1.5x.png"
     return {
         "main": crop(main),
-        "links": crop(main, (25, 130, 780, 558)),
-        "schedule": crop(main, (787, 130, 1543, 558)),
-        "levels": crop(main, (25, 567, 1543, 866)),
-        "assign": crop(main, (25, 876, 1543, 1138)),
-        "export": crop("autovent-export-1.5x.png", (25, 876, 1543, 1138)),
+        "links": card(main, 0, 25, 780),
+        "schedule": card(main, 0, 787, 1543),
+        "levels": card(main, 1),
+        "assign": card(main, 2),
+        "export": card("autovent-export-1.5x.png", 2),
         "interiors": crop("autovent-interiors-1.5x.png"),
         "arrange": crop("autovent-arrange-1.5x.png"),
     }

@@ -251,26 +251,13 @@ namespace ATKINSMEC
 
             _levels = levels;
 
-            LstFresh.ItemsSource = new System.Collections.Generic.List<Tick>
-            {
-                new Tick { Label = "ATK_ME_Fresh Air", IsOn = true },
-                new Tick { Label = "ATK_ME_Extract" },
-                new Tick { Label = "ATK_ME_Supply Air" },
-                new Tick { Label = "ATK_ME_OA Supply" },
-                new Tick { Label = "ATK_ME_Exhaust Air" }
-            };
-
-            LstExtract.ItemsSource = new System.Collections.Generic.List<Tick>
-            {
-                new Tick { Label = "ATK_ME_Fresh Air" },
-                new Tick { Label = "ATK_ME_Extract", IsOn = true },
-                new Tick { Label = "ATK_ME_Supply Air" },
-                new Tick { Label = "ATK_ME_OA Supply" },
-                new Tick { Label = "ATK_ME_Exhaust Air", IsOn = true }
-            };
-
-            TxtFreshTypes.Text = "Fresh air  -  1 of 5";
-            TxtExtractTypes.Text = "Extract / exhaust  -  2 of 5";
+            // The REAL summary lines (VENTSYSTEMDIALOG is compiled in)
+            TxtFreshTypes.Text = VENTSYSTEMDIALOG.Summary(
+                new[] { "ATK_ME_Fresh Air" }, 20, "Fresh");
+            TxtExtractTypes.Text = VENTSYSTEMDIALOG.Summary(
+                new[] { "ATK_ME_Extract", "ATK_ME_Toilet Exhaust", "ATK_ME_Kitchen Exhaust",
+                        "ATK_ME_Car Park Exhaust", "ATK_ME_Battery Exhaust", "ATK_ME_Smoke Exhaust" },
+                20, "Extract or Exhaust");
 
             // The REAL wording (VENTLEVELNOTE is compiled in), for a
             // sheet that names two levels this model has not got
@@ -373,6 +360,8 @@ namespace ATKINSMEC
         private void BtnRefreshLinks_Click(object sender, RoutedEventArgs e) { }
         private void BtnInteriors_Click(object sender, RoutedEventArgs e) { }
         private void BtnArrange_Click(object sender, RoutedEventArgs e) { }
+        private void BtnFreshTypes_Click(object sender, RoutedEventArgs e) { }
+        private void BtnExtractTypes_Click(object sender, RoutedEventArgs e) { }
         private void BtnImport_Click(object sender, RoutedEventArgs e) { }
         private void CboWorksheet_SelectionChanged(
             object sender, SelectionChangedEventArgs e) { }
@@ -394,6 +383,9 @@ namespace ATKINSMEC
         private void BtnRun_Click(object sender, RoutedEventArgs e) { }
         private void BtnExport_Click(object sender, RoutedEventArgs e) { }
         private void ExportWay_Changed(object sender, RoutedEventArgs e) { }
+        private void CboExportSheet_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
+        private void TxtNewSheet_LostFocus(object sender, RoutedEventArgs e) { }
+        private void Setting_LostFocus(object sender, RoutedEventArgs e) { }
         private void BtnClose_Click(object sender, RoutedEventArgs e) { }
         private void ChkFixtures_Click(object sender, RoutedEventArgs e) { }
         private void BtnFixtures_Click(object sender, RoutedEventArgs e) { }

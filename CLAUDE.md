@@ -116,7 +116,8 @@ Revit-free (and tested): `VENTLEVELMAP`, `VENTSETTINGS`, `VENTSAVED`,
 `VENTFCUCHECK`, `VENTOFFICE`, `VENTROWS`, `VENTTEMPLATE`, `VENTLEVELROWS`,
 `VENTLEVELNOTE`, `VENTEXPORTNOTE`, `VENTLINKFILTER`, `VENTINTERIOR`,
 `VENTAPARTMENTMAP`, `VENTARRANGE`, `VENTFIT`, the dialogs
-(`VENTFIXTUREDIALOG`, `VENTINTERIORDIALOG`, `VENTARRANGEDIALOG`).
+(`VENTFIXTUREDIALOG`, `VENTINTERIORDIALOG`, `VENTARRANGEDIALOG`,
+`VENTSYSTEMDIALOG`).
 
 **Keep its on-screen wording short** — the user: *"do not overexplain
 things in the autovent addin"*. One-line hints, a few words in tooltips,
@@ -161,11 +162,21 @@ plain status lines.
   "chose none" is an empty list. Same rule for system types, fixtures,
   interior picks and room orders.
 - Saved on every change, only after `_ready`.
+- **Everything edited survives a close** (user, 2026-10-12): also the
+  rooms ticked by hand (`_roomChoice` → `room` lines, re-pointed with
+  the arrange links), the workbook + worksheet (`RestoreSheet`, in
+  `Window_Loaded` BEFORE `Take(_first)`, so the levels build once on the
+  sheet; a missing file keeps its path and says so in the status), the
+  export way / sheet / new name, the merges. Room ticks save through
+  `SaveSoon` (one write per level tick, not per room); the text boxes on
+  `LostFocus`; `OnClosed` saves the rest.
 
 ### Airflow write
-- Fresh/extract system types: ticked lists, else the old name rule
-  (`Fresh` / `Extract` / `Exhaust`); the two sides decided separately;
-  the pre-tick IS the fallback rule.
+- Fresh/extract system types: ticked in `VENTSYSTEMDIALOG`, one per
+  side, opened by the assign tab's two buttons (lists on the tab until
+  2026-10-12), a line under each saying what is ticked; else the old name
+  rule (`Fresh` / `Extract` / `Exhaust`); the two sides decided
+  separately; the pre-tick IS the fallback rule.
 - Endcap reach (default 1500 mm; ≤0 → default). Too large finds the
   wrong FCU.
 - **Endcaps and bellmouths, by family name** (two boxes, comma-separated,
@@ -290,7 +301,8 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
 
 ### Arrange rooms (`VENTARRANGE`, `VENTARRANGEDIALOG`)
 - Per container (`level:<name>`, `apt:<key>`) orders; an interior room
-  taken out of its apartment (**sheet only** — the map is untouched);
+  taken out of its apartment - **Ungroup** / **Regroup** on screen -
+  (**sheet only** — the map is untouched);
   renames (`Names`, rooms and apartment headings; empty or the model's
   name = no rename); find and replace across names (literal, any case,
   one level or all). An order equal to the default is not kept.
@@ -299,8 +311,23 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   get no airflow. Nothing leaves its level or apartment.
 - Dialog search: `Words` (incl. model names), headings kept with their
   rooms, moves step past rows showing (`Stepped`).
-- Saved per model (`ungrouped`, `order`, `rename`, `arrangelink`); link
-  ids re-pointed by label (`Remap`).
+- Saved per model (`ungrouped`, `order`, `rename`, `merge`,
+  `arrangelink`); link ids re-pointed by label (`Remap`, `Repointed`).
+- **Merge / Unmerge** (user, 2026-10-12: spaces on one FCU fed by one
+  fresh air connection). `VENTARRANGE.Merges` (groups of room keys; one
+  apartment's rooms or the level's own, never mixed); `Together` keeps a
+  group's rows adjacent in every order; ungroup/regroup/reset leave the
+  merge. Export: `Room.Merge` → `VENTROWS.MergeAir` merges the FRESH and
+  EXTRACT cells down the group, top cell
+  `IF((f1)&(f2)="","",N(f1)+N(f2))` from each row's own formula (a row
+  not set up is `""`, and `""+x` is `#VALUE!` down to the Total), lower
+  cells emptied; both columns' sums taken before either is emptied.
+  Import: `AirData.FreshMerge/ExhaustMerge`. Airflow write
+  (`REVITROOMS`): groups = sheet merges ∪ arrangement merges
+  (`VENTFCUCHECK.Groups`, union-find, earliest room leads); a group's
+  total shared by the in-room terminals of all its rooms, endcaps carry
+  it once (`Totals`, `AsGroups`). Tests: ventleveltest, ventfcutest,
+  officetest (`MergedTest`), ventsettingstest.
 
 ### Logs and video
 - `Desktop\ATKINSMEC_debug_log.txt` on every airflow run (levels of each

@@ -731,6 +731,58 @@ internal static class Program
             Check("a rename line with no key or no name is passed over",
                 VENTSAVED.Parse("model\tk\nrename\t1:2\nrename\t\tX\n")[0].Names.Count == 0);
 
+            // ---- the rest of a session, kept for the next one: merged
+            // rooms, rooms ticked by hand, the workbook, the export
+            var session = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\session.rvt",
+                Merges =
+                {
+                    new System.Collections.Generic.List<string> { "3589272:121126", "3589272:121125" },
+                    new System.Collections.Generic.List<string> { "3001198:41", "3001198:42", "3001198:43" }
+                },
+                Rooms =
+                {
+                    new System.Collections.Generic.KeyValuePair<string, bool>("3001198:7", false),
+                    new System.Collections.Generic.KeyValuePair<string, bool>("3001198:8", true)
+                },
+                Workbook = "C:\\Users\\me\\Downloads\\KIFAF (1).xlsx",
+                Worksheet = "Tower 2",
+                ExportWay = "add",
+                ExportSheet = "MLCP",
+                NewSheet = "Ventilation L04"
+            };
+
+            var sessionBack = VENTSAVED.Parse(VENTSAVED.Compose(new[] { session, plainModel() }));
+
+            Check("merged rooms survive, each group whole and in order",
+                sessionBack[0].Merges.Count == 2 &&
+                string.Join(",", sessionBack[0].Merges[0]) == "3589272:121126,3589272:121125" &&
+                sessionBack[0].Merges[1].Count == 3);
+
+            Check("rooms ticked and unticked by hand survive",
+                sessionBack[0].Rooms.Count == 2 &&
+                sessionBack[0].Rooms[0].Key == "3001198:7" && !sessionBack[0].Rooms[0].Value &&
+                sessionBack[0].Rooms[1].Key == "3001198:8" && sessionBack[0].Rooms[1].Value);
+
+            Check("the workbook and worksheet survive - a path with spaces and brackets",
+                sessionBack[0].Workbook == "C:\\Users\\me\\Downloads\\KIFAF (1).xlsx" &&
+                sessionBack[0].Worksheet == "Tower 2");
+
+            Check("the export's way, worksheet and new name survive",
+                sessionBack[0].ExportWay == "add" && sessionBack[0].ExportSheet == "MLCP" &&
+                sessionBack[0].NewSheet == "Ventilation L04");
+
+            Check("...and none of it leaks onto the next model",
+                sessionBack[1].Merges.Count == 0 && sessionBack[1].Rooms.Count == 0 &&
+                sessionBack[1].Workbook == "" && sessionBack[1].ExportWay == "");
+
+            Check("a merge of one room, or a key twice, is no merge",
+                VENTSAVED.Parse("model\tk\nmerge\t1:2\nmerge\t1:2\t1:2\n")[0].Merges.Count == 0);
+
+            Check("a room line with no key is passed over",
+                VENTSAVED.Parse("model\tk\nroom\t\toff\n")[0].Rooms.Count == 0);
+
             // ---- what the file must survive -------------------------------
             var awkward = new VENTSAVED.Model
             {

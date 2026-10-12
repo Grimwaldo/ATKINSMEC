@@ -67,6 +67,58 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: Merge rooms; every edit survives a close - 2026-10-12
+
+User: "two or more spaces served by 1 FCU, and this FCU is supplied by 1
+fresh air connection" - a **Merge** (and **Unmerge**) in Arrange rooms:
+the rooms' fresh air and extract cells merged in the sheet, their total
+going to the one connection. Then: "any editing done while working with
+the addin can be saved if it was closed and opened again".
+
+- **Merge**: `VENTARRANGE.Merges` (+ `Together`, `Merge`, `Unmerge`;
+  ungroup/regroup/reset leave a merge); the dialog's buttons, a "merged
+  with 121.107" note on each row, "N merged group(s)"; the side buttons
+  scroll at the window's smallest. Export: `VENTROWS.MergeAir` -
+  fresh and extract merged down the group, the top cell
+  `IF((f1)&(f2)="","",N(f1)+N(f2))` over each row's own formula. The
+  first version, `(f1)+(f2)`, was `#VALUE!` straight from an export (a
+  room with no occupancy is `""`) all the way to the Total - officetest
+  now checks that. Import reads the merge (`FreshMerge/ExhaustMerge`);
+  the airflow write joins sheet merges and Arrange merges into groups
+  (`VENTFCUCHECK.Groups`), the group's total shared by every in-room
+  terminal of its rooms, carried once by endcaps.
+- **Saved now too** (`VENTSAVED`): merges, room ticks by hand, the
+  workbook + worksheet (reopened on open; a missing file is said in the
+  status, its path kept), the export way / worksheet / new name; the
+  reach, endcap and bellmouth boxes save on leaving them.
+- Tests: ventleveltest (+15), ventfcutest (+8), officetest (+16, 453),
+  ventsettingstest (+7); each mutation-checked. All 20 harnesses pass.
+  Built for all six; deployed to all but **2024 (Revit 2024 open with
+  kifaf)** - close it and run `build-all.ps1` before trying this.
+- **Never run in Revit.** To try on kifaf LEVEL 04A: Arrange rooms →
+  pick KITCHEN 121.126 + LIVING/DINING 121.125 (or whichever pair one
+  FCU serves) → Merge → export → check the merged cells → Assign
+  airflows, and read `BELLMOUTH`/`MERGED` lines in the debug log.
+  Undo the airflow write afterwards; do not sync.
+- Not done: SUMIF-by-system tables count a merged group under its top
+  row's system - right when the merged rooms share a system, which one
+  FCU's rooms do.
+
+## AUTOVENT: Ungroup / Regroup; system types in a dialog - 2026-10-12
+
+User: Arrange rooms' "Take out of apartment" / "Put back in apartment"
+are now **Ungroup** / **Regroup** (row note "ungrouped from ...", count
+"N ungrouped", the levels tooltip and the export log to match). And the
+two small system-type lists on the assign tab are now two buttons -
+**Fresh air systems...** / **Extract systems...** - each opening
+`VENTSYSTEMDIALOG` (search, ticks, All/None for the rows showing, a
+count, OK/Cancel; Cancel changes nothing), with a line under each
+saying what is ticked. The levels card gained the height. Rendered at
+1x and 1.5x (`autovent-systems*.png`); `tests/video/make_video.py` and
+the tutorial's control list point at the new names; the deck finds its
+screenshot cards by colour now rather than by fixed position. All 20
+harnesses pass; deployed to all but **2025 (Revit 2025 open)**.
+
 ## AUTOVENT: kifaf LEVEL 04A airflow run - bellmouths, wall grilles - 2026-10-11
 
 User ran Assign airflows on LEVEL 04A with `KIFAF (1).xlsx`: 121.325,

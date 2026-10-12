@@ -49,6 +49,7 @@ internal static class Program
         FixturesTest(template);
         ApartmentsTest(template);
         ArrangedTest(template);
+        MergedTest(template);
         AddToOfficeTest(template);
         AddToBareTest(template);
         RefusalTests(template);
@@ -376,6 +377,184 @@ internal static class Program
               read.Keys.Any(k => k.SpaceName == "Living" && k.RoomNumber == "P04-02-02") &&
               !read.Keys.Any(k => k.SpaceName.StartsWith("DRIVER/STAFF")),
               "the importer reads all 8 back, the taken-out toilet by its own name - so the airflow write still finds it");
+    }
+
+    // ==================================================
+    // Merged rooms (VENTARRANGE.Merges -> VENTROWS.MergeAir)
+    // ==================================================
+
+    // User (2026-10-12): two or more spaces served by one FCU, fed by
+    // one fresh air connection - their fresh air and extract cells merged
+    // in the sheet, the total of the spaces in the one cell.
+    static void MergedTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== merged rooms: one total of fresh air and extract");
+
+        const string Level = "LEVEL 04A";
+
+        List<VENTTEMPLATE.Room> Rooms(bool merged)
+        {
+            var lobby = R("LOBBY", "121.001", 40, 3);
+            var living = R("LIVING/DINING", "121.125", 30, 3);
+            var kitchen = R("KITCHEN", "121.126", 12, 3);
+            var bed = In("9:1", "1BDR-C", "121.120", "BEDROOM", "121.121", 14);
+            var bath = In("9:1", "1BDR-C", "121.120", "ENSUITE", "121.122", 5);
+
+            if (merged)
+            {
+                living.Merge = kitchen.Merge = "k";
+                bed.Merge = bath.Merge = "b";
+
+                // A group of one is no merge
+                lobby.Merge = "solo";
+            }
+
+            return VENTTEMPLATE.Ordered(new List<VENTTEMPLATE.Room> { kitchen, bath, lobby, bed, living });
+        }
+
+        string plainPath = Path.Combine(Out, "merged-plain.xlsx");
+        string mergedPath = Path.Combine(Out, "merged.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, Job("Merged", new List<VENTTEMPLATE.Level> { L(Level, 0, Rooms(false).ToArray()) }, null), plainPath);
+
+        VENTOFFICE.Result result = VENTOFFICE.NewWorkbook(
+            template, Job("Merged", new List<VENTTEMPLATE.Level> { L(Level, 0, Rooms(true).ToArray()) }, null), mergedPath);
+
+        Check(result.Merged == 2, "two merged groups written (" + result.Merged + ")");
+
+        // Both calculated with every room an office, as Calculate does
+        // with one - and saved, so the importer reads what Excel would
+        var fresh = new Dictionary<string, double>();
+        var extract = new Dictionary<string, double>();
+        double plainTotal = 0;
+
+        foreach (string path in new[] { plainPath, mergedPath })
+        {
+            using (var p = new ExcelPackage(new FileInfo(path)))
+            {
+                ExcelWorksheet ws = p.Workbook.Worksheets["Merged"];
+                VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+                int Row(string number) =>
+                    Enumerable.Range(layout.FirstDataRow, 40).First(r => ws.Cells[r, layout.RoomNumberCol].Text == number);
+
+                int total = Enumerable.Range(layout.FirstDataRow, 60)
+                    .First(r => VENTSHEET.IsTotalRow(ws.Cells[r, layout.SpaceNameCol].Text));
+
+                // Straight from the export, nothing chosen yet: every
+                // room's air is "" - and so must a merged cell's be, or
+                // "" + "" is #VALUE! all the way down to the Total
+                if (path == mergedPath)
+                {
+                    p.Workbook.Calculate();
+
+                    int top = Row("121.125");
+                    var notYet = new List<string>();
+
+                    foreach (int col in new[] { layout.FreshAirCol, layout.ExhaustAirCol })
+                        foreach (int r in new[] { top, total })
+                            if (ws.Cells[r, col].Value is ExcelErrorValue)
+                                notYet.Add(ws.Cells[r, col].Address + " " + ws.Cells[r, col].Value);
+
+                    Check(notYet.Count == 0 && (ws.Cells[top, layout.FreshAirCol].Value ?? "").ToString() == "",
+                          "a merged cell with nothing chosen yet is blank, like its rooms - no #VALUE! down to the Total" +
+                          (notYet.Count == 0 ? "" : ": " + string.Join(", ", notYet)));
+                }
+
+                foreach (string number in new[] { "121.001", "121.121", "121.122", "121.125", "121.126" })
+                    ws.Cells[Row(number), 15].Value = "Office Space";
+
+                p.Workbook.Calculate();
+
+                double Num(int row, int col) => ws.Cells[row, col].Value is double d ? d : 0;
+
+                int living = Row("121.125"), kitchen = Row("121.126");
+                int bed = Row("121.121"), bath = Row("121.122"), lobby = Row("121.001");
+
+                if (path == plainPath)
+                {
+                    foreach (string number in new[] { "121.121", "121.122", "121.125", "121.126" })
+                    {
+                        fresh[number] = Num(Row(number), layout.FreshAirCol);
+                        extract[number] = Num(Row(number), layout.ExhaustAirCol);
+                    }
+
+                    plainTotal = Num(total, layout.FreshAirCol);
+
+                    Check(ws.MergedCells[living, layout.FreshAirCol] == null,
+                          "not merged, each room has its own fresh air cell");
+
+                    continue;
+                }
+
+                string Span(int top, int bottom, int col) =>
+                    ExcelCellAddress.GetColumnLetter(col) + top + ":" + ExcelCellAddress.GetColumnLetter(col) + bottom;
+
+                Check(kitchen == living + 1 &&
+                      ws.MergedCells[living, layout.FreshAirCol] == Span(living, kitchen, layout.FreshAirCol) &&
+                      ws.MergedCells[living, layout.ExhaustAirCol] == Span(living, kitchen, layout.ExhaustAirCol),
+                      "the living and the kitchen: fresh air and extract each merged down over both rows - " +
+                      ws.MergedCells[living, layout.FreshAirCol] + ", " + ws.MergedCells[living, layout.ExhaustAirCol]);
+
+                Check(ws.MergedCells[bed, layout.FreshAirCol] == Span(bed, bath, layout.FreshAirCol),
+                      "rooms of one apartment merge the same way - " + ws.MergedCells[bed, layout.FreshAirCol]);
+
+                Check(ws.MergedCells[living, layout.AreaCol] == null && Num(kitchen, layout.AreaCol) == 12,
+                      "nothing else is merged: each room keeps its own area");
+
+                Check(ws.MergedCells[lobby, layout.FreshAirCol] == null,
+                      "a room alone in its group is not merged");
+
+                Check(ws.Cells[kitchen, layout.FreshAirCol].Value == null &&
+                      string.IsNullOrEmpty(ws.Cells[kitchen, layout.FreshAirCol].Formula),
+                      "the cell under the top is emptied");
+
+                Check(fresh["121.125"] > 0 && fresh["121.126"] > 0 &&
+                      Math.Abs(Num(living, layout.FreshAirCol) - (fresh["121.125"] + fresh["121.126"])) < 1e-9,
+                      "the top cell is the two rooms' fresh air added, live: " + Num(living, layout.FreshAirCol) +
+                      " = " + fresh["121.125"] + " + " + fresh["121.126"] +
+                      " (" + Short(ws.Cells[living, layout.FreshAirCol].Formula) + ")");
+
+                Check(Math.Abs(Num(living, layout.ExhaustAirCol) - (extract["121.125"] + extract["121.126"])) < 1e-9 &&
+                      Math.Abs(Num(bed, layout.FreshAirCol) - (fresh["121.121"] + fresh["121.122"])) < 1e-9,
+                      "...and so is the extract, and the apartment's pair");
+
+                Check(Math.Abs(Num(total, layout.FreshAirCol) - plainTotal) < 1e-9,
+                      "the Total is what it was - nothing gained or lost: " + Num(total, layout.FreshAirCol));
+
+                int errors = 0;
+
+                foreach (var cell in ws.Cells[layout.FirstDataRow, 1, total, ws.Dimension.End.Column])
+                    if (cell.Value is ExcelErrorValue e && (e.ToString() == "#REF!" || e.ToString() == "#NAME?"))
+                        errors++;
+
+                Check(errors == 0, "no #REF! or #NAME? (" + errors + ")");
+
+                p.Save();
+            }
+        }
+
+        // ---- read back: one group, its total on the first row
+        VENTSHEET.sheetpath = mergedPath;
+        VENTSHEET.sheetname = "Merged";
+
+        Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> read = new VENTSHEET().excelsheet();
+
+        VENTSHEET.AirData Air(string number) => read.First(kv => kv.Key.RoomNumber == number).Value;
+
+        Check(read.Count == 5, "the importer reads every room: " + read.Count + " of 5");
+
+        Check(Air("121.125").FreshMerge != null && Air("121.125").FreshMerge == Air("121.126").FreshMerge &&
+              Air("121.125").ExhaustMerge != null && Air("121.125").ExhaustMerge == Air("121.126").ExhaustMerge,
+              "the merged rooms read as one group, fresh and extract - " + Air("121.125").FreshMerge);
+
+        Check(Air("121.121").FreshMerge != null && Air("121.121").FreshMerge != Air("121.125").FreshMerge &&
+              Air("121.001").FreshMerge == null,
+              "the apartment's pair is a group of its own; the lobby is in none");
+
+        Check(Math.Abs(Air("121.125").FreshAir + Air("121.126").FreshAir - (fresh["121.125"] + fresh["121.126"])) < 1e-9,
+              "the group's air read back is the total, once: " + Air("121.125").FreshAir + " + " + Air("121.126").FreshAir);
     }
 
     // ==================================================

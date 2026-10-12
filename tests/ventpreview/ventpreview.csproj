@@ -21,6 +21,7 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTEXPORTNOTE.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIXTUREDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSYSTEMDIALOG.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIOR.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIORDIALOG.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELMAP.cs" />

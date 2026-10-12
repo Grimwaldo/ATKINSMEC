@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATKINSMEC
 {
@@ -402,6 +403,124 @@ namespace ATKINSMEC
             });
 
             return found;
+        }
+
+        // ==================================================
+        // Merged rooms
+        // ==================================================
+        //
+        // ROOMS ONE FCU SERVES THROUGH ONE FRESH AIR CONNECTION (user,
+        // 2026-10-12) are ONE for the airflow write: their air added up and
+        // given once - shared by the fresh terminals standing in any of
+        // them, or carried by the connection on the unit serving any of
+        // them. A group is rooms whose fresh air or extract cell is merged
+        // down in the sheet, or rooms merged in Arrange rooms; groups
+        // sharing a room are one. Returns each room key's group key - the
+        // group's first room in `rooms` - and a room in no group maps to
+        // itself.
+        public static Dictionary<string, string> Groups(
+            IEnumerable<string> rooms,
+            IEnumerable<IEnumerable<string>> sets)
+        {
+            var order = new List<string>();
+            var index = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (string room in rooms ?? Enumerable.Empty<string>())
+            {
+                if (room != null && !index.ContainsKey(room))
+                {
+                    index[room] = order.Count;
+                    order.Add(room);
+                }
+            }
+
+            var parent = Enumerable.Range(0, order.Count).ToArray();
+
+            Func<int, int> find = null;
+            find = i => parent[i] == i ? i : (parent[i] = find(parent[i]));
+
+            foreach (IEnumerable<string> set in sets ?? Enumerable.Empty<IEnumerable<string>>())
+            {
+                int first = -1;
+
+                foreach (string room in set ?? Enumerable.Empty<string>())
+                {
+                    int at;
+
+                    if (room == null || !index.TryGetValue(room, out at))
+                        continue;
+
+                    if (first < 0)
+                    {
+                        first = at;
+                        continue;
+                    }
+
+                    int a = find(first), b = find(at);
+
+                    // the earlier room leads, so the group's key is stable
+                    if (a != b)
+                    {
+                        parent[Math.Max(a, b)] = Math.Min(a, b);
+                        first = Math.Min(a, b);
+                    }
+                }
+            }
+
+            var groups = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            for (int i = 0; i < order.Count; i++)
+                groups[order[i]] = order[find(i)];
+
+            return groups;
+        }
+
+        // Each group's air: its rooms' values added. Keys are group keys.
+        public static Dictionary<string, double> Totals(
+            IDictionary<string, double> roomValues,
+            IDictionary<string, string> groups)
+        {
+            var totals = new Dictionary<string, double>(StringComparer.Ordinal);
+
+            if (roomValues == null)
+                return totals;
+
+            foreach (KeyValuePair<string, double> room in roomValues)
+            {
+                string group;
+
+                if (groups == null || !groups.TryGetValue(room.Key, out group))
+                    group = room.Key;
+
+                double sum;
+                totals.TryGetValue(group, out sum);
+                totals[group] = sum + room.Value;
+            }
+
+            return totals;
+        }
+
+        // Room keys as their groups' keys, each group once, in first-seen
+        // order
+        public static List<string> AsGroups(IEnumerable<string> roomKeys, IDictionary<string, string> groups)
+        {
+            var result = new List<string>();
+
+            foreach (string room in roomKeys ?? Enumerable.Empty<string>())
+            {
+                string group;
+
+                if (room == null)
+                    continue;
+
+                if (groups == null || !groups.TryGetValue(room, out group))
+                    group = room;
+
+                if (!result.Contains(group))
+                    result.Add(group);
+            }
+
+            return result;
         }
 
         // ==================================================

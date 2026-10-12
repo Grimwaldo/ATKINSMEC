@@ -539,6 +539,11 @@ namespace ATKINSMEC
                 block.Rooms = VENTARRANGE.Order(
                     VENTTEMPLATE.Ordered(block.Rooms), block.LevelName, VENTARRANGE.Current,
                     r => r.Key, r => r.ApartmentKey);
+
+                // Merged rooms - next to each other by now (Together) -
+                // have their air written as one total (VENTROWS.MergeAir)
+                foreach (VENTTEMPLATE.Room room in block.Rooms)
+                    room.Merge = VENTARRANGE.Current.MergeIdOf(room.Key);
             }
 
             return blocks;
@@ -570,10 +575,15 @@ namespace ATKINSMEC
                 said.Add(levels + " level(s) reordered");
 
             if (takenOut > 0)
-                said.Add(takenOut + " room(s) taken out of apartments");
+                said.Add(takenOut + " room(s) ungrouped");
 
             if (renamed > 0)
                 said.Add(renamed + " renamed");
+
+            int merges = arrangement.Merges.Count(g => g.Count(keys.Contains) > 1);
+
+            if (merges > 0)
+                said.Add(merges + " merged group(s)");
 
             return said.Count == 0
                 ? string.Empty
@@ -778,6 +788,15 @@ namespace ATKINSMEC
             int roomRow = 0;
             int subTotalRow = 0;
 
+            // A row that is not part of a group merged DOWN: neither an
+            // apartment's name, nor merged rooms' air (VENTROWS.MergeAir) -
+            // whose formula is the total of several rooms and would be
+            // copied onto every room
+            bool Plain(int r) =>
+                !DownMerged(ws, r, nameCol) &&
+                (layout.FreshAirCol <= 0 || !DownMerged(ws, r, layout.FreshAirCol)) &&
+                (layout.ExhaustAirCol <= 0 || !DownMerged(ws, r, layout.ExhaustAirCol));
+
             for (int r = firstDataRow; r <= lastDataRow; r++)
             {
                 string text = ws.Cells[r, nameCol].Text.Trim();
@@ -811,11 +830,12 @@ namespace ATKINSMEC
                         }
                     }
                 }
-                else if (roomRow == 0 || (DownMerged(ws, roomRow, nameCol) && !DownMerged(ws, r, nameCol)))
+                else if (roomRow == 0 || (!Plain(roomRow) && Plain(r)))
                 {
                     // An ordinary room's row, where there is one: an
-                    // apartment's first row has its name merged DOWN and
-                    // would teach every room the wrong shape
+                    // apartment's first row has its name merged DOWN, and
+                    // merged rooms' first row their air, and either would
+                    // teach every room the wrong shape
                     roomRow = r;
                 }
             }
@@ -1005,6 +1025,9 @@ namespace ATKINSMEC
             // writer the office-template export uses
             groups = VENTROWS.Apartments(ws, layout, roomRows);
 
+            // Rooms merged in Arrange rooms: their air as one total
+            int mergedGroups = VENTROWS.MergeAir(ws, layout, roomRows);
+
             // The rewritten worksheet is left without an AutoFilter
             bool filterRemoved = VENTROWS.RemoveAutoFilter(ws);
 
@@ -1034,6 +1057,10 @@ namespace ATKINSMEC
 
             if (filterRemoved)
                 report.AppendLine("The sheet's AutoFilter was removed.");
+
+            if (mergedGroups > 0)
+                report.AppendLine(mergedGroups + " merged group(s): fresh air and extract as one total.");
+
             report.AppendLine();
             report.Append("Saved to: " + TargetPath);
 

@@ -45,6 +45,11 @@ namespace ATKINSMEC
             public string ApartmentKey { get; set; }
             public string Apartment { get; set; }
             public string ApartmentNumber { get; set; }
+
+            // MERGED with other rooms (VENTARRANGE.Merges): rooms sharing
+            // this id have their fresh air and extract cells merged into
+            // one total (VENTROWS.MergeAir). Empty for a room on its own.
+            public string Merge { get; set; }
         }
 
         // Rooms by number - numerically where both are numbers - then by

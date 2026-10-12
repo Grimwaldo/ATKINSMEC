@@ -750,30 +750,43 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
+                            <!-- Which duct system types are fresh air and
+                                 which extract: a button each, opening
+                                 VENTSYSTEMDIALOG, and what is ticked under
+                                 it. Two small lists until the user asked
+                                 for these (2026-10-12). -->
                             <StackPanel Grid.Column="0" Width="250">
-                                <TextBlock x:Name="TxtFreshTypes"
-                                           Text="Fresh air system type(s)"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{StaticResource Ink}"/>
+                                <Button x:Name="BtnFreshTypes"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource FlatButton}"
+                                        Padding="12,4"
+                                        Content="Fresh air systems..."
+                                        Click="BtnFreshTypes_Click"/>
 
-                                <ListBox x:Name="LstFresh"
-                                         Height="64"
-                                         Margin="0,5,0,0"
-                                         ItemTemplate="{StaticResource TickTemplate}"/>
+                                <TextBlock x:Name="TxtFreshTypes"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="NoWrap"
+                                           TextTrimming="CharacterEllipsis"
+                                           Style="{StaticResource Hint}"
+                                           Text=""/>
                             </StackPanel>
 
                             <StackPanel Grid.Column="1"
                                         Width="250"
                                         Margin="16,0,0,0">
-                                <TextBlock x:Name="TxtExtractTypes"
-                                           Text="Extract / exhaust system type(s)"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{StaticResource Ink}"/>
+                                <Button x:Name="BtnExtractTypes"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource FlatButton}"
+                                        Padding="12,4"
+                                        Content="Extract systems..."
+                                        Click="BtnExtractTypes_Click"/>
 
-                                <ListBox x:Name="LstExtract"
-                                         Height="64"
-                                         Margin="0,5,0,0"
-                                         ItemTemplate="{StaticResource TickTemplate}"/>
+                                <TextBlock x:Name="TxtExtractTypes"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="NoWrap"
+                                           TextTrimming="CharacterEllipsis"
+                                           Style="{StaticResource Hint}"
+                                           Text=""/>
                             </StackPanel>
 
                             <StackPanel Grid.Column="2" Margin="18,0,0,0">
@@ -807,7 +820,8 @@
                                                  Margin="8,0,0,0"
                                                  VerticalAlignment="Center"
                                                  ToolTip="How far an endcap may look for the FCU it feeds."
-                                                 Text="1500"/>
+                                                 Text="1500"
+                                                 LostFocus="Setting_LostFocus"/>
 
                                         <TextBlock Text="mm"
                                                    Margin="6,0,0,0"
@@ -842,7 +856,8 @@
                                         <TextBox x:Name="TxtEndcapNames"
                                                  VerticalAlignment="Center"
                                                  ToolTip="Family names always traced to the nearest FCU. Commas between."
-                                                 Text="Endcap"/>
+                                                 Text="Endcap"
+                                                 LostFocus="Setting_LostFocus"/>
 
                                         <TextBlock Grid.Column="1"
                                                    Text="Bellmouths"
@@ -854,7 +869,8 @@
                                                  Grid.Column="2"
                                                  VerticalAlignment="Center"
                                                  ToolTip="Traced to an FCU only when facing one; otherwise they serve their room. Empty = none."
-                                                 Text="BellMouth"/>
+                                                 Text="BellMouth"
+                                                 LostFocus="Setting_LostFocus"/>
                                     </Grid>
                                 </Grid>
 
@@ -888,7 +904,8 @@
                                           Width="274"
                                           HorizontalAlignment="Left"
                                           Margin="22,5,0,9"
-                                          IsEnabled="False"/>
+                                          IsEnabled="False"
+                                          SelectionChanged="CboExportSheet_SelectionChanged"/>
 
                                 <RadioButton x:Name="RdoNewWorkbook"
                                              GroupName="ExportWay"
@@ -916,7 +933,8 @@
                                 <TextBox x:Name="TxtNewSheet"
                                          Margin="0,5,0,0"
                                          IsEnabled="False"
-                                         Text="Ventilation"/>
+                                         Text="Ventilation"
+                                         LostFocus="TxtNewSheet_LostFocus"/>
 
                                 <Button x:Name="BtnExport"
                                         HorizontalAlignment="Center"

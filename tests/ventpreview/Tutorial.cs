@@ -26,8 +26,8 @@ namespace ventpreview
             "BtnImport", "TxtSheetPath", "CboWorksheet", "TxtSheetInfo",
             "ListLevels", "BtnAllLevels", "BtnNoLevels", "TxtLevelsInfo",
             "TxtLevelsWarning", "BtnClose", "BtnShowRoom",
-            "TabActions", "TxtFreshTypes", "LstFresh", "TxtExtractTypes",
-            "LstExtract", "TxtEndcapReach", "BtnRun",
+            "TabActions", "BtnFreshTypes", "TxtFreshTypes", "BtnExtractTypes",
+            "TxtExtractTypes", "TxtEndcapReach", "BtnRun",
             "RdoIntoImported", "CboExportSheet", "RdoNewWorkbook",
             "RdoAddWorksheet", "TxtNewSheet", "BtnExport"
         };

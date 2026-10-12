@@ -16,8 +16,10 @@ namespace ATKINSMEC
     //   - drag a row (or Move up / Move down, or Ctrl+Up / Ctrl+Down) to
     //     move it WITHIN ITS LEVEL; an apartment moves with its rooms, and a
     //     room inside an apartment moves only within that apartment;
-    //   - "Take out of apartment" gives an interior room a row of its own,
-    //     "Put back" returns it;
+    //   - "Ungroup" gives an interior room a row of its own, "Regroup"
+    //     returns it under its apartment;
+    //   - "Merge" makes the rooms picked one total of fresh air and extract
+    //     (one FCU, one fresh air connection), "Unmerge" parts them;
     //   - "Reset this level" forgets everything chosen for it;
     //   - the SEARCH box narrows the list to the rooms whose number, name,
     //     model or apartment hold every word typed (VENTARRANGE.Shown), each
@@ -59,6 +61,8 @@ namespace ATKINSMEC
         private readonly Button _down;
         private readonly Button _takeOut;
         private readonly Button _putBack;
+        private readonly Button _merge;
+        private readonly Button _unmerge;
         private readonly Button _reset;
         private readonly Button _rename;
         private readonly Button _replace;
@@ -204,9 +208,20 @@ namespace ATKINSMEC
             _rename = SideButton("Rename...", side);
             _rename.Margin = new Thickness(0, 18, 0, 0);
             _replace = SideButton("Find and replace...", side);
-            _takeOut = SideButton("Take out of apartment", side);
+            // "Ungroup" / "Regroup" - the user's words (2026-10-12) for
+            // what were "Take out of apartment" / "Put back in apartment"
+            _takeOut = SideButton("Ungroup", side);
             _takeOut.Margin = new Thickness(0, 18, 0, 0);
-            _putBack = SideButton("Put back in apartment", side);
+            _takeOut.ToolTip = "Out of its apartment: a row of its own";
+            _putBack = SideButton("Regroup", side);
+            _putBack.ToolTip = "Back under its apartment";
+            // Rooms one FCU serves through one fresh air connection (the
+            // user, 2026-10-12)
+            _merge = SideButton("Merge", side);
+            _merge.Margin = new Thickness(0, 18, 0, 0);
+            _merge.ToolTip = "One total of fresh air and extract";
+            _unmerge = SideButton("Unmerge", side);
+            _unmerge.ToolTip = "Rows of their own again";
             _reset = SideButton("Reset this level", side);
             _reset.Margin = new Thickness(0, 18, 0, 0);
 
@@ -214,7 +229,13 @@ namespace ATKINSMEC
             _down.ToolTip = "Ctrl+Down";
             _rename.ToolTip = "F2, or double-click";
 
-            Put(grid, 3, 1, 1, side);
+            // Scrolls rather than clips when the window is short
+            Put(grid, 3, 1, 1, new ScrollViewer
+            {
+                Content = side,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            });
 
             _said = Hint(string.Empty);
             _said.Margin = new Thickness(0, 8, 0, 0);
@@ -249,6 +270,8 @@ namespace ATKINSMEC
             _down.Click += (s, e) => MovePicked(+1);
             _takeOut.Click += (s, e) => TakeOutPicked();
             _putBack.Click += (s, e) => PutBackPicked();
+            _merge.Click += (s, e) => MergePicked();
+            _unmerge.Click += (s, e) => UnmergePicked();
             _reset.Click += (s, e) => { VENTARRANGE.Reset(_work, _rows, _level); Fill(null); };
             _rename.Click += (s, e) => RenamePicked();
             _replace.Click += (s, e) => ReplaceNames();
@@ -556,10 +579,22 @@ namespace ATKINSMEC
             if (row.IsTakenOut)
             {
                 name.Inlines.Add(new System.Windows.Documents.Run(
-                    "   taken out of " + (row.Home + " " + row.HomeNumber).Trim())
+                    "   ungrouped from " + (row.Home + " " + row.HomeNumber).Trim())
                 {
                     Foreground = Warn,
                     FontStyle = FontStyles.Italic,
+                    FontSize = 12
+                });
+            }
+
+            List<string> merged = _work.MergeOf(row.Key);
+
+            if (merged != null)
+            {
+                name.Inlines.Add(new System.Windows.Documents.Run(
+                    "   merged with " + string.Join(", ", merged.Where(k => k != row.Key).Select(NumberOf)))
+                {
+                    Foreground = Accent,
                     FontSize = 12
                 });
             }
@@ -587,6 +622,17 @@ namespace ATKINSMEC
             return panel;
         }
 
+        // A room by its number, else its name - as the list shows it
+        private string NumberOf(string key)
+        {
+            VENTARRANGE.Row row = _rows.FirstOrDefault(r => r.Key == key);
+
+            if (row == null)
+                return "?";
+
+            return string.IsNullOrWhiteSpace(row.Number) ? row.Name : row.Number;
+        }
+
         private static System.Windows.Documents.Run Renamed()
         {
             return new System.Windows.Documents.Run("  renamed") { Foreground = Accent, FontSize = 11 };
@@ -608,6 +654,8 @@ namespace ATKINSMEC
             _up.IsEnabled = _down.IsEnabled = _rename.IsEnabled = picked.Count == 1;
             _takeOut.IsEnabled = picked.Any(l => l.Row != null && !string.IsNullOrEmpty(l.Row.ApartmentKey));
             _putBack.IsEnabled = picked.Any(l => l.Row != null && l.Row.IsTakenOut);
+            _merge.IsEnabled = picked.Count(l => l.Row != null) > 1;
+            _unmerge.IsEnabled = picked.Any(l => l.Row != null && _work.MergeOf(l.Row.Key) != null);
             _reset.IsEnabled = _rows.Count > 0;
         }
 
@@ -623,13 +671,16 @@ namespace ATKINSMEC
             int takenOut = _rows.Count(r => r.IsTakenOut);
             int unticked = _rows.Count(r => !r.Exported);
 
+            int merged = _rows.Select(r => _work.MergeIdOf(r.Key)).Where(m => m != null).Distinct().Count();
+
             int renamed = _rows.Count(r => r.Name != r.ModelName) +
                           _rows.Where(r => !string.IsNullOrEmpty(r.ApartmentKey) && r.Apartment != r.ModelApartment)
                                .Select(r => r.ApartmentKey).Distinct().Count();
 
             string summary = _rows.Count + " room(s)" +
                              (apartments > 0 ? ", " + apartments + " apartment(s)" : string.Empty) +
-                             (takenOut > 0 ? ", " + takenOut + " taken out" : string.Empty) +
+                             (takenOut > 0 ? ", " + takenOut + " ungrouped" : string.Empty) +
+                             (merged > 0 ? ", " + merged + " merged group(s)" : string.Empty) +
                              (renamed > 0 ? ", " + renamed + " renamed" : string.Empty) +
                              (unticked > 0 ? ", " + unticked + " unticked" : string.Empty) + ".";
 
@@ -933,6 +984,34 @@ namespace ATKINSMEC
 
             foreach (Line line in picked)
                 VENTARRANGE.PutBack(_work, line.Row, _level);
+
+            Fill(picked.Select(l => l.Key));
+        }
+
+        private void MergePicked()
+        {
+            List<Line> picked = Picked().Where(l => l.Row != null).ToList();
+
+            string why = VENTARRANGE.Merge(_work, picked.Select(l => l.Row).ToList());
+
+            Fill(picked.Select(l => l.Key));
+
+            if (why != null)
+            {
+                var said = new System.Windows.Documents.Run(why + " ") { Foreground = Warn };
+
+                if (_said.Inlines.FirstInline == null)
+                    _said.Inlines.Add(said);
+                else
+                    _said.Inlines.InsertBefore(_said.Inlines.FirstInline, said);
+            }
+        }
+
+        private void UnmergePicked()
+        {
+            List<Line> picked = Picked().Where(l => l.Row != null).ToList();
+
+            VENTARRANGE.Unmerge(_work, picked.Select(l => l.Key).ToList());
 
             Fill(picked.Select(l => l.Key));
         }

@@ -949,11 +949,11 @@ def storyboard():
 
     s4 = WindowScene(
         13, 4, 'Fresh or extract?',
-        'Tick which duct system types carry fresh air, and which carry '
+        'Choose which duct system types carry fresh air, and which carry '
         'extract.\n\n'
         'Tick none and AUTOVENT goes by the system names, as it always '
         'has.',
-        'tut_assign', ['TxtFreshTypes', 'LstFresh', 'TxtExtractTypes', 'LstExtract'],
+        'tut_assign', ['BtnFreshTypes', 'TxtFreshTypes', 'BtnExtractTypes', 'TxtExtractTypes'],
         start=s3.end_rect())
     scenes.append(s4)
 

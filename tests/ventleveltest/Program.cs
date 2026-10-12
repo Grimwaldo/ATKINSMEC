@@ -937,5 +937,92 @@ internal static class Program
 
         Check("...a level's container is not a key and is left alone",
             VENTARRANGE.LinkOf("level:GR") == 0 && VENTARRANGE.LinkOf("apt:7:3") == 7 && VENTARRANGE.LinkOf("7:3") == 7);
+
+        // ---- merging rooms one FCU serves through one fresh air connection
+        var m = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Row Of(VENTARRANGE.Arrangement on, long link, long room) =>
+            Rows(on).First(r => r.Key == K(link, room));
+
+        Check("Merge needs two rooms",
+            VENTARRANGE.Merge(m, new[] { Of(m, Arc, 1) }) != null && m.IsEmpty);
+
+        Check("...of one apartment, or outside apartments - not one of each",
+            VENTARRANGE.Merge(m, new[] { Of(m, Arc, 1), Of(m, Ind, 21) }) != null && m.IsEmpty);
+
+        Check("two rooms merged: one group, named by the first",
+            VENTARRANGE.Merge(m, new[] { Of(m, Arc, 1), Of(m, Arc, 5) }) == null &&
+            m.Merges.Count == 1 && !m.IsEmpty &&
+            m.MergeIdOf(K(Arc, 5)) == K(Arc, 1) && m.MergeIdOf(K(Arc, 1)) == K(Arc, 1) &&
+            m.MergeIdOf(K(Ind, 21)) == null);
+
+        Check("...and written next to each other, where the first stands - their cells merge down a column",
+            Keys(m).SequenceEqual(new[] { K(Arc, 1), K(Arc, 5), K(Ind, 21), K(Ind, 22), K(Ind, 23), K(Ind, 31) }));
+
+        var split = m.Clone();
+        split.Orders[level] = new List<string> { K(Arc, 5), aptA.Key, K(Arc, 1), aptB.Key };
+
+        Check("...even when the level's order puts an apartment between them",
+            Keys(split).SequenceEqual(new[] { K(Arc, 5), K(Arc, 1), K(Ind, 21), K(Ind, 22), K(Ind, 23), K(Ind, 31) }));
+
+        Check("Together leaves a list with no merges as it is",
+            VENTARRANGE.Together(new[] { "a", "b" }, s => s, new VENTARRANGE.Arrangement()).SequenceEqual(new[] { "a", "b" }) &&
+            VENTARRANGE.Together(new[] { "a", "b" }, s => s, null).SequenceEqual(new[] { "a", "b" }));
+
+        var inApt = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Merge(inApt, new[] { Of(inApt, Ind, 21), Of(inApt, Ind, 23) });
+
+        Check("rooms of one apartment merge within it, kept together under it",
+            Keys(inApt).SequenceEqual(new[] { K(Arc, 1), K(Ind, 21), K(Ind, 23), K(Ind, 22), K(Ind, 31), K(Arc, 5) }));
+
+        VENTARRANGE.Merge(inApt, new[] { Of(inApt, Ind, 22), Of(inApt, Ind, 23) });
+
+        Check("a room merged with one already merged joins its group - one group, not two",
+            inApt.Merges.Count == 1 && inApt.Merges[0].Count == 3 &&
+            new[] { 21L, 22L, 23L }.All(r => inApt.MergeIdOf(K(Ind, r)) == inApt.Merges[0][0]));
+
+        VENTARRANGE.Unmerge(inApt, new[] { K(Ind, 22) });
+
+        Check("Unmerge one of three: the other two stay merged",
+            inApt.Merges.Count == 1 && inApt.MergeOf(K(Ind, 22)) == null &&
+            inApt.MergeOf(K(Ind, 21)) != null && inApt.MergeOf(K(Ind, 23)) != null);
+
+        VENTARRANGE.Unmerge(inApt, new[] { K(Ind, 23) });
+
+        Check("...one of two: a group of one is no group",
+            inApt.Merges.Count == 0 && inApt.IsEmpty);
+
+        var outM = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Merge(outM, new[] { Of(outM, Ind, 21), Of(outM, Ind, 22) });
+        VENTARRANGE.TakeOut(outM, Of(outM, Ind, 22), "GR");
+
+        Check("a merged room ungrouped leaves the merge - its cells no longer sit with the others'",
+            outM.MergeOf(K(Ind, 22)) == null && outM.Merges.Count == 0);
+
+        var backM = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Merge(backM, new[] { Of(backM, Arc, 1), Of(backM, Arc, 5) });
+        VENTARRANGE.Reset(backM, Rows(backM), "GR");
+
+        Check("Reset this level forgets its merges",
+            backM.IsEmpty && Keys(backM).SequenceEqual(defaults));
+
+        var cloned = m.Clone();
+        cloned.Merges[0].Add("99:1");
+
+        Check("a clone's merges are its own",
+            m.Merges[0].Count == 2);
+
+        var hm = new VENTARRANGE.Arrangement();
+        hm.Merges.Add(new List<string> { "40:1", "40:2" });
+
+        Check("merged rooms' links are named too, and follow a link to its new id",
+            VENTARRANGE.Links(hm).SetEquals(new long[] { 40 }) &&
+            VENTARRANGE.Repointed("40:1", new Dictionary<long, long> { [40] = 140 }) == "140:1" &&
+            VENTARRANGE.Repointed("apt:40:1", new Dictionary<long, long> { [40] = 140 }) == "apt:140:1" &&
+            VENTARRANGE.Repointed("41:1", new Dictionary<long, long> { [40] = 140 }) == "41:1");
+
+        VENTARRANGE.Remap(hm, new Dictionary<long, long> { [40] = 140 });
+
+        Check("...re-pointed with the rest",
+            hm.Merges[0].SequenceEqual(new[] { "140:1", "140:2" }));
     }
 }
