@@ -656,17 +656,20 @@ RIBBON_ICONS = [
 
 F_RIBBON = font('segoeui.ttf', 17)
 
+# The ribbon tab the add-ins are on
+TAB = 'Atkins MEP Toolkit'
+
 
 def draw_ribbon(layer, t):
     def tabs(d, _):
         d.rectangle((40, 150, VW - 40, 200), fill=(243, 245, 247))
         x = 60
         for name in ('File', 'Architecture', 'Systems', 'Insert',
-                     'Annotate', 'Analyze', 'View', 'Manage', 'ATKINS'):
-            colour = BLUE if name == 'ATKINS' else BODY
-            f = F_LABEL if name == 'ATKINS' else F_SMALL
+                     'Annotate', 'Analyze', 'View', 'Manage', TAB):
+            colour = BLUE if name == TAB else BODY
+            f = F_LABEL if name == TAB else F_SMALL
             d.text((x, 160), name, font=f, fill=colour)
-            if name == 'ATKINS':
+            if name == TAB:
                 d.line((x, 196, x + f.getlength(name), 196), fill=BLUE,
                        width=4)
             x += f.getlength(name) + 34
@@ -900,7 +903,7 @@ def storyboard():
     scenes.append(TitleScene(
         6, 'AUTOVENT',
         'Ventilation airflows from the schedule onto the air terminals',
-        'Quick guide  \u00b7  ATKINS \u203a Mechanical'))
+        'Quick guide  \u00b7  Atkins MEP Toolkit \u203a Mechanical'))
 
     scenes.append(DiagramScene(
         11, None, 'Two directions',
@@ -913,7 +916,7 @@ def storyboard():
 
     scenes.append(DiagramScene(
         8, None, 'Open AUTOVENT',
-        'ATKINS tab, Mechanical panel, AUTOVENT.\n\n'
+        'Atkins MEP Toolkit tab, Mechanical panel, AUTOVENT.\n\n'
         'The window stays open while you work in the model, so you can '
         'check a room and come straight back.',
         draw_ribbon, 3.2))
@@ -1012,7 +1015,7 @@ def storyboard():
     scenes.append(TitleScene(
         6, 'AUTOVENT',
         'Schedule to model, and back again.',
-        'ATKINS  \u203a  Mechanical  \u203a  AUTOVENT'))
+        'Atkins MEP Toolkit  \u203a  Mechanical  \u203a  AUTOVENT'))
 
     return scenes
 

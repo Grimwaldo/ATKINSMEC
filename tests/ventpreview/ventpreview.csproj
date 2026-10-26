@@ -12,6 +12,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="EPPlus" Version="8.6.0" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stub.cs" />
     <Compile Include="Tutorial.cs" />
@@ -27,7 +30,20 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELMAP.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIT.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTARRANGE.cs" />
-    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTARRANGEDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTROOMSWINDOW.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTUNENCLOSED.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTCOLUMNS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFLOWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFCUCHECK.cs" />
+    <!-- The Occupancy... window, and what its lists are read with -->
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTOCCUPANCYDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTOCCUPANCY.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTOFFICE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSHEET.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTTEMPLATE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTROWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTUPDATE.cs" />
+    <Compile Include="..\Shared\RepoPath.cs" />
     <Page Include="..\..\ATKINSMEC\AutoVent\VENTWindow.xaml">
       <Link>VENTWindow.xaml</Link>
       <Generator>MSBuild:Compile</Generator>

@@ -245,7 +245,7 @@ namespace ATKINSMEC
                     foreach (KeyValuePair<long, SortedSet<int>> source in placement.Value.OrderBy(s => LabelOf(s.Key), StringComparer.OrdinalIgnoreCase))
                     {
                         lines.Add(LabelOf(placement.Key) + "  ->  " + LabelOf(source.Key) +
-                                  " apartments on " + VENTLEVELMAP.Floors(source.Value, Storeys));
+                                  " redundant rooms on " + VENTLEVELMAP.Floors(source.Value, Storeys));
                     }
                 }
 

@@ -4,8 +4,8 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // What reading a model's worksets actually did, written to the
-    // Desktop.
+    // What reading a model's worksets actually did, written to
+    // %AppData%\ATKINSMEC (LOGS).
     //
     // This exists for the same reason QACHWLOG does. Reading the
     // worksets of an ACC model has now come back empty twice in a real
@@ -33,7 +33,7 @@ namespace ATKINSMEC
 
             _on = true;
 
-            Say("ATKINSMEC - NWC batch exporter, reading worksets");
+            Say("Atkins MEP Toolkit - NWC batch exporter, reading worksets");
             Say(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             Say(title);
             Say(string.Empty);
@@ -92,10 +92,7 @@ namespace ATKINSMEC
 
             try
             {
-                string where = Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.DesktopDirectory),
-                    FileName);
+                string where = LOGS.PathOf(FileName);
 
                 File.WriteAllText(where, Lines.ToString());
             }
@@ -109,10 +106,7 @@ namespace ATKINSMEC
         {
             get
             {
-                return Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.DesktopDirectory),
-                    FileName);
+                return LOGS.PathOf(FileName);
             }
         }
     }

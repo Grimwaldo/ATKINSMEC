@@ -373,10 +373,12 @@ internal static class Program
 
             List<string> said = map.Describe();
 
-            Check("each placement says which apartments it was found in, on which floors",
+            // "Redundant rooms" on screen since 2026-10-26 ("Containers"
+            // from 2026-10-19; the user)
+            Check("each placement says which containers it was found in, on which floors",
                 said.Count == 2
-                && said.Contains("IND : 1  ->  ARC : 1 : Tower A apartments on L04")
-                && said.Contains("IND : 2  ->  ARC : 2 : Tower B apartments on L05 to L07"));
+                && said.Contains("IND : 1  ->  ARC : 1 : Tower A redundant rooms on L04")
+                && said.Contains("IND : 2  ->  ARC : 2 : Tower B redundant rooms on L05 to L07"));
 
             // What a run reads
             var ticked = new List<long> { ArcA, ArcB };
@@ -990,6 +992,30 @@ internal static class Program
 
         Check("...one of two: a group of one is no group",
             inApt.Merges.Count == 0 && inApt.IsEmpty);
+
+        // EACH SIDE ITS OWN MERGES (2026-10-22): an extract merge (the
+        // sheet's merged extract cells) keeps its rooms together too, apart
+        // from the fresh air merges, and Unmerge parts both
+        var sides = new VENTARRANGE.Arrangement();
+        VENTARRANGE.Merge(sides, new[] { Of(sides, Ind, 21), Of(sides, Ind, 23) }, extract: true);
+
+        Check("an extract merge is not a fresh air merge, and keeps its rooms together under the apartment",
+            sides.Merges.Count == 0 && sides.ExtractMerges.Count == 1 && sides.ExtractMergeOf(K(Ind, 23)) != null &&
+            sides.MergeOf(K(Ind, 23)) == null &&
+            Keys(sides).SequenceEqual(new[] { K(Arc, 1), K(Ind, 21), K(Ind, 23), K(Ind, 22), K(Ind, 31), K(Arc, 5) }));
+
+        VENTARRANGE.Merge(sides, new[] { Of(sides, Ind, 22), Of(sides, Ind, 23) });
+
+        List<string> both = Keys(sides).ToList();
+        int[] at = new[] { 21L, 22L, 23L }.Select(r => both.IndexOf(K(Ind, r))).ToArray();
+
+        Check("a fresh air merge beside it: the rows of both stand together - 21 and 23 on extract, 22 and 23 on fresh air: " +
+              string.Join(", ", both),
+            at.All(i => i >= 0) && at.Max() - at.Min() == 2);
+
+        VENTARRANGE.Unmerge(sides, new[] { K(Ind, 23) });
+
+        Check("Unmerge parts both sides", sides.Merges.Count == 0 && sides.ExtractMerges.Count == 0 && sides.IsEmpty);
 
         var outM = new VENTARRANGE.Arrangement();
         VENTARRANGE.Merge(outM, new[] { Of(outM, Ind, 21), Of(outM, Ind, 22) });

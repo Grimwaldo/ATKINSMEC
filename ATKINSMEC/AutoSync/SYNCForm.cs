@@ -239,7 +239,7 @@ namespace ATKINSMEC
                 MessageBox.Show(this,
                     "AutoSync could not start this session. Restart " +
                     "Revit and it will offer itself again.",
-                    "ATKINSMEC AutoSync");
+                    "Atkins MEP Toolkit - AutoSync");
 
                 return;
             }
@@ -298,7 +298,7 @@ namespace ATKINSMEC
             if (SYNCSERVICE.Busy)
             {
                 MessageBox.Show(this,
-                    "It is already running.", "ATKINSMEC AutoSync");
+                    "It is already running.", "Atkins MEP Toolkit - AutoSync");
 
                 return;
             }
@@ -344,7 +344,7 @@ namespace ATKINSMEC
                 "between things." + Environment.NewLine +
                 Environment.NewLine +
                 "Closing this window does not switch it off.",
-                "ATKINSMEC AutoSync",
+                "Atkins MEP Toolkit - AutoSync",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
         }

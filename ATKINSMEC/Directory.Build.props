@@ -9,6 +9,9 @@
   <PropertyGroup>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
     <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+    <!-- AUTOVENT on its own (-p:Edition=AutoVent, build-installer.ps1
+         -AutoVent): another assembly, so other intermediates too -->
+    <BaseIntermediateOutputPath Condition="'$(Edition)' == 'AutoVent'">obj\AutoVent-$(RevitVersion)\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
 </Project>

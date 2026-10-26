@@ -12,13 +12,53 @@ namespace ATKINSMEC
 {
     public class REVITROOMS
     {
+        // WHAT THIS PASS IS FOR (2026-10-19, VENTFLOWS): the airflow run;
+        // a READ of what the terminals carry now, room by room, for Arrange
+        // rooms... - every level, unticked rooms too, nothing written, no
+        // dialog, no log; or a WRITE of the values typed there, onto the
+        // rooms given only. One walk for all three, so the window shows and
+        // writes exactly what a run would.
+        public enum Mode { Run, Survey, Write }
+
+        public Mode Doing = Mode.Run;
+
+        // Write: each room's air over the sheet's (a NaN side: the sheet's),
+        // and the rooms whose fresh air / extract is written
+        public Dictionary<string, VENTFLOWS.Air> Overrides;
+        public HashSet<string> WriteFresh = new HashSet<string>();
+        public HashSet<string> WriteExtract = new HashSet<string>();
+
+        // Write: false when the window's Model wrote - its rooms grouped by
+        // the arrangement's merges only (the FCUs'), not the sheet's as well
+        public bool SheetMerges = true;
+
+        // Survey: what each room's terminals carry now - its own, and its
+        // part of the endcaps on its units; and why, if nothing was read
+        public Dictionary<string, VENTFLOWS.Air> Carrying = new Dictionary<string, VENTFLOWS.Air>();
+        public string Trouble;
+
+        // Survey: every unit supplying rooms in scope, with its rooms and
+        // fresh air connections - for the FCU merge suggestions
+        public List<VENTFLOWS.Unit> Units = new List<VENTFLOWS.Unit>();
+
+        // Survey: each room's supply terminals whose ducts reach no unit -
+        // marked in Levels and rooms (TraceDucts)
+        public Dictionary<string, List<long>> Unreached = new Dictionary<string, List<long>>(StringComparer.Ordinal);
+
         // A room from one of the selected links. Key is unique across
         // links because room ids repeat between documents.
         private class RoomInfo
         {
             public Room Room { get; set; }
             public BoundingBoxXYZ Bbox { get; set; }
-            public double BaseZ { get; set; }
+            public double BaseZ { get; set; }          // in its LINK's coordinates
+
+            // Its floor in THIS model's coordinates - what rooms of
+            // different links are compared by (RoomAt). BaseZ cannot be:
+            // one interior model placed on every floor has the same BaseZ
+            // on every floor (KIFAF, 2026-10-19: LEVEL 04A's kitchen and
+            // foyer terminals were put in LEVEL 03's rooms)
+            public double HostFloor { get; set; }
             public string LevelName { get; set; }
             public string RoomName { get; set; }
             public string RoomNumber { get; set; }
@@ -36,7 +76,7 @@ namespace ATKINSMEC
         public void Rooms(Autodesk.Revit.DB.Document doc)
         {
             _log = new StringBuilder();
-            L($"=== ATKINSMEC run {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+            L($"=== Atkins MEP Toolkit - AUTOVENT {(Doing == Mode.Write ? "write from Levels and rooms" : Doing == Mode.Survey ? "terminals read for Levels and rooms" : "run")} {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
 
             try
             {
@@ -47,24 +87,45 @@ namespace ATKINSMEC
             {
                 L("EXCEPTION: " + ex);
 
-                TaskDialog.Show(
-                    "ATKINSMEC Error",
-                    ex.Message);
+                // A read for the window says why on the window
+                if (Doing == Mode.Survey)
+                    Trouble = ex.Message;
+                else
+                    TaskDialog.Show(
+                        "Atkins MEP Toolkit - AUTOVENT error",
+                        ex.Message);
             }
             finally
             {
-                FlushLog();
+                // A read leaves the last run's log as it was, and keeps its
+                // own: what Levels and rooms was shown, and why
+                FlushLog(Doing == Mode.Survey ? "ATKINSMEC_survey_log.txt" : "ATKINSMEC_debug_log.txt");
             }
         }
 
         private void RoomsCore(Autodesk.Revit.DB.Document doc)
         {
-            Autodesk.Revit.DB.Document doc2 = Command.Doc;
+            // A read or a write from the window: the window's own model, as
+            // every read is (VENTREAD) - the run as it always was
+            Autodesk.Revit.DB.Document doc2 = Doing == Mode.Run ? Command.Doc : doc;
 
             VENTSHEET ventSheet = new VENTSHEET();
 
-            Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> ventilationData =
-                ventSheet.excelsheet();
+            Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> ventilationData;
+
+            // The window's read and write work with no workbook too: the
+            // terminals can be read, and typed values written, without one
+            try
+            {
+                ventilationData = ventSheet.excelsheet();
+            }
+            catch (Exception ex) when (Doing != Mode.Run)
+            {
+                L("No sheet read: " + ex.Message);
+
+                ventilationData = new Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData>();
+                VENTSHEET.LoadedRows = new List<KeyValuePair<VENTSHEET.SpaceKey, VENTSHEET.AirData>>();
+            }
 
             L($"Excel records: {ventilationData.Count}");
 
@@ -92,6 +153,12 @@ namespace ATKINSMEC
             if (selectedLinkIds == null ||
                 selectedLinkIds.Count == 0)
             {
+                if (Doing == Mode.Survey)
+                {
+                    Trouble = "no linked model ticked";
+                    return;
+                }
+
                 TaskDialog.Show(
                     "AUTOVENT",
                     "No linked architectural model selected.");
@@ -106,6 +173,19 @@ namespace ATKINSMEC
             // rooms are compared against, and as Revit shows them. The
             // first thing to read when rooms land on the wrong level.
             L("This model's levels (in the model / as shown):");
+
+            try
+            {
+                string measuredOn;
+                double hostError = RVTLINKSELECTION.LevelError(doc, out measuredOn);
+
+                L($"  Out by {Metres(hostError)}, measured on {measuredOn}" +
+                  (hostError == 0 ? " - none" : " - corrected below"));
+            }
+            catch (Exception ex)
+            {
+                L($"  (could not measure this model's levels: {ex.Message})");
+            }
 
             foreach (VENTLEVELMAP.Storey storey in storeys)
                 L($"  {storey.Name}: {Metres(storey.Elevation)} / {Metres(storey.Shown)}");
@@ -128,20 +208,20 @@ namespace ATKINSMEC
 
             if (apartments.On)
             {
-                L($"Apartments from '{apartments.Label}': {apartments.Holding.Count} with rooms inside, " +
-                  $"{apartments.ByRoom.Count} room(s) inside them - those apartments take no terminals of their own");
+                L($"Redundant rooms from '{apartments.Label}': {apartments.Holding.Count} with units inside, " +
+                  $"{apartments.ByRoom.Count} unit(s) inside them - those redundant rooms take no terminals of their own");
 
                 foreach (string line in apartments.Describe())
                     L("   " + line);
 
                 if (apartments.OtherStorey > 0)
-                    L($"   {apartments.OtherStorey} room(s) stood inside an apartment on another level of this model - not grouped");
+                    L($"   {apartments.OtherStorey} room(s) stood inside a redundant room on another level of this model - not grouped");
 
                 if (apartments.Outside > 0)
-                    L($"   {apartments.Outside} interior room(s) stood in NO apartment - not grouped, and given no airflow; why is in {VENTAPTLOG.Where}");
+                    L($"   {apartments.Outside} interior room(s) stood in NO redundant room - not grouped, and given no airflow; why is in {VENTAPTLOG.Where}");
 
                 foreach (string line in apartments.DescribeSpread())
-                    L($"   CHECK: {line} - an architect's room across several apartments?");
+                    L($"   CHECK: {line} - an architect's room across several redundant rooms?");
             }
 
             // The ticked links, then every interior placement found holding
@@ -166,7 +246,10 @@ namespace ATKINSMEC
                 var group = new LinkRooms
                 {
                     Name = linkedDoc.Title,
-                    InverseTransform = linkInstance.GetTransform().Inverse,
+                    // TOTAL: an interior model nested in another link is
+                    // placed through its parent too - as HostElevationOf,
+                    // the apartments map and the fixtures all take it
+                    InverseTransform = linkInstance.GetTotalTransform().Inverse,
                     Rooms = new List<RoomInfo>()
                 };
 
@@ -188,12 +271,14 @@ namespace ATKINSMEC
                     if (!apartments.Takes(linkId, RVTLINKSELECTION.RoomKey(linkId, room.Id.ToValue()), ticked))
                         continue;
 
+                    // The room's floor in THIS model - the bottom of its box
+                    // through the link's total transform
+                    double hostFloor = RVTLINKSELECTION.HostElevationOf(
+                        linkInstance, linkedDoc, room);
+
                     // The level of THIS model whose band the room's floor
                     // stands in - the same rule the export writes with
-                    string levelName = VENTLEVELMAP.NameAt(
-                        storeys,
-                        RVTLINKSELECTION.HostElevationOf(
-                            linkInstance, linkedDoc, room));
+                    string levelName = VENTLEVELMAP.NameAt(storeys, hostFloor);
 
                     if (levelName.Length == 0)
                     {
@@ -201,7 +286,10 @@ namespace ATKINSMEC
                         continue;
                     }
 
-                    if (selectedLevels.Count > 0 &&
+                    // The window's read and write: every level, every room
+                    // Arrange rooms... lists - the run, the ticked ones
+                    if (Doing == Mode.Run &&
+                        selectedLevels.Count > 0 &&
                         !selectedLevels.Contains(levelName.Trim()))
                     {
                         skippedByLevel++;
@@ -209,7 +297,8 @@ namespace ATKINSMEC
                     }
 
                     // Unticked under its level in the window
-                    if (RVTLINKSELECTION.ExcludedRooms.Contains(
+                    if (Doing == Mode.Run &&
+                        RVTLINKSELECTION.ExcludedRooms.Contains(
                             RVTLINKSELECTION.RoomKey(linkId, room.Id.ToValue())))
                     {
                         unticked++;
@@ -239,6 +328,7 @@ namespace ATKINSMEC
                         Room = room,
                         Bbox = bbox,
                         BaseZ = Math.Round(bbox.Min.Z, 2),
+                        HostFloor = hostFloor,
                         LevelName = levelName,
                         RoomName = VENTARRANGE.Current.NameOf(
                             RVTLINKSELECTION.RoomKey(linkId, room.Id.ToValue()),
@@ -268,6 +358,9 @@ namespace ATKINSMEC
 
             if (allRooms.Count == 0)
             {
+                if (Doing == Mode.Survey)
+                    return;
+
                 TaskDialog.Show(
                     "AUTOVENT",
                     "No rooms found on the selected levels.");
@@ -297,10 +390,16 @@ namespace ATKINSMEC
             foreach (RoomInfo info in allRooms)
                 roomByKey[info.Key] = info;
 
+            // THE HIGHEST FLOOR IN THIS MODEL wins - HostFloor, not BaseZ:
+            // BaseZ is in each link's own coordinates, so one interior
+            // model placed on every floor ties on every floor, and the tie
+            // went to whichever placement was read first - the floor below
+            // (KIFAF LEVEL 04A, 2026-10-19). Within one link the order is
+            // the same as it always was.
             RoomInfo RoomAt(XYZ point)
             {
                 RoomInfo found = null;
-                double foundBaseZ = double.MinValue;
+                double foundFloor = double.MinValue;
 
                 foreach (LinkRooms group in linkGroups)
                 {
@@ -319,7 +418,7 @@ namespace ATKINSMEC
                             pointInLink.Y > info.Bbox.Max.Y + 0.1)
                             continue;
 
-                        if (info.BaseZ <= foundBaseZ)
+                        if (info.HostFloor <= foundFloor)
                             continue;
 
                         XYZ testPoint = new XYZ(
@@ -330,7 +429,7 @@ namespace ATKINSMEC
                         if (info.Room.IsPointInRoom(testPoint))
                         {
                             found = info;
-                            foundBaseZ = info.BaseZ;
+                            foundFloor = info.HostFloor;
                         }
                     }
                 }
@@ -401,6 +500,26 @@ namespace ATKINSMEC
                     terminalRoom[t.Id] = kvp.Key;
             }
 
+            // EACH ROOM'S ROW - by the model ID the sheet keeps for it, else
+            // by name, number and level, one row to one room (VENTSHEET.
+            // Resolve). Two rooms of one name and number used to take one
+            // row's air between them (KIFAF, 2026-10-15).
+            List<string> sharedRows;
+
+            Dictionary<string, VENTSHEET.AirData> airOf = VENTSHEET.Resolve(
+                VENTSHEET.LoadedRows,
+                allRooms.Select(r => new KeyValuePair<string, VENTSHEET.SpaceKey>(r.Key, KeyOf(r))).ToList(),
+                out sharedRows);
+
+            int byId = allRooms.Count(r => airOf.ContainsKey(r.Key) &&
+                                           string.Equals(airOf[r.Key].Id, r.Key, StringComparison.Ordinal));
+
+            L($"Rows found: {airOf.Count} of {allRooms.Count} room(s), {byId} by model ID" +
+              (VENTSHEET.Calculated ? "; the workbook had no saved results - worked out by AUTOVENT" : string.Empty));
+
+            foreach (string room in sharedRows)
+                L($"  SHARED ROW {RoomLabel(allRooms, room)}: another room has the same name, number and level, and the sheet has no model ID to tell them apart");
+
             // Each room's air in the sheet, per side - asked by the
             // bellmouth decision, the report and the write
             var sheetFresh = new Dictionary<string, double>();
@@ -410,68 +529,106 @@ namespace ATKINSMEC
             {
                 VENTSHEET.AirData air;
 
-                if (ventilationData.TryGetValue(KeyOf(info), out air))
+                if (airOf.TryGetValue(info.Key, out air))
                 {
                     sheetFresh[info.Key] = air.FreshAir;
                     sheetExtract[info.Key] = air.ExhaustAir;
                 }
             }
 
+            // Arrange rooms...' values over the sheet's (Mode.Write)
+            if (Overrides != null)
+            {
+                foreach (KeyValuePair<string, VENTFLOWS.Air> o in Overrides)
+                {
+                    if (!double.IsNaN(o.Value.Fresh))
+                        sheetFresh[o.Key] = o.Value.Fresh;
+
+                    if (!double.IsNaN(o.Value.Extract))
+                        sheetExtract[o.Key] = o.Value.Extract;
+
+                    L($"FROM ARRANGE ROOMS {RoomLabel(allRooms, o.Key)}: fresh {VENTFLOWS.Say(o.Value.Fresh)}, extract {VENTFLOWS.Say(o.Value.Extract)}");
+                }
+            }
+
             // MERGED ROOMS ARE ONE (user, 2026-10-12): rooms one FCU serves
             // through one fresh air connection - their fresh air or extract
-            // cell merged down in the sheet, or merged in Arrange rooms.
+            // cell merged down in the sheet, or merged in Levels and rooms.
             // Their air is added up and given once; everything below works
             // on these groups, a room on its own being a group of one.
-            var mergeSets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            //
+            // PER SIDE since 2026-10-22 (user: TA-04-04's kitchen exhaust
+            // "is serving only a kitchen", but the FCU's fresh air merge made
+            // it the foyer's and the living/dining's too): FRESH AIR groups -
+            // the sheet's merged fresh air cells and the arrangement's merges
+            // (the Merge button, an FCU's rooms); EXTRACT groups - the sheet's
+            // merged extract cells and the arrangement's ExtractMerges (the
+            // sheet's, taken in). Every step below takes its own side's.
+            var freshSets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var extractSets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            if (!SheetMerges)
+                L("The sheet's merged cells left out: grouped as Levels and rooms' Model showed them");
 
             foreach (RoomInfo info in allRooms)
             {
                 VENTSHEET.AirData air;
 
-                if (!ventilationData.TryGetValue(KeyOf(info), out air))
+                if (!SheetMerges || !airOf.TryGetValue(info.Key, out air))
                     continue;
 
-                foreach (string token in new[]
-                         {
-                             air.FreshMerge == null ? null : "fresh " + air.FreshMerge,
-                             air.ExhaustMerge == null ? null : "extract " + air.ExhaustMerge
-                         })
+                foreach (bool fresh in new[] { true, false })
                 {
-                    if (token == null)
+                    string cell = fresh ? air.FreshMerge : air.ExhaustMerge;
+
+                    if (cell == null)
                         continue;
 
+                    Dictionary<string, List<string>> sets = fresh ? freshSets : extractSets;
                     List<string> set;
 
-                    if (!mergeSets.TryGetValue(token, out set))
-                        mergeSets[token] = set = new List<string>();
+                    if (!sets.TryGetValue(cell, out set))
+                        sets[cell] = set = new List<string>();
 
                     set.Add(info.Key);
                 }
             }
 
-            Dictionary<string, string> groupOf = VENTFCUCHECK.Groups(
+            Dictionary<string, string> freshOf = VENTFCUCHECK.Groups(
                 allRooms.Select(r => r.Key),
-                mergeSets.Values.Cast<IEnumerable<string>>().Concat(VENTARRANGE.Current.Merges));
+                freshSets.Values.Cast<IEnumerable<string>>().Concat(VENTARRANGE.Current.Merges));
 
-            Dictionary<string, double> groupFresh = VENTFCUCHECK.Totals(sheetFresh, groupOf);
-            Dictionary<string, double> groupExtract = VENTFCUCHECK.Totals(sheetExtract, groupOf);
+            Dictionary<string, string> extractOf = VENTFCUCHECK.Groups(
+                allRooms.Select(r => r.Key),
+                extractSets.Values.Cast<IEnumerable<string>>().Concat(VENTARRANGE.Current.ExtractMerges));
 
-            // What to call a group: its rooms, joined
-            string Label(string group) =>
+            Dictionary<string, double> groupFresh = VENTFCUCHECK.Totals(sheetFresh, freshOf);
+            Dictionary<string, double> groupExtract = VENTFCUCHECK.Totals(sheetExtract, extractOf);
+
+            // What to call a group: its rooms, joined - on its side
+            string LabelIn(Dictionary<string, string> groupOf, string group) =>
                 string.Join(" + ", allRooms.Where(r => groupOf.TryGetValue(r.Key, out string g) && g == group)
                                            .Select(r => RoomLabel(allRooms, r.Key))
                                            .DefaultIfEmpty(RoomLabel(allRooms, group)));
 
-            var merged = groupOf.GroupBy(g => g.Value).Where(g => g.Count() > 1).ToList();
+            string Label(string group) => LabelIn(freshOf, group);
+            string XLabel(string group) => LabelIn(extractOf, group);
 
-            L($"Merged groups: {merged.Count}");
-
-            foreach (var group in merged)
+            foreach (bool fresh in new[] { true, false })
             {
-                groupFresh.TryGetValue(group.Key, out double fresh);
-                groupExtract.TryGetValue(group.Key, out double extract);
+                Dictionary<string, string> groupOf = fresh ? freshOf : extractOf;
+                Dictionary<string, double> values = fresh ? groupFresh : groupExtract;
 
-                L($"  MERGED {Label(group.Key)}: fresh {fresh} l/s, extract {extract} l/s");
+                var merged = groupOf.GroupBy(g => g.Value).Where(g => g.Count() > 1).ToList();
+
+                L($"Merged groups, {(fresh ? "fresh air" : "extract")}: {merged.Count}");
+
+                foreach (var group in merged)
+                {
+                    values.TryGetValue(group.Key, out double air);
+
+                    L($"  MERGED {LabelIn(groupOf, group.Key)}: {(fresh ? "fresh" : "extract")} {air} l/s");
+                }
             }
 
             List<FamilyInstance> equipment =
@@ -491,6 +648,132 @@ namespace ATKINSMEC
             L($"Endcap names: {VENTSETTINGS.EndcapNames}");
             L($"Bellmouth names: {(VENTSETTINGS.BellmouthNames.Length == 0 ? "(none)" : VENTSETTINGS.BellmouthNames)}");
 
+            // The rooms themselves, not their groups - what the window's
+            // FCU merges are made of (VENTFLOWS.FcuGroups) - BY THE DUCTS:
+            // each supply terminal followed back along its own ducts to the
+            // unit(s) they reach (TraceDucts), whichever of the unit's
+            // connectors that is. The Revit system only for a unit no
+            // terminal's ducts reach.
+            var byDucts = new Dictionary<long, Dictionary<string, List<long>>>();
+            var onNoUnit = new List<string>();
+
+            foreach (FamilyInstance terminal in allTerminals)
+            {
+                string room;
+
+                if (!terminalRoom.TryGetValue(terminal.Id, out room) || !IsSupply(terminal))
+                    continue;
+
+                DuctTrace trace = TraceDucts(terminal);
+
+                if (trace.Units.Count == 0)
+                {
+                    List<long> ids;
+
+                    if (!Unreached.TryGetValue(room, out ids))
+                        Unreached[room] = ids = new List<long>();
+
+                    ids.Add(terminal.Id.ToValue());
+
+                    onNoUnit.Add($"  terminal {terminal.Id.ToValue()} '{terminal.Symbol?.FamilyName}' in {RoomLabel(allRooms, room)}: " +
+                                 (!trace.Connected
+                                     ? "connected to nothing"
+                                     : "its ducts reach no unit" +
+                                       (trace.OpenEnds.Count > 0 ? " - they end open at " + string.Join(", ", trace.OpenEnds) : string.Empty)));
+                    continue;
+                }
+
+                foreach (long unit in trace.Units)
+                {
+                    Dictionary<string, List<long>> rooms;
+
+                    if (!byDucts.TryGetValue(unit, out rooms))
+                        byDucts[unit] = rooms = new Dictionary<string, List<long>>(StringComparer.Ordinal);
+
+                    Note(rooms, terminal.Id, terminalRoom);
+                }
+            }
+
+            // ==================================================
+            // Units outside the rooms they supply, and their RETURN DUCTS
+            // ==================================================
+            //
+            // User, 2026-10-24 (YANM3's EMCC rooms - VENTFACING.Endcap): an
+            // FCU in the corridor supplying a room is fed its fresh air by an
+            // endcap beside the return duct coming back from that room, not
+            // beside the unit. Such a unit's return ductwork - what its
+            // connectors lead to that reaches no supply or fresh air
+            // terminal - is where an endcap is measured to as well, with no
+            // reach.
+            var returnPieces = new List<ReturnPiece>();
+            int outsideUnits = 0;
+
+            foreach (FamilyInstance unit in equipment)
+            {
+                // By its SUPPLY terminals only: an air handling unit whose
+                // system reaches the fresh air endcaps "supplies" their rooms
+                // too, and its return main would take every endcap near it
+                var supplies = new HashSet<string>(SupplyRoomKeys(unit, terminalRoom), StringComparer.Ordinal);
+
+                Dictionary<string, List<long>> ducted;
+
+                if (byDucts.TryGetValue(unit.Id.ToValue(), out ducted))
+                    supplies.UnionWith(ducted.Keys);
+
+                if (supplies.Count == 0)
+                    continue;
+
+                RoomInfo standing = null;
+
+                BoundingBoxXYZ unitBox = unit.get_BoundingBox(null);
+
+                if (unitBox != null)
+                    standing = RoomAt((unitBox.Min + unitBox.Max) / 2);
+                else if (unit.Location is LocationPoint unitPoint)
+                    standing = RoomAt(unitPoint.Point);
+
+                if (!VENTFACING.Outside(standing?.Key, supplies))
+                    continue;
+
+                List<ReturnPiece> pieces = ReturnSide(unit);
+
+                outsideUnits++;
+                returnPieces.AddRange(pieces);
+
+                L($"OUTSIDE FCU {unit.Id.ToValue()} '{unit.Symbol?.FamilyName}' stands in " +
+                  (standing == null ? "no room in scope" : RoomLabel(allRooms, standing.Key)) +
+                  $", supplies {string.Join(", ", supplies.Select(k => RoomLabel(allRooms, k)))}; " +
+                  (pieces.Count == 0 ? "no return ductwork" : $"return ductwork: {pieces.Count} piece(s)"));
+            }
+
+            L($"Units outside the rooms they supply: {outsideUnits}, with {returnPieces.Count} piece(s) of return ductwork");
+
+            // WHICH UNIT AN ENDCAP FEEDS (VENTFACING.Endcap): the nearest
+            // unit within the reach, or a nearer return duct of a unit
+            // outside its rooms - fresh air only, as asked
+            FamilyInstance EndcapUnit(FamilyInstance endcap, bool fresh, out double distance, out VENTFACING.EndcapBy by, out long piece)
+            {
+                FamilyInstance unit = FindNearestEquipment(endcap, equipment, out distance);
+
+                double toReturn = double.MaxValue;
+                FamilyInstance returnUnit = null;
+
+                piece = 0;
+
+                if (fresh)
+                    returnUnit = NearestReturn(endcap, returnPieces, out toReturn, out piece);
+
+                by = VENTFACING.Endcap(unit == null ? double.MaxValue : distance, toReturn, connectorTolerance);
+
+                if (by == VENTFACING.EndcapBy.ReturnDuct)
+                {
+                    distance = toReturn;
+                    return returnUnit;
+                }
+
+                return by == VENTFACING.EndcapBy.Reach ? unit : null;
+            }
+
             // ==================================================
             // Bellmouths: into the room, or into an FCU?
             // ==================================================
@@ -499,7 +782,8 @@ namespace ATKINSMEC
             // why is in the log.
             Dictionary<ElementId, Faced> faced =
                 BellmouthsFeeding(allTerminals, equipment, connectorTolerance,
-                                  terminalRoom, groupOf, groupFresh, groupExtract, allRooms,
+                                  terminalRoom, freshOf, extractOf, groupFresh, groupExtract, allRooms,
+                                  (endcap, fresh) => EndcapUnit(endcap, fresh, out _, out _, out _),
                                   out int bellmouths);
 
             // ==================================================
@@ -555,7 +839,7 @@ namespace ATKINSMEC
 
             foreach (RoomInfo info in allRooms)
             {
-                if (ventilationData.ContainsKey(KeyOf(info)))
+                if (airOf.ContainsKey(info.Key))
                     matchedRoomKeys.Add(info.Key);
             }
 
@@ -641,21 +925,25 @@ namespace ATKINSMEC
                 {
                     double nearestDistance;
 
-                    fcu = FindNearestEquipment(
+                    FamilyInstance nearestUnit = FindNearestEquipment(
                         terminal,
                         equipment,
                         out nearestDistance);
 
-                    L($"  nearest FCU: {(fcu == null ? "none" : fcu.Id.ToValue().ToString())}, distance={(fcu == null ? 0 : nearestDistance * 304.8):F0} mm (tolerance {connectorTolerance * 304.8:F0} mm)");
+                    L($"  nearest FCU: {(nearestUnit == null ? "none" : nearestUnit.Id.ToValue().ToString())}, distance={(nearestUnit == null ? 0 : nearestDistance * 304.8):F0} mm (tolerance {connectorTolerance * 304.8:F0} mm)");
 
-                    if (fcu == null ||
-                        nearestDistance > connectorTolerance)
+                    fcu = EndcapUnit(terminal, isFresh, out double boundAt, out VENTFACING.EndcapBy by, out long piece);
+
+                    if (by == VENTFACING.EndcapBy.ReturnDuct)
+                        L($"  nearer the return duct of FCU {fcu.Id.ToValue()} (piece {piece}) at {boundAt * 304.8:F0} mm - the unit stands outside the rooms it supplies; the reach measured to its return duct");
+
+                    if (fcu == null)
                     {
-                        L("  -> rejected: no FCU within tolerance");
+                        L("  -> rejected: no FCU within tolerance, no return duct nearer");
 
                         noFcuFound++;
 
-                        if (fcu != null &&
+                        if (nearestUnit != null &&
                             nearestDistance < closestMiss)
                             closestMiss = nearestDistance;
 
@@ -678,19 +966,18 @@ namespace ATKINSMEC
 
                 long fcuId = fcu.Id.ToValue();
 
-                // As groups: a merged group's rooms are carried once
-                List<string> servedGroups = VENTFCUCHECK.AsGroups(servedRooms, groupOf);
-
+                // As groups - of its side: a merged group's rooms are carried
+                // once
                 if (isFresh)
                 {
-                    outsideFresh[terminal] = servedGroups;
+                    outsideFresh[terminal] = VENTFCUCHECK.AsGroups(servedRooms, freshOf);
 
                     Bump(freshEndcapsOn, fcuId);
                 }
 
                 if (isExtract)
                 {
-                    outsideExtract[terminal] = servedGroups;
+                    outsideExtract[terminal] = VENTFCUCHECK.AsGroups(servedRooms, extractOf);
 
                     Bump(extractEndcapsOn, fcuId);
                 }
@@ -709,18 +996,63 @@ namespace ATKINSMEC
             //
             // IT REPORTS AND CHANGES NOTHING. See VENTFCUCHECK.
             var roomsOfFcu = new Dictionary<long, List<string>>();
+            var roomsOfFcuExtract = new Dictionary<long, List<string>>();
+
+            var servedRaw = new Dictionary<long, List<string>>();
+            var notDucted = new List<string>();
 
             foreach (FamilyInstance unit in equipment)
             {
                 List<string> served =
                     GetServedRoomKeys(unit, terminalRoom);
 
+                Dictionary<string, List<long>> ducted;
+                byDucts.TryGetValue(unit.Id.ToValue(), out ducted);
+
                 // Equipment with no supply reaching a room in scope is
                 // not an FCU as far as this is concerned - pumps and
                 // air handling units drop out here on their own
                 if (served.Count > 0)
-                    roomsOfFcu[unit.Id.ToValue()] = VENTFCUCHECK.AsGroups(served, groupOf);
+                {
+                    roomsOfFcu[unit.Id.ToValue()] = VENTFCUCHECK.AsGroups(served, freshOf);
+                    roomsOfFcuExtract[unit.Id.ToValue()] = VENTFCUCHECK.AsGroups(served, extractOf);
+                }
+
+                if (served.Count == 0 && ducted == null)
+                    continue;
+
+                servedRaw[unit.Id.ToValue()] = ducted == null ? served : ducted.Keys.ToList();
+
+                // Said where the two disagree, terminal by terminal
+                if (ducted == null)
+                {
+                    notDucted.Add($"  FCU {unit.Id.ToValue()}: no supply terminal's ducts reach it - its Revit system taken: " +
+                                  string.Join(", ", served.Select(k => RoomLabel(allRooms, k))));
+                }
+                else if (!served.All(ducted.ContainsKey) || !ducted.Keys.All(served.Contains))
+                {
+                    Dictionary<string, List<long>> inSystem = SystemRoomKeys(unit, terminalRoom);
+
+                    string Rooms(IEnumerable<string> keys, Dictionary<string, List<long>> terminals) =>
+                        string.Join(", ", keys.Select(k => RoomLabel(allRooms, k) +
+                            (terminals.TryGetValue(k, out List<long> ids) ? " (terminal " + string.Join(", ", ids) + ")" : string.Empty)));
+
+                    notDucted.Add($"  FCU {unit.Id.ToValue()}: ducted to {Rooms(ducted.Keys, ducted)}" +
+                                  (served.Any(k => !ducted.ContainsKey(k))
+                                      ? $"; its Revit system also names {Rooms(served.Where(k => !ducted.ContainsKey(k)), inSystem)} - not ducted to it, left out of its merges"
+                                      : string.Empty));
+                }
             }
+
+            L($"FCUs whose ducts and Revit system disagree: {notDucted.Count}");
+
+            foreach (string line in notDucted)
+                L(line);
+
+            L($"Supply terminals whose ducts reach no unit: {onNoUnit.Count}");
+
+            foreach (string line in onNoUnit)
+                L(line);
 
             // What each unit was found to supply - the rooms behind every
             // "N FCU(s)" in the report
@@ -730,25 +1062,64 @@ namespace ATKINSMEC
                 L($"  FCU {unit.Key}: " + string.Join(", ", unit.Value.Select(Label)));
 
             // Every room - or merged group - its units, and the endcaps the
-            // trace bound to them. Worked out in VENTFCUCHECK, which is
-            // Revit-free, so the split can be tested with no model open.
+            // trace bound to them, PER SIDE (its own groups). Worked out in
+            // VENTFCUCHECK, which is Revit-free, so the split can be tested
+            // with no model open.
+            var none = new Dictionary<long, int>();
+            var noAir = new Dictionary<string, double>();
+
             Dictionary<string, VENTFCUCHECK.Room> tally =
-                VENTFCUCHECK.Tally(
-                    roomsOfFcu,
-                    freshEndcapsOn,
-                    extractEndcapsOn,
-                    Label);
+                VENTFCUCHECK.Tally(roomsOfFcu, freshEndcapsOn, none, Label);
+
+            Dictionary<string, VENTFCUCHECK.Room> tallyExtract =
+                VENTFCUCHECK.Tally(roomsOfFcuExtract, none, extractEndcapsOn, XLabel);
 
             // Only rooms the sheet gives air to on the side concerned
-            List<VENTFCUCHECK.Room> divided =
-                VENTFCUCHECK.Worth(tally, groupFresh, groupExtract);
+            List<VENTFCUCHECK.Room> divided = VENTFCUCHECK.Worth(tally, groupFresh, noAir);
+            List<VENTFCUCHECK.Room> dividedExtract = VENTFCUCHECK.Worth(tallyExtract, noAir, groupExtract);
 
             L($"Endcap split: {tally.Count} room(s) served by equipment, " +
-              $"{divided.Count} with air divided between endcaps or a unit " +
+              $"{divided.Count + dividedExtract.Count} with air divided between endcaps or a unit " +
               "that has none");
 
             foreach (VENTFCUCHECK.Room room in divided)
-                L("  " + VENTFCUCHECK.Line(room, groupFresh, groupExtract));
+                L("  " + VENTFCUCHECK.Line(room, groupFresh, noAir));
+
+            foreach (VENTFCUCHECK.Room room in dividedExtract)
+                L("  " + VENTFCUCHECK.Line(room, noAir, groupExtract));
+
+            // ==================================================
+            // A READ FOR ARRANGE ROOMS... stops here: what each room's
+            // terminals carry now, by the walk a run would make
+            // ==================================================
+            if (Doing == Mode.Survey)
+            {
+                Carrying = Survey(allRooms, freshOf, extractOf, supplyMap, exhaustMap, outsideFresh, outsideExtract,
+                                  groupFresh, groupExtract, sheetFresh, sheetExtract, tally, tallyExtract);
+
+                // Each unit's rooms and fresh air connections
+                Units = servedRaw.Select(u =>
+                {
+                    int fresh;
+                    freshEndcapsOn.TryGetValue(u.Key, out fresh);
+
+                    return new VENTFLOWS.Unit { Id = u.Key, Rooms = u.Value, Fresh = fresh };
+                }).ToList();
+
+                return;
+            }
+
+            // A WRITE FROM ARRANGE ROOMS... writes the groups of the rooms
+            // it was given only, per side - an endcap carrying one of them
+            // carries the others' sheet air as well, as a run would
+            HashSet<string> freshGroups = Doing == Mode.Write ? GroupsOfRooms(WriteFresh, freshOf) : null;
+            HashSet<string> extractGroups = Doing == Mode.Write ? GroupsOfRooms(WriteExtract, extractOf) : null;
+
+            bool Writes(string group, HashSet<string> only) => only == null || only.Contains(group);
+            bool WritesAny(IEnumerable<string> groups, HashSet<string> only) => only == null || groups.Any(only.Contains);
+
+            Dictionary<string, double> Only(Dictionary<string, double> values, HashSet<string> only) =>
+                only == null ? values : values.Where(v => only.Contains(v.Key)).ToDictionary(v => v.Key, v => v.Value);
 
             // ==================================================
             // Write the airflows
@@ -775,12 +1146,8 @@ namespace ATKINSMEC
                 {
                     VENTSHEET.AirData airData;
 
-                    if (!ventilationData.TryGetValue(
-                        KeyOf(info),
-                        out airData))
-                    {
+                    if (!airOf.TryGetValue(info.Key, out airData))
                         continue;
-                    }
 
                     L($"MATCHED room {info.Key} '{info.RoomName}' | '{info.RoomNumber}' | '{info.LevelName}': Fresh={airData.FreshAir}, Exhaust={airData.ExhaustAir}");
 
@@ -794,16 +1161,18 @@ namespace ATKINSMEC
                 var extractIn = new Dictionary<string, List<FamilyInstance>>(StringComparer.Ordinal);
 
                 foreach (var kvp in supplyMap)
-                    Gather(freshIn, groupOf, kvp.Key, kvp.Value);
+                    Gather(freshIn, freshOf, kvp.Key, kvp.Value);
 
                 foreach (var kvp in exhaustMap)
-                    Gather(extractIn, groupOf, kvp.Key, kvp.Value);
+                    Gather(extractIn, extractOf, kvp.Key, kvp.Value);
 
                 foreach (var group in groupFresh)
                 {
                     List<FamilyInstance> supplyTerminals;
 
-                    if (group.Value <= 0 ||
+                    // A write from Arrange rooms... writes 0 if 0 was typed
+                    if (!Writes(group.Key, freshGroups) ||
+                        (Doing == Mode.Write ? group.Value < 0 : group.Value <= 0) ||
                         !freshIn.TryGetValue(group.Key, out supplyTerminals) ||
                         supplyTerminals.Count == 0)
                         continue;
@@ -831,7 +1200,8 @@ namespace ATKINSMEC
                 {
                     List<FamilyInstance> exhaustTerminals;
 
-                    if (group.Value <= 0 ||
+                    if (!Writes(group.Key, extractGroups) ||
+                        (Doing == Mode.Write ? group.Value < 0 : group.Value <= 0) ||
                         !extractIn.TryGetValue(group.Key, out exhaustTerminals) ||
                         exhaustTerminals.Count == 0)
                         continue;
@@ -845,7 +1215,7 @@ namespace ATKINSMEC
                         if (WriteFlow(grille, perTerminal))
                         {
                             terminalsUpdated++;
-                            L($"  WRITE exhaust {perTerminal} l/s -> in-room terminal {grille.Id.ToValue()} ({Label(group.Key)})");
+                            L($"  WRITE exhaust {perTerminal} l/s -> in-room terminal {grille.Id.ToValue()} ({XLabel(group.Key)})");
                         }
                         else
                         {
@@ -866,10 +1236,13 @@ namespace ATKINSMEC
 
                 foreach (var kvp in outsideFresh)
                 {
+                    if (!WritesAny(kvp.Value, freshGroups))
+                        continue;
+
                     double total = VENTFCUCHECK.Carried(
                         kvp.Value, freshValues, tally, true);
 
-                    if (total <= 0)
+                    if (total <= 0 && Doing != Mode.Write)
                     {
                         L($"OUTSIDE fresh terminal {kvp.Key.Id.ToValue()}: served rooms not in Excel or fresh=0, nothing written");
                         continue;
@@ -892,10 +1265,13 @@ namespace ATKINSMEC
 
                 foreach (var kvp in outsideExtract)
                 {
-                    double total = VENTFCUCHECK.Carried(
-                        kvp.Value, extractValues, tally, false);
+                    if (!WritesAny(kvp.Value, extractGroups))
+                        continue;
 
-                    if (total <= 0)
+                    double total = VENTFCUCHECK.Carried(
+                        kvp.Value, extractValues, tallyExtract, false);
+
+                    if (total <= 0 && Doing != Mode.Write)
                     {
                         L($"OUTSIDE extract terminal {kvp.Key.Id.ToValue()}: served rooms not in Excel or exhaust=0, nothing written");
                         continue;
@@ -916,9 +1292,10 @@ namespace ATKINSMEC
                     }
                 }
 
-                nowhereFresh = VENTFCUCHECK.Nowhere(freshValues, landedFresh, Label);
+                // A write from Arrange rooms...: the rooms it was given only
+                nowhereFresh = VENTFCUCHECK.Nowhere(Only(freshValues, freshGroups), landedFresh, Label);
 
-                nowhereExtract = VENTFCUCHECK.Nowhere(extractValues, landedExtract, Label);
+                nowhereExtract = VENTFCUCHECK.Nowhere(Only(extractValues, extractGroups), landedExtract, XLabel);
 
                 t.Commit();
             }
@@ -932,6 +1309,22 @@ namespace ATKINSMEC
                 L("  NOWHERE extract " + line);
 
             L($"SUMMARY: matchedRooms={matchedRooms}, terminalsUpdated={terminalsUpdated}, terminalsSkipped={terminalsSkipped}");
+
+            // A write from Arrange rooms... says what it wrote and where air
+            // found no terminal - short, at the user's request: "do not
+            // overexplain things in the autovent addin"
+            if (Doing == Mode.Write)
+            {
+                int rooms = WriteFresh.Union(WriteExtract).Distinct().Count();
+
+                TaskDialog.Show("AUTOVENT",
+                    $"From Levels and rooms: {rooms} room(s), {terminalsUpdated} terminal(s) written" +
+                    (terminalsSkipped > 0 ? $", {terminalsSkipped} read-only" : string.Empty) + "." +
+                    Nowhere("fresh", nowhereFresh) + Nowhere("extract", nowhereExtract) +
+                    "\n\nFull details: " + LOGS.PathOf("ATKINSMEC_debug_log.txt"));
+
+                return;
+            }
 
             string report =
                 $"Models: {linkGroups.Count}\n" +
@@ -981,6 +1374,16 @@ namespace ATKINSMEC
             // AIR WITH NOWHERE TO GO - a room the sheet gives air to, with
             // no terminal in it and no endcap on its unit. Usually an
             // endcap named some other way (Endcaps on the window).
+            // Rooms the sheet cannot tell apart: whichever row each took is a
+            // guess. Updating the sheet gives every room its model ID.
+            if (sharedRows.Count > 0)
+            {
+                report += "\n\n" + sharedRows.Count + " room(s) share a name and number with another on " +
+                          "their level - update the sheet (Export tab) so each gets its own row:\n" +
+                          string.Join("\n", sharedRows.Take(8).Select(r => "  " + RoomLabel(allRooms, r))) +
+                          (sharedRows.Count > 8 ? "\n  ..." : string.Empty);
+            }
+
             report += Nowhere("fresh", nowhereFresh);
             report += Nowhere("extract", nowhereExtract);
 
@@ -1009,9 +1412,122 @@ namespace ATKINSMEC
             }
 
             report +=
-                "\n\nFull details: ATKINSMEC_debug_log.txt on your Desktop.";
+                "\n\nFull details: " + LOGS.PathOf("ATKINSMEC_debug_log.txt");
 
             TaskDialog.Show("AUTOVENT", report);
+        }
+
+        // The groups of these rooms - a room in no group is its own
+        private static HashSet<string> GroupsOfRooms(IEnumerable<string> rooms, Dictionary<string, string> groupOf)
+        {
+            var groups = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string room in rooms ?? Enumerable.Empty<string>())
+            {
+                string group;
+
+                groups.Add(groupOf != null && groupOf.TryGetValue(room, out group) ? group : room);
+            }
+
+            return groups;
+        }
+
+        // WHAT EACH ROOM'S TERMINALS CARRY NOW (Mode.Survey): its own on
+        // each side, and its part of every endcap carrying its group's air
+        // (VENTFLOWS.Attribute) - shared between a merged group's rooms by
+        // their sheet values (VENTFLOWS.Split). NaN: nothing carries it.
+        private static Dictionary<string, VENTFLOWS.Air> Survey(
+            List<RoomInfo> allRooms, Dictionary<string, string> freshOf, Dictionary<string, string> extractOf,
+            Dictionary<string, List<FamilyInstance>> supplyMap, Dictionary<string, List<FamilyInstance>> exhaustMap,
+            Dictionary<FamilyInstance, List<string>> outsideFresh, Dictionary<FamilyInstance, List<string>> outsideExtract,
+            Dictionary<string, double> groupFresh, Dictionary<string, double> groupExtract,
+            Dictionary<string, double> sheetFresh, Dictionary<string, double> sheetExtract,
+            Dictionary<string, VENTFCUCHECK.Room> tally, Dictionary<string, VENTFCUCHECK.Room> tallyExtract)
+        {
+            var carrying = new Dictionary<string, VENTFLOWS.Air>(StringComparer.Ordinal);
+
+            VENTFLOWS.Air Of(string key)
+            {
+                VENTFLOWS.Air air;
+
+                if (!carrying.TryGetValue(key, out air))
+                    carrying[key] = air = new VENTFLOWS.Air();
+
+                return air;
+            }
+
+            double Plus(double had, double more) => double.IsNaN(had) ? more : had + more;
+
+            foreach (RoomInfo info in allRooms)
+            {
+                List<FamilyInstance> list;
+
+                if (supplyMap.TryGetValue(info.Key, out list) && list.Count > 0)
+                    Of(info.Key).Fresh = list.Sum(FlowOf);
+
+                if (exhaustMap.TryGetValue(info.Key, out list) && list.Count > 0)
+                    Of(info.Key).Extract = list.Sum(FlowOf);
+            }
+
+            foreach (bool fresh in new[] { true, false })
+            {
+                // Each group's rooms in scope, in the order they were read -
+                // this side's groups
+                Dictionary<string, string> groupOf = fresh ? freshOf : extractOf;
+                var roomsOf = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+                foreach (RoomInfo info in allRooms)
+                {
+                    string group;
+
+                    if (!groupOf.TryGetValue(info.Key, out group))
+                        group = info.Key;
+
+                    List<string> members;
+
+                    if (!roomsOf.TryGetValue(group, out members))
+                        roomsOf[group] = members = new List<string>();
+
+                    members.Add(info.Key);
+                }
+
+                Dictionary<FamilyInstance, List<string>> endcaps = fresh ? outsideFresh : outsideExtract;
+
+                Dictionary<string, double> parts = VENTFLOWS.Attribute(
+                    endcaps.Select(e => new KeyValuePair<List<string>, double>(e.Value, FlowOf(e.Key))),
+                    fresh ? groupFresh : groupExtract, fresh ? tally : tallyExtract, fresh);
+
+                foreach (KeyValuePair<string, double> part in parts)
+                {
+                    List<string> rooms;
+
+                    if (!roomsOf.TryGetValue(part.Key, out rooms))
+                        continue;
+
+                    foreach (KeyValuePair<string, double> share in VENTFLOWS.Split(part.Value, rooms, fresh ? sheetFresh : sheetExtract))
+                    {
+                        VENTFLOWS.Air air = Of(share.Key);
+
+                        if (fresh)
+                            air.Fresh = Plus(air.Fresh, share.Value);
+                        else
+                            air.Extract = Plus(air.Extract, share.Value);
+                    }
+                }
+            }
+
+            return carrying;
+        }
+
+        // A terminal's flow now, l/s - 0 with no flow to read
+        private static double FlowOf(FamilyInstance terminal)
+        {
+            Parameter flow = terminal.get_Parameter(BuiltInParameter.RBS_DUCT_FLOW_PARAM);
+
+            if (flow == null || !flow.HasValue)
+                return 0;
+
+            return UnitUtils.ConvertFromInternalUnits(flow.AsDouble(), UnitTypeId.LitersPerSecond);
         }
 
         private static string Nowhere(string side, List<string> lines)
@@ -1251,14 +1767,11 @@ namespace ATKINSMEC
                 _log.AppendLine(line);
         }
 
-        private static void FlushLog()
+        private static void FlushLog(string fileName)
         {
             try
             {
-                string path = Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.Desktop),
-                    "ATKINSMEC_debug_log.txt");
+                string path = LOGS.PathOf(fileName);
 
                 File.WriteAllText(path, _log.ToString());
             }
@@ -1320,10 +1833,12 @@ namespace ATKINSMEC
             List<FamilyInstance> units,
             double reach,
             Dictionary<ElementId, string> terminalRoom,
-            Dictionary<string, string> groupOf,
+            Dictionary<string, string> freshOf,
+            Dictionary<string, string> extractOf,
             Dictionary<string, double> groupFresh,
             Dictionary<string, double> groupExtract,
             List<RoomInfo> allRooms,
+            Func<FamilyInstance, bool, FamilyInstance> endcapUnit,
             out int bellmouths)
         {
             var feeding = new Dictionary<ElementId, Faced>();
@@ -1342,6 +1857,59 @@ namespace ATKINSMEC
                     : new VENTFACING.Box { Min = P(box.Min), Max = P(box.Max) });
 
                 systemsOf.Add(SystemsOf(unit));
+            }
+
+            // PER SIDE, what already brings each room its air - for the last
+            // test (VENTFACING.Reason.UnitNeedsIt): the rooms (groups) with a
+            // diffuser or grille of their own (no bellmouth, no endcap); the
+            // terminals in each room but endcaps; the units an endcap is
+            // traced to
+            var hasOwn = new[] { new HashSet<string>(), new HashSet<string>() };
+            var inGroup = new[] { new Dictionary<string, List<ElementId>>(), new Dictionary<string, List<ElementId>>() };
+            var endcapOn = new[] { new HashSet<long>(), new HashSet<long>() };
+
+            foreach (FamilyInstance terminal in terminals)
+            {
+                if (terminal.Symbol == null)
+                    continue;
+
+                bool tFresh, tExtract;
+                ClassifyTerminal(terminal, out tFresh, out tExtract);
+
+                if (!tFresh && !tExtract)
+                    continue;
+
+                int side = tFresh ? 0 : 1;
+
+                if (IsEndcap(terminal))
+                {
+                    FamilyInstance unit = endcapUnit(terminal, tFresh);
+
+                    if (unit != null)
+                        endcapOn[side].Add(unit.Id.ToValue());
+
+                    continue;
+                }
+
+                string where;
+
+                if (!terminalRoom.TryGetValue(terminal.Id, out where))
+                    continue;
+
+                string g;
+
+                if (!(side == 0 ? freshOf : extractOf).TryGetValue(where, out g))
+                    g = where;
+
+                List<ElementId> list;
+
+                if (!inGroup[side].TryGetValue(g, out list))
+                    inGroup[side][g] = list = new List<ElementId>();
+
+                list.Add(terminal.Id);
+
+                if (!VENTSETTINGS.IsBellmouth(terminal.Symbol.FamilyName))
+                    hasOwn[side].Add(g);
             }
 
             // The rooms each unit supplies, asked once per unit
@@ -1379,17 +1947,18 @@ namespace ATKINSMEC
 
                 HashSet<long> own = SystemsOf(terminal);
 
-                // The units it could feed: not on its own system
+                // The units it could feed (VENTFACING.CanFeed): not on its
+                // own system, and supplying a room in scope
                 var candidates = new List<VENTFACING.Box>();
                 var candidateUnits = new List<FamilyInstance>();
 
                 for (int i = 0; i < units.Count; i++)
                 {
-                    bool mine = systemsOf[i].Overlaps(own);
+                    bool can = VENTFACING.CanFeed(systemsOf[i].Overlaps(own), Served(units[i]).Count > 0);
 
-                    candidates.Add(mine ? null : boxes[i]);
+                    candidates.Add(can ? boxes[i] : null);
 
-                    if (!mine)
+                    if (can)
                         candidateUnits.Add(units[i]);
                 }
 
@@ -1479,7 +2048,8 @@ namespace ATKINSMEC
                 string room;
                 bool inRoom = terminalRoom.TryGetValue(terminal.Id, out room);
 
-                // Its room's GROUP - merged rooms are one
+                // Its room's GROUP on its side - merged rooms are one
+                Dictionary<string, string> groupOf = isFresh ? freshOf : extractOf;
                 string group = null;
 
                 if (inRoom && !groupOf.TryGetValue(room, out group))
@@ -1490,13 +2060,34 @@ namespace ATKINSMEC
 
                 double air = 0;
 
-                if (inRoom)
-                    (isFresh ? groupFresh : groupExtract).TryGetValue(group, out air);
+                // A row in the sheet, 0 or not - a room with none is not
+                // known to need none of this air
+                bool inSheet = inRoom && (isFresh ? groupFresh : groupExtract).TryGetValue(group, out air);
+
+                // The last test: its room has a terminal of its own for this
+                // air, and a room the unit supplies needs it and has nothing
+                // bringing it - no terminal there, no endcap on the unit
+                int mySide = isFresh ? 0 : 1;
+                Dictionary<string, double> sideAir = isFresh ? groupFresh : groupExtract;
+
+                bool roomHasOwn = inRoom && hasOwn[mySide].Contains(group);
+
+                bool unitStarved = inReach && !endcapOn[mySide].Contains(nearest.Id.ToValue()) &&
+                    VENTFCUCHECK.AsGroups(Served(nearest), groupOf).Any(g =>
+                    {
+                        double needs;
+                        List<ElementId> there;
+
+                        return g != group &&
+                               sideAir.TryGetValue(g, out needs) && needs > 0 &&
+                               (!inGroup[mySide].TryGetValue(g, out there) || there.All(id => id == terminal.Id));
+                    });
 
                 VENTFACING.Reason why;
 
                 VENTFACING.Role role = VENTFACING.Bellmouth(
-                    best >= 0, touch >= 0, inReach, mouthZ, inRoom, unitServesItsRoom, air, out why);
+                    best >= 0, touch >= 0, inReach, mouthZ, inRoom, unitServesItsRoom, air, out why,
+                    roomHasOwn, unitStarved, inSheet);
 
                 string where = inRoom ? "in " + RoomLabel(allRooms, room) : "in no room in scope";
 
@@ -1516,14 +2107,184 @@ namespace ATKINSMEC
                 }
                 else
                 {
+                    // A unit within the reach that supplies no room in scope,
+                    // nearer than any it could feed: said, or the line reads
+                    // as if the unit were not there
+                    FamilyInstance any = FindNearestEquipment(terminal, units, out double anyDistance);
+
+                    string leftOut = any != null && anyDistance <= reach && (nearest == null || any.Id != nearest.Id) &&
+                                     Served(any).Count == 0
+                        ? $"; unit {any.Id.ToValue()} at {anyDistance * 304.8:F0} mm supplies no room in scope - not fed"
+                        : string.Empty;
+
                     L($"BELLMOUTH {terminal.Id.ToValue()} '{terminal.Symbol.FamilyName}' {mouth}, {where}: serves its room - {VENTFACING.Say(why)}" +
-                      (nearest == null ? string.Empty : $" (nearest unit {nearest.Id.ToValue()} at {nearestDistance * 304.8:F0} mm)"));
+                      (nearest == null ? string.Empty : $" (nearest unit {nearest.Id.ToValue()} at {nearestDistance * 304.8:F0} mm)") +
+                      leftOut);
                 }
             }
 
             L($"Bellmouths: {bellmouths}, feeding a unit: {feeding.Count}");
 
             return feeding;
+        }
+
+        // A PIECE OF A UNIT'S RETURN DUCTWORK, and how to measure to it: a
+        // duct by its line, a fitting or accessory by its box
+        private class ReturnPiece
+        {
+            public FamilyInstance Unit;
+            public long Id;
+            public Curve Line;
+            public VENTFACING.Box Box;
+        }
+
+        // What a unit's connectors lead to that reaches no supply or fresh
+        // air terminal - ducts, flex, fittings, accessories - walked as
+        // TraceDucts walks, connector by connector; a connector whose
+        // ductwork reaches one is the supply or fresh air side, left out
+        private static List<ReturnPiece> ReturnSide(FamilyInstance unit)
+        {
+            var side = new List<ReturnPiece>();
+
+            foreach (Connector start in GetHvacConnectors(unit))
+            {
+                if (!start.IsConnected)
+                    continue;
+
+                var found = new List<ReturnPiece>();
+                var seen = new HashSet<long> { unit.Id.ToValue() };
+                var next = new Queue<Element>();
+                bool supplies = false;
+
+                void Onwards(Connector from)
+                {
+                    if (!from.IsConnected)
+                        return;
+
+                    foreach (Connector to in from.AllRefs)
+                    {
+                        Element other = to.Owner;
+
+                        if (other != null && seen.Add(other.Id.ToValue()))
+                            next.Enqueue(other);
+                    }
+                }
+
+                Onwards(start);
+
+                while (next.Count > 0 && !supplies && seen.Count < 2000)
+                {
+                    Element e = next.Dequeue();
+                    long category = e.Category == null ? 0 : e.Category.Id.ToValue();
+
+                    // A supply terminal, or a fresh air one (a ducted fresh air
+                    // connection: its main would otherwise be the unit's
+                    // "return", endcaps and all)
+                    if (category == (long)BuiltInCategory.OST_DuctTerminal)
+                    {
+                        if (e is FamilyInstance terminal)
+                        {
+                            ClassifyTerminal(terminal, out bool isFresh, out bool isExtract);
+
+                            if (isFresh || IsSupply(terminal))
+                                supplies = true;
+                        }
+
+                        continue;
+                    }
+
+                    if (category != (long)BuiltInCategory.OST_DuctCurves &&
+                        category != (long)BuiltInCategory.OST_FlexDuctCurves &&
+                        category != (long)BuiltInCategory.OST_DuctFitting &&
+                        category != (long)BuiltInCategory.OST_DuctAccessory)
+                    {
+                        continue;
+                    }
+
+                    var piece = new ReturnPiece { Unit = unit, Id = e.Id.ToValue() };
+
+                    if (e.Location is LocationCurve along && along.Curve != null)
+                    {
+                        piece.Line = along.Curve;
+                    }
+                    else
+                    {
+                        BoundingBoxXYZ box = e.get_BoundingBox(null);
+
+                        if (box != null)
+                            piece.Box = new VENTFACING.Box { Min = P(box.Min), Max = P(box.Max) };
+                    }
+
+                    if (piece.Line != null || piece.Box != null)
+                        found.Add(piece);
+
+                    ConnectorManager connectors = e is MEPCurve curve
+                        ? curve.ConnectorManager
+                        : (e as FamilyInstance)?.MEPModel?.ConnectorManager;
+
+                    if (connectors == null)
+                        continue;
+
+                    foreach (Connector c in connectors.Connectors)
+                    {
+                        if (c.Domain == Domain.DomainHvac && c.ConnectorType != ConnectorType.Logical)
+                            Onwards(c);
+                    }
+                }
+
+                if (!supplies)
+                    side.AddRange(found);
+            }
+
+            return side;
+        }
+
+        // The return ductwork nearest an endcap - from its connectors and
+        // its point, as FindNearestEquipment measures - and whose it is
+        private static FamilyInstance NearestReturn(
+            FamilyInstance endcap, List<ReturnPiece> pieces, out double best, out long bestPiece)
+        {
+            best = double.MaxValue;
+            bestPiece = 0;
+
+            FamilyInstance unit = null;
+
+            if (pieces == null || pieces.Count == 0)
+                return null;
+
+            var points = new List<XYZ>();
+
+            foreach (Connector c in GetHvacConnectors(endcap))
+                points.Add(c.Origin);
+
+            if (endcap.Location is LocationPoint lp)
+                points.Add(lp.Point);
+
+            foreach (ReturnPiece piece in pieces)
+            {
+                foreach (XYZ point in points)
+                {
+                    double d;
+
+                    try
+                    {
+                        d = piece.Line != null ? piece.Line.Distance(point) : VENTFACING.Distance(P(point), piece.Box);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (d < best)
+                    {
+                        best = d;
+                        bestPiece = piece.Id;
+                        unit = piece.Unit;
+                    }
+                }
+            }
+
+            return unit;
         }
 
         // Which way a terminal's face points (VENTFACING.Mouth), from its
@@ -1718,6 +2479,197 @@ namespace ATKINSMEC
             }
 
             return roomKeys;
+        }
+
+        // The rooms of the supply terminals (IsSupply) on a unit's supply
+        // systems - GetServedRoomKeys without the endcaps and bellmouths
+        private static List<string> SupplyRoomKeys(
+            FamilyInstance fcu,
+            Dictionary<ElementId, string> terminalRoom)
+        {
+            var roomKeys = new List<string>();
+
+            foreach (Connector c in GetHvacConnectors(fcu))
+            {
+                var sys = c.DuctSystemType == DuctSystemType.SupplyAir ? c.MEPSystem as MechanicalSystem : null;
+
+                if (sys == null)
+                    continue;
+
+                foreach (Element e in sys.Elements)
+                {
+                    string roomKey;
+
+                    if (e is FamilyInstance terminal && terminalRoom.TryGetValue(e.Id, out roomKey) &&
+                        !roomKeys.Contains(roomKey) && IsSupply(terminal))
+                    {
+                        roomKeys.Add(roomKey);
+                    }
+                }
+            }
+
+            return roomKeys;
+        }
+
+        // ...and the terminals that put each room there, for the log
+        private static Dictionary<string, List<long>> SystemRoomKeys(
+            FamilyInstance fcu,
+            Dictionary<ElementId, string> terminalRoom)
+        {
+            var rooms = new Dictionary<string, List<long>>(StringComparer.Ordinal);
+
+            foreach (Connector c in GetHvacConnectors(fcu))
+            {
+                var sys = c.DuctSystemType == DuctSystemType.SupplyAir ? c.MEPSystem as MechanicalSystem : null;
+
+                if (sys == null)
+                    continue;
+
+                foreach (Element e in sys.Elements)
+                    Note(rooms, e.Id, terminalRoom);
+            }
+
+            return rooms;
+        }
+
+        private static void Note(Dictionary<string, List<long>> rooms, ElementId terminal, Dictionary<ElementId, string> terminalRoom)
+        {
+            string roomKey;
+
+            if (!terminalRoom.TryGetValue(terminal, out roomKey))
+                return;
+
+            List<long> ids;
+
+            if (!rooms.TryGetValue(roomKey, out ids))
+                rooms[roomKey] = ids = new List<long>();
+
+            if (!ids.Contains(terminal.ToValue()))
+                ids.Add(terminal.ToValue());
+        }
+
+        // A SUPPLY TERMINAL: one an FCU blows air out of - not an endcap or
+        // a bellmouth (fresh air INTO a unit), not fresh air or extract by
+        // its system type, its connector supply air or air flowing in
+        private static bool IsSupply(FamilyInstance terminal)
+        {
+            if (terminal.Symbol == null || IsEndcap(terminal) || VENTSETTINGS.IsBellmouth(terminal.Symbol.FamilyName))
+                return false;
+
+            bool isFresh;
+            bool isExtract;
+
+            ClassifyTerminal(terminal, out isFresh, out isExtract);
+
+            if (isFresh || isExtract)
+                return false;
+
+            foreach (Connector c in GetHvacConnectors(terminal))
+            {
+                if (c.DuctSystemType == DuctSystemType.ReturnAir || c.DuctSystemType == DuctSystemType.ExhaustAir)
+                    return false;
+
+                if (c.DuctSystemType == DuctSystemType.SupplyAir || c.Direction == FlowDirectionType.In)
+                    return true;
+            }
+
+            return false;
+        }
+
+        // WHERE A TERMINAL'S DUCTS LEAD (user, 2026-10-21: TA-04-10's powder
+        // room "is actually not supplied from the FCU that serves the kitchen
+        // and the living/dining"; then the dressing, whose diffuser IS on
+        // the bedroom's FCU). Followed back from the terminal along what is
+        // CONNECTED to it - ducts, flex ducts, fittings, accessories - to the
+        // equipment it reaches, whichever of the unit's connectors that is,
+        // never on through another terminal or unit. The Revit system an
+        // FCU's supply connector is in can be far wider than its ductwork
+        // (KIFAF: one FCU's system reached the mirror apartment's kitchen),
+        // and walking out from an FCU's "supply" connectors missed ducts on
+        // connectors its family classes otherwise (TA-04-04's kitchen).
+        private class DuctTrace
+        {
+            public readonly HashSet<long> Units = new HashSet<long>();
+
+            // Ductwork with an end connected to nothing - where to look
+            public readonly List<long> OpenEnds = new List<long>();
+
+            // The terminal itself joined to anything at all
+            public bool Connected;
+        }
+
+        private static DuctTrace TraceDucts(FamilyInstance terminal)
+        {
+            var trace = new DuctTrace();
+            var seen = new HashSet<long> { terminal.Id.ToValue() };
+            var next = new Queue<Element>();
+
+            void Onwards(Connector from, Element owner)
+            {
+                if (!from.IsConnected)
+                {
+                    long id = owner.Id.ToValue();
+
+                    if (owner.Id != terminal.Id && trace.OpenEnds.Count < 5 && !trace.OpenEnds.Contains(id))
+                        trace.OpenEnds.Add(id);
+
+                    return;
+                }
+
+                foreach (Connector to in from.AllRefs)
+                {
+                    Element other = to.Owner;
+
+                    if (other != null && seen.Add(other.Id.ToValue()))
+                        next.Enqueue(other);
+                }
+            }
+
+            foreach (Connector c in GetHvacConnectors(terminal))
+            {
+                if (c.IsConnected)
+                    trace.Connected = true;
+
+                Onwards(c, terminal);
+            }
+
+            // Bounded: a few thousand pieces is a whole floor's ductwork
+            while (next.Count > 0 && seen.Count < 5000)
+            {
+                Element e = next.Dequeue();
+                long category = e.Category == null ? 0 : e.Category.Id.ToValue();
+
+                if (category == (long)BuiltInCategory.OST_MechanicalEquipment)
+                {
+                    trace.Units.Add(e.Id.ToValue());
+                    continue;
+                }
+
+                // Only ductwork carries the air on - not another terminal,
+                // insulation or lining (MEPCurves in AllRefs too), a system
+                if (category != (long)BuiltInCategory.OST_DuctCurves &&
+                    category != (long)BuiltInCategory.OST_FlexDuctCurves &&
+                    category != (long)BuiltInCategory.OST_DuctFitting &&
+                    category != (long)BuiltInCategory.OST_DuctAccessory)
+                {
+                    continue;
+                }
+
+                ConnectorManager connectors = e is MEPCurve curve
+                    ? curve.ConnectorManager
+                    : (e as FamilyInstance)?.MEPModel?.ConnectorManager;
+
+                if (connectors == null)
+                    continue;
+
+                foreach (Connector c in connectors.Connectors)
+                {
+                    if (c.Domain == Domain.DomainHvac && c.ConnectorType != ConnectorType.Logical)
+                        Onwards(c, e);
+                }
+            }
+
+            return trace;
         }
     }
 }

@@ -33,9 +33,12 @@
          SupportedOSPlatform attribute, which makes the platform
          analyser flag every WinForms call (CA1416) -->
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <AssemblyTitle>ATKINSMEC</AssemblyTitle>
-    <Product>ATKINSMEC</Product>
-    <Company>ATKINS</Company>
+    <!-- What a person sees in the DLL's properties. AssemblyName stays
+         ATKINSMEC: it is the file name, and the .addin and every
+         install point at it -->
+    <AssemblyTitle>Atkins MEP Toolkit</AssemblyTitle>
+    <Product>Atkins MEP Toolkit</Product>
+    <Company>Atkins</Company>
     <Copyright>Copyright © 2025</Copyright>
     <ComVisible>false</ComVisible>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
@@ -69,6 +72,30 @@
     <EnableDynamicLoading Condition="'$(RevitVersion)' &gt;= '2025'">true</EnableDynamicLoading>
   </PropertyGroup>
 
+  <!--
+    AUTOVENT ON ITS OWN, while it ships apart from the suite (the user,
+    2026-10-15):  dotnet build -p:RevitVersion=2025 -p:Edition=AutoVent
+    The same source with only AutoVent\ and Shared\ compiled, into its own
+    assembly - so it can sit beside the suite on one PC without either
+    replacing the other's files - and its own .addin (AUTOVENT.addin, its
+    own AddInId), which points into an AUTOVENT\ subfolder. UI.cs builds
+    just the one button (AUTOVENT_ONLY). Never deployed by a build: only
+    build-installer.ps1 -AutoVent packs it.
+  -->
+  <PropertyGroup Condition="'$(Edition)' == 'AutoVent'">
+    <AssemblyName>ATKINSMEC.AutoVent</AssemblyName>
+    <AssemblyTitle>AUTOVENT</AssemblyTitle>
+    <Product>AUTOVENT (Atkins MEP Toolkit)</Product>
+    <DefineConstants>$(DefineConstants);AUTOVENT_ONLY</DefineConstants>
+    <OutputPath>bin\$(Configuration)\AutoVent\$(RevitVersion)\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Edition)' == 'AutoVent'">
+    <Compile Remove="ChwVolume\**;DuctInsulation\**;Sprinklers\**;AlignTerminals\**;SheetQA\**;AutoSync\**;NwcExport\**;EquipChanger\**;EspCalc\**;RoomTags\**" />
+    <!-- The dialog answerer logs through NWC BATCH; AUTOVENT never uses it -->
+    <Compile Remove="Shared\QUIET.cs" />
+    <EmbeddedResource Remove="ChwVolume\**" />
+    <None Update="AUTOVENT.addin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <!-- Revit API assemblies, matched to the version being built -->
   <PropertyGroup>
     <RevitApiVersion Condition="'$(RevitVersion)' == '2022'">2022.1.80</RevitApiVersion>
@@ -99,7 +126,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="ATKINSMEC.addin" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="ATKINSMEC.addin" CopyToOutputDirectory="PreserveNewest" Condition="'$(Edition)' != 'AutoVent'" />
     <None Remove="ATKINSMEC.csproj.classic.bak" />
   </ItemGroup>
 
@@ -156,7 +183,7 @@
     fails the build: when Revit is open it holds the old DLL and the
     copy is simply reported as skipped.
   -->
-  <Target Name="DeployToRevit" AfterTargets="Build">
+  <Target Name="DeployToRevit" AfterTargets="Build" Condition="'$(Edition)' != 'AutoVent'">
     <PropertyGroup>
       <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\</RevitAddinDir>
     </PropertyGroup>

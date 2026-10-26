@@ -16,6 +16,10 @@ namespace ventpreview
         [STAThread]
         private static void Main(string[] args)
         {
+            // Levels and rooms' columns as they come, not as this PC chose
+            ATKINSMEC.VENTCOLUMNS.SettingsPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ventpreview-columns-none.txt");
+            try { System.IO.File.Delete(ATKINSMEC.VENTCOLUMNS.SettingsPath); } catch { }
+
             string folder = args.Length > 0
                 ? args[0]
                 : Environment.CurrentDirectory;
@@ -53,10 +57,6 @@ namespace ventpreview
 
             window.UpdateLayout();
 
-            window.PickRoom();
-
-            window.UpdateLayout();
-
             Shoot(window, Path.Combine(folder, "autovent.png"));
             Shoot(window, Path.Combine(folder, "autovent-1.5x.png"), 1.5);
 
@@ -79,19 +79,6 @@ namespace ventpreview
             Shoot(window, Path.Combine(folder, "autovent-links-search-1.5x.png"), 1.5);
 
             window.SearchLinks("");
-
-            window.UpdateLayout();
-
-            // The levels search: "bed room" - the rooms found under their
-            // levels, every level with one opened, the rest hidden
-            window.SearchLevels("bed room");
-
-            window.UpdateLayout();
-
-            Shoot(window, Path.Combine(folder, "autovent-levels-search.png"));
-            Shoot(window, Path.Combine(folder, "autovent-levels-search-1.5x.png"), 1.5);
-
-            window.SearchLevels("");
 
             window.UpdateLayout();
 
@@ -122,6 +109,8 @@ namespace ventpreview
             Interiors(folder);
 
             Arrange(folder);
+
+            Occupancy(folder);
 
             window.ShowAssign();
 
@@ -164,6 +153,43 @@ namespace ventpreview
         // architect's model and a plumbing model linked - at 1x and 1.5x
         // The system types dialog behind the assign tab's two buttons:
         // twenty types, as the user's model has, then searched
+        // The Occupancy... window with the built-in rules, the lists read
+        // from the office workbook in the repository as the add-in reads
+        // its embedded copy
+        private static void Occupancy(string folder)
+        {
+            System.Collections.Generic.List<string> fresh, exhaust, uses;
+
+            OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("preview");
+
+            using (var package = new OfficeOpenXml.ExcelPackage(
+                       new FileInfo(RepoPath.Find(@"ATKINSMEC\Resources\VentTemplate.xlsx"))))
+            {
+                fresh = ATKINSMEC.VENTOCCUPANCY.Table(package.Workbook, false);
+                exhaust = ATKINSMEC.VENTOCCUPANCY.Table(package.Workbook, true);
+                uses = ATKINSMEC.VENTOCCUPANCY.Uses(package.Workbook);
+            }
+
+            // One "equals" rule at the top, so the Match column shows both
+            var rules = ATKINSMEC.VENTOCCUPANCY.Defaults();
+            rules.Insert(0, new ATKINSMEC.VENTOCCUPANCY.Rule { Words = "LOBBY", Exact = true, Fresh = "Reception Areas" });
+
+            var dialog = new ATKINSMEC.VENTOCCUPANCYDIALOG(rules, fresh, exhaust, uses)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000,
+                Top = -4000
+            };
+
+            dialog.Show();
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-occupancy.png"));
+            Shoot(dialog, Path.Combine(folder, "autovent-occupancy-1.5x.png"), 1.5);
+
+            dialog.Close();
+        }
+
         private static void SystemTypes(string folder)
         {
             string[] names =
@@ -212,8 +238,19 @@ namespace ventpreview
                 new ATKINSMEC.VENTFIXTUREDIALOG.Source { Id = 0, Label = "This model" },
                 new ATKINSMEC.VENTFIXTUREDIALOG.Source { Id = 11, Label = "5232535-ATR-POD-ZZZ-3DM-ARC-000010.rvt" },
                 new ATKINSMEC.VENTFIXTUREDIALOG.Source { Id = 12, Label = "5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 1 : Tower A" },
+                new ATKINSMEC.VENTFIXTUREDIALOG.Source { Id = 14, Label = "5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 2 : Tower B" },
                 new ATKINSMEC.VENTFIXTUREDIALOG.Source { Id = 13, Label = "5232535-ATR-POD-ZZZ-3DM-PLU-000030.rvt" }
             };
+
+            // An interior model placed on forty floors - one row
+            for (int floor = 1; floor <= 40; floor++)
+            {
+                sources.Add(new ATKINSMEC.VENTFIXTUREDIALOG.Source
+                {
+                    Id = 100 + floor,
+                    Label = "5232535-ATR-TWR-ZZZ-3DM-IND-000040.rvt : " + floor
+                });
+            }
 
             string[] names =
             {
@@ -243,6 +280,16 @@ namespace ventpreview
 
             Shoot(dialog, Path.Combine(folder, "autovent-fixtures.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-fixtures-1.5x.png"), 1.5);
+
+            // Two models picked, the families searched
+            var models = (System.Collections.IList)dialog.ModelList.ItemsSource;
+
+            dialog.ModelList.SelectedItems.Add(models[3]);
+            dialog.ModelList.SelectedItems.Add(models[4]);
+            dialog.Search = "water";
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-fixtures-search.png"));
 
             dialog.Close();
         }
@@ -330,22 +377,28 @@ namespace ventpreview
             ATKINSMEC.VENTSETTINGS.InteriorPicks.Clear();
         }
 
-        // The Arrange rooms... dialog on LEVEL 03 of a tower: two architect's
-        // apartments with their interior rooms, a third with one room taken
-        // out, the cores, and one room unticked - the large apartment moved
-        // to the top and its rooms reordered, as a person would have left it
+        // LEVELS AND ROOMS (VENTROOMSWINDOW) over a tower: LEVEL 03 open - two
+        // architect's containers with their interior rooms, a third with one
+        // room taken out, the cores, one room unticked, the large container
+        // moved to the top and its rooms reordered, as a person would have
+        // left it - LEVEL 04A open below it, LEVEL 05A closed
         private static void Arrange(string folder)
         {
             const string Level = "LEVEL 03";
 
             ATKINSMEC.VENTARRANGE.Row Room(string key, string number, string name, string aptKey = null,
-                                           string apt = null, string aptNumber = null, bool exported = true)
+                                           string apt = null, string aptNumber = null)
             {
+                // An area and a height that look like the room's - the
+                // number's digits, so a render is the same every time
+                int seed = key.Sum(c => (int)c) % 97;
+
                 return new ATKINSMEC.VENTARRANGE.Row
                 {
                     Key = key, Number = number, Name = name,
                     ApartmentKey = aptKey, Apartment = apt, ApartmentNumber = aptNumber,
-                    HomeKey = aptKey, Home = apt, HomeNumber = aptNumber, Exported = exported
+                    HomeKey = aptKey, Home = apt, HomeNumber = aptNumber,
+                    AreaM2 = 4 + (seed % 40) * 0.73, HeightM = 2.6 + (seed % 5) * 0.1, HeightToCeiling = seed % 3 != 0
                 };
             }
 
@@ -353,33 +406,33 @@ namespace ventpreview
             {
                 Room("10:31", "TA-03-31", "CORRIDOR"),
                 Room("10:33", "TA-03-33", "STAIR 01"),
-                Room("10:34", "TA-03-34", "ELEVATOR LOBBY", exported: false),
+                Room("10:34", "TA-03-34", "ELEVATOR LOBBY"),
                 Room("20:55", "121.055", "LIVING/DINING", "11:9", "2BDR-A1", "TA-03-09"),
                 Room("20:56", "121.056", "MASTER BEDROOM", "11:9", "2BDR-A1", "TA-03-09"),
                 Room("20:57", "121.057", "DRESSING", "11:9", "2BDR-A1", "TA-03-09"),
                 Room("20:58", "121.058", "ENSUITE", "11:9", "2BDR-A1", "TA-03-09"),
-                Room("21:05", "121.105", "MASTER BEDROOM", "11:4", "2BDR-A2", "TA-03-04"),
-                Room("21:06", "121.106", "LIVING/DINING", "11:4", "2BDR-A2", "TA-03-04"),
-                Room("21:07", "121.107", "KITCHEN", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("21:5", "121.105", "MASTER BEDROOM", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("21:6", "121.106", "LIVING/DINING", "11:4", "2BDR-A2", "TA-03-04"),
+                Room("21:7", "121.107", "KITCHEN", "11:4", "2BDR-A2", "TA-03-04"),
                 Room("22:15", "121.315", "LIVING/DINING", "11:6", "1BDR-C", "TA-03-06"),
-                Room("22:17", "121.317", "BALCONY", "11:6", "1BDR-C", "TA-03-06")
+                Room("22:17", "121.315", "BALCONY", "11:6", "1BDR-C", "TA-03-06")
             };
 
             int Compare(string a, string b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
 
-            // Two more levels, so a search has somewhere else to point at
+            // Two more levels, so the list has more than one
             var other = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>>
             {
                 ["LEVEL 04A"] = new System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>
                 {
                     Room("10:41", "TA-04-31", "CORRIDOR"),
-                    Room("23:01", "121.401", "MASTER BEDROOM", "11:19", "2BDR-A1", "TA-04-09"),
-                    Room("23:02", "121.402", "BEDROOM", "11:19", "2BDR-A1", "TA-04-09")
+                    Room("23:1", "121.401", "MASTER BEDROOM", "11:19", "2BDR-A1", "TA-04-09"),
+                    Room("23:2", "121.402", "BEDROOM", "11:19", "2BDR-A1", "TA-04-09")
                 },
                 ["LEVEL 05A"] = new System.Collections.Generic.List<ATKINSMEC.VENTARRANGE.Row>
                 {
                     Room("10:51", "TA-05-31", "CORRIDOR"),
-                    Room("24:01", "121.501", "MASTER BEDROOM", "11:29", "2BDR-A2", "TA-05-04")
+                    Room("24:1", "121.501", "MASTER BEDROOM", "11:29", "2BDR-A2", "TA-05-04")
                 }
             };
 
@@ -405,8 +458,9 @@ namespace ventpreview
             {
                 var rows = source.Select(r => new ATKINSMEC.VENTARRANGE.Row
                 {
-                    Key = r.Key, Number = r.Number, Exported = r.Exported,
+                    Key = r.Key, Number = r.Number,
                     Name = a.NameOf(r.Key, r.Name), ModelName = r.Name,
+                    AreaM2 = r.AreaM2, HeightM = r.HeightM, HeightToCeiling = r.HeightToCeiling,
                     HomeKey = r.HomeKey, Home = r.Home, HomeNumber = r.HomeNumber,
                     ApartmentKey = a.Ungrouped.Contains(r.Key) ? null : r.ApartmentKey,
                     Apartment = a.Ungrouped.Contains(r.Key) || r.ApartmentKey == null ? null : a.NameOf(r.ApartmentKey, r.Apartment),
@@ -434,29 +488,160 @@ namespace ventpreview
 
             // The kitchen and living of 2BDR-A2 on one FCU, one fresh air
             // connection
-            arrangement.Merges.Add(new System.Collections.Generic.List<string> { "21:06", "21:07" });
+            arrangement.Merges.Add(new System.Collections.Generic.List<string> { "21:6", "21:7" });
 
-            var dialog = new ATKINSMEC.VENTARRANGEDIALOG(
-                new[] { Level, "LEVEL 04A", "LEVEL 05A" }, Level, RowsOf, arrangement)
+            // THE TICKS, as the main window holds them (LevelRow.Build): every
+            // room ticked but the elevator lobby; LEVEL 05A closed
+            var choices = new System.Collections.Generic.Dictionary<string, bool>();
+            var ticks = new System.Collections.Generic.List<ATKINSMEC.VENTWindow.LevelRow>();
+
+            foreach (var level in RowsOf(arrangement))
+            {
+                var rooms = level.Value.Select(r => new ATKINSMEC.VENTWindow.RoomRow
+                {
+                    LinkId = long.Parse(r.Key.Split(':')[0]),
+                    RoomId = long.Parse(r.Key.Split(':')[1]),
+                    Level = level.Key,
+                    Number = r.Number,
+                    Name = r.Name,
+                    Tip = "Room " + r.Number + " " + r.Name
+                }).ToList();
+
+                var row = ATKINSMEC.VENTWindow.LevelRow.Build(level.Key, "     (in the sheet)", true, true, rooms, choices);
+                row.IsExpanded = level.Key != "LEVEL 05A";
+                ticks.Add(row);
+            }
+
+            ticks[0].Rooms.First(r => r.Key == "10:34").IsOn = false;
+
+            // THE AIRFLOWS (VENTFLOWS): the sheet's - the master bedroom and
+            // its dressing merged in the sheet only, so adopted on opening -
+            // and what the terminals carry, two of them not what the sheet says
+            ATKINSMEC.VENTFLOWS.Sheet S(double fresh, double extract, params string[] merges) =>
+                new ATKINSMEC.VENTFLOWS.Sheet
+                {
+                    Air = new ATKINSMEC.VENTFLOWS.Air { Fresh = fresh, Extract = extract },
+                    Merges = merges.ToList()
+                };
+
+            ATKINSMEC.VENTFLOWS.Air A(double fresh, double extract) =>
+                new ATKINSMEC.VENTFLOWS.Air { Fresh = fresh, Extract = extract };
+
+            double none = double.NaN;
+
+            var sheet = new System.Collections.Generic.Dictionary<string, ATKINSMEC.VENTFLOWS.Sheet>
+            {
+                ["10:31"] = S(10, none),
+                ["20:55"] = S(25, none),
+                ["20:56"] = S(15, none, "fresh AA14:AA15"),
+                ["20:57"] = S(0, none, "fresh AA14:AA15"),
+                ["20:58"] = S(0, 10),
+                ["21:5"] = S(15, none),
+                ["21:6"] = S(20, 0),
+                ["21:7"] = S(0, 50),
+                ["22:15"] = S(20, none),
+                ["10:41"] = S(10, none),
+                ["23:1"] = S(15, none),
+                ["23:2"] = S(10, none)
+            };
+
+            // The sheet's own columns (2026-10-25): categories as the office
+            // fills them, one blank with what an export would put there, the
+            // bedrooms' occupants, a kitchen's unit, one area since changed
+            void Explain(string key, string fresh, string exhaust, string suggested = null, double people = double.NaN, double units = double.NaN)
+            {
+                sheet[key].FreshCategory = fresh;
+                sheet[key].ExhaustCategory = exhaust;
+                sheet[key].FreshSuggested = suggested;
+                sheet[key].Occupants = people;
+                sheet[key].Units = units;
+            }
+
+            Explain("10:31", "Common Corridors", "");
+            Explain("20:55", "Dwelling Unit", "");
+            Explain("20:56", "Dwelling Unit", "", people: 2);
+            Explain("20:57", "", "", suggested: "Dwelling Unit");
+            Explain("20:58", "", "Toilets - private (residential)", units: 1);
+            Explain("21:5", "Dwelling Unit", "", people: 2);
+            Explain("21:6", "Dwelling Unit", "");
+            Explain("21:7", "Dwelling Unit", "Residential kitchens- Apartments", units: 1);
+            Explain("22:15", "Dwelling Unit", "");
+            Explain("10:41", "Common Corridors", "");
+            Explain("23:1", "Dwelling Unit", "", people: 2);
+            Explain("23:2", "Dwelling Unit", "", people: 1);
+            sheet["21:6"].AreaM2 = 14.0;
+
+            var carrying = new System.Collections.Generic.Dictionary<string, ATKINSMEC.VENTFLOWS.Air>
+            {
+                ["10:31"] = A(10, none),
+                ["20:55"] = A(30, none),
+                ["20:56"] = A(12, none),
+                ["20:57"] = A(3, none),
+                ["20:58"] = A(none, 10),
+                ["21:5"] = A(0, none),
+                ["21:6"] = A(20, none),
+                ["21:7"] = A(none, 50),
+                ["22:15"] = A(20, none),
+                ["10:41"] = A(10, none),
+                ["23:1"] = A(15, none),
+                ["23:2"] = A(10, none)
+            };
+
+            // KIFAF's FCU: 2BDR-A2's bedroom, living and kitchen - the last two
+            // merged already - and, through its Revit system, a room of
+            // 2BDR-A1, which is left out; a fresh air unit with no endcap
+            // reaching rooms everywhere suggests nothing
+            var units = new System.Collections.Generic.List<ATKINSMEC.VENTFLOWS.Unit>
+            {
+                new ATKINSMEC.VENTFLOWS.Unit { Id = 3678148, Fresh = 1, Rooms = { "21:5", "21:6", "21:7", "20:55" } },
+                new ATKINSMEC.VENTFLOWS.Unit { Id = 3092885, Fresh = 0, Rooms = { "20:55", "21:6", "22:15", "10:31" } }
+            };
+
+            // Three rooms the architect's model has with no area
+            var unenclosed = new System.Collections.Generic.List<ATKINSMEC.VENTUNENCLOSED.Room>
+            {
+                new ATKINSMEC.VENTUNENCLOSED.Room { LinkId = 10, RoomId = 91, Number = "TA-03-40", Name = "RISER", LinkName = "5232535-ATR-TWR-ZZZ-3DM-ARC-000010", Level = "LEVEL 03", LevelZ = 12 },
+                new ATKINSMEC.VENTUNENCLOSED.Room { LinkId = 10, RoomId = 92, Number = "TA-03-41", Name = "STORE", LinkName = "5232535-ATR-TWR-ZZZ-3DM-ARC-000010", Level = "LEVEL 03", LevelZ = 12, Inside = "TA-03-31 CORRIDOR" },
+                new ATKINSMEC.VENTUNENCLOSED.Room { LinkId = 10, RoomId = 93, Number = "TA-04-40", Name = "RISER", LinkName = "5232535-ATR-TWR-ZZZ-3DM-ARC-000010", Level = "LEVEL 04A", LevelZ = 15.6 }
+            };
+
+            var dialog = new ATKINSMEC.VENTROOMSWINDOW(() => ticks, RowsOf, arrangement, sheet, carrying, units)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = -4000,
-                Top = -4000
+                Top = -4000,
+                NotEnclosed = () => unenclosed
             };
 
             dialog.Show();
             dialog.UpdateLayout();
 
-            // One room picked, so the buttons show as they would
+
+            // Two rows picked, so the buttons and the pick show as they would
             var list = FindChild<System.Windows.Controls.ListBox>(dialog);
 
-            if (list != null && list.Items.Count > 2)
+            if (list != null && list.Items.Count > 3)
+            {
                 ((System.Windows.Controls.ListBoxItem)list.Items[2]).IsSelected = true;
+                ((System.Windows.Controls.ListBoxItem)list.Items[3]).IsSelected = true;
+            }
 
             dialog.UpdateLayout();
 
             Shoot(dialog, Path.Combine(folder, "autovent-arrange.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-1.5x.png"), 1.5);
+
+            // Model: grouped as the FCUs serve - then back to Sheet
+            System.Reflection.MethodInfo view = typeof(ATKINSMEC.VENTROOMSWINDOW)
+                .GetMethod("View", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            view.Invoke(dialog, new object[] { true });
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-model.png"));
+
+            view.Invoke(dialog, new object[] { false });
+            dialog.UpdateLayout();
 
             // At its smallest the side buttons scroll rather than clip
             double tall = dialog.Height;
@@ -468,8 +653,8 @@ namespace ventpreview
             dialog.Height = tall;
             dialog.UpdateLayout();
 
-            // Searching: "bedroom" - the rooms found, each under its
-            // apartment heading, and the other levels with matches named
+            // Searching: "bedroom" - the rooms found, each under its container
+            // and level, the closed level opened to show its own
             var search = FindChild<System.Windows.Controls.TextBox>(dialog);
 
             if (search != null)
@@ -479,6 +664,40 @@ namespace ventpreview
 
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-search.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-search-1.5x.png"), 1.5);
+
+            // Differences only: what needs attention
+            search = FindChild<System.Windows.Controls.TextBox>(dialog);
+
+            if (search != null)
+                search.Text = string.Empty;
+
+            var only = (System.Windows.Controls.CheckBox)typeof(ATKINSMEC.VENTROOMSWINDOW)
+                .GetField("_onlyDifferences", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .GetValue(dialog);
+
+            // A click as a person makes it: it ticks the box, then Click
+            typeof(System.Windows.Controls.Primitives.ButtonBase).GetMethod("OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Invoke(only, new object[0]);
+            dialog.UpdateLayout();
+
+            Shoot(dialog, Path.Combine(folder, "autovent-arrange-differences.png"));
+
+            // The rooms with no area, listed
+            var notEnclosed = (Window)typeof(ATKINSMEC.VENTROOMSWINDOW)
+                .GetMethod("NotEnclosedList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Invoke(dialog, null);
+
+            notEnclosed.Owner = null;
+            notEnclosed.WindowStartupLocation = WindowStartupLocation.Manual;
+            notEnclosed.Left = -4000;
+            notEnclosed.Top = -4000;
+            notEnclosed.Show();
+            notEnclosed.UpdateLayout();
+
+            Shoot(notEnclosed, Path.Combine(folder, "autovent-notenclosed.png"));
+            Shoot(notEnclosed, Path.Combine(folder, "autovent-notenclosed-1.5x.png"), 1.5);
+
+            notEnclosed.Close();
 
             dialog.Close();
         }

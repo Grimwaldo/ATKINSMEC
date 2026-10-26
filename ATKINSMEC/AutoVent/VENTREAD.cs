@@ -42,9 +42,13 @@ namespace ATKINSMEC
             // Each model's fixture families, for the Fixtures dialog
             public bool Fixtures;
 
+            // What every room's terminals carry now, for Arrange rooms...
+            // (REVITROOMS, Mode.Survey - the ticked links, every level)
+            public bool Terminals;
+
             public bool Any
             {
-                get { return Links || Rooms.Count > 0 || Apartments || Fixtures; }
+                get { return Links || Rooms.Count > 0 || Apartments || Fixtures || Terminals; }
             }
 
             // Two asks raised before the event ran become one
@@ -56,6 +60,7 @@ namespace ATKINSMEC
                 Links |= other.Links;
                 Apartments |= other.Apartments;
                 Fixtures |= other.Fixtures;
+                Terminals |= other.Terminals;
 
                 Rooms.UnionWith(other.Rooms);
                 Have.UnionWith(other.Have);
@@ -79,6 +84,11 @@ namespace ATKINSMEC
             public Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>> Rooms =
                 new Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>>();
 
+            // With each link's rooms, its rooms that have no area
+            // (VENTUNENCLOSED) - read in the same trip
+            public Dictionary<long, List<VENTUNENCLOSED.Room>> Unenclosed =
+                new Dictionary<long, List<VENTUNENCLOSED.Room>>();
+
             // When asked: the map, and the Apartments ticks it was built
             // for (ApartmentsKey) - the window compares that with its own
             // ticks, so a change made while this ran is asked for again
@@ -87,6 +97,14 @@ namespace ATKINSMEC
 
             // Source (0 = this model) -> family -> how many
             public Dictionary<long, Dictionary<string, int>> Fixtures;
+
+            // Room key -> what its terminals carry now; null when not asked
+            public Dictionary<string, VENTFLOWS.Air> Terminals;
+
+            // With it: each unit's rooms and fresh air connections, and each
+            // room's supply terminals whose ducts reach no unit
+            public List<VENTFLOWS.Unit> Units;
+            public Dictionary<string, List<long>> Unreached;
 
             // What could not be read, for the status bar
             public List<string> Trouble = new List<string>();
@@ -132,6 +150,9 @@ namespace ATKINSMEC
 
                 if (ask.Fixtures)
                     answer.Fixtures = new Dictionary<long, Dictionary<string, int>>();
+
+                if (ask.Terminals)
+                    answer.Terminals = new Dictionary<string, VENTFLOWS.Air>();
 
                 return answer;
             }
@@ -192,14 +213,14 @@ namespace ATKINSMEC
 
                 try
                 {
-                    answer.Apartments = VENTAPARTMENTS.Build(doc, "the levels list");
+                    answer.Apartments = VENTAPARTMENTS.Build(doc, "Levels and rooms");
                 }
                 catch (Exception ex)
                 {
                     // An empty map rather than none: the window would
                     // otherwise ask again on every tick
                     answer.Apartments = new VENTAPARTMENTS.Map();
-                    answer.Trouble.Add("the apartments: " + ex.Message);
+                    answer.Trouble.Add("the redundant rooms: " + ex.Message);
                 }
 
                 // The interior placements found are read in the same trip
@@ -215,6 +236,16 @@ namespace ATKINSMEC
                 try
                 {
                     answer.Rooms[linkId] = RVTLINKSELECTION.ReadRooms(doc, linkId, labels);
+
+                    try
+                    {
+                        answer.Unenclosed[linkId] = RVTLINKSELECTION.ReadUnenclosed(doc, linkId, labels);
+                    }
+                    catch
+                    {
+                        // the rooms stand without the list of those with no area
+                        answer.Unenclosed[linkId] = new List<VENTUNENCLOSED.Room>();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -252,6 +283,22 @@ namespace ATKINSMEC
                                            ": " + ex.Message);
                     }
                 }
+            }
+
+            // The airflow run's own walk, writing nothing (REVITROOMS
+            // catches its own trouble and says it in Trouble)
+            if (ask.Terminals)
+            {
+                var survey = new REVITROOMS { Doing = REVITROOMS.Mode.Survey };
+
+                survey.Rooms(doc);
+
+                answer.Terminals = survey.Carrying ?? new Dictionary<string, VENTFLOWS.Air>();
+                answer.Units = survey.Units ?? new List<VENTFLOWS.Unit>();
+                answer.Unreached = survey.Unreached ?? new Dictionary<string, List<long>>();
+
+                if (!string.IsNullOrEmpty(survey.Trouble))
+                    answer.Trouble.Add("the terminals: " + survey.Trouble);
             }
 
             return answer;

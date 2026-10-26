@@ -92,7 +92,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINSMEC equipment changer";
+            return "Atkins MEP Toolkit - equipment changer";
         }
 
         // ==================================================

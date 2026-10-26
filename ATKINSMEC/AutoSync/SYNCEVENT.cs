@@ -50,7 +50,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINSMEC AutoSync";
+            return "Atkins MEP Toolkit - AutoSync";
         }
 
         // ==================================================

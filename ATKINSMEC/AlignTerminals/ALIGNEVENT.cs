@@ -91,7 +91,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINSMEC align terminals";
+            return "Atkins MEP Toolkit - align terminals";
         }
 
         // ==================================================

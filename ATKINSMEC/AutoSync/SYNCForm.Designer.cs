@@ -310,7 +310,7 @@ namespace ATKINSMEC
             this.MinimizeBox = true;
             this.Name = "SYNCForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "ATKINSMEC AutoSync";
+            this.Text = "Atkins MEP Toolkit - AutoSync";
             this.Load += new System.EventHandler(this.SYNCForm_Load);
             this.grpState.ResumeLayout(false);
             this.grpSettings.ResumeLayout(false);

@@ -6,7 +6,7 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // Desktop\ATKINSMEC_esp_log.txt, written on every Calculate.
+    // %AppData%\ATKINSMEC\ATKINSMEC_esp_log.txt, written on every Calculate.
     //
     // The other add-ins that change or judge a real model all earned a log
     // the hard way: the first run on a real job is where the surprises
@@ -32,7 +32,7 @@ namespace ATKINSMEC
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine("ATKINSMEC - ESP");
+            sb.AppendLine("Atkins MEP Toolkit - ESP");
             sb.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
             sb.AppendLine(title);
             sb.AppendLine();
@@ -129,8 +129,7 @@ namespace ATKINSMEC
                 sb.AppendLine();
             }
 
-            string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Desktop), FileName);
+            string path = LOGS.PathOf(FileName);
 
             try
             {

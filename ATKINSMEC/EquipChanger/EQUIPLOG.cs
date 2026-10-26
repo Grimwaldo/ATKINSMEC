@@ -4,7 +4,7 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // What the equipment change actually did, written to the Desktop.
+    // What the equipment change actually did, written to %AppData%\ATKINSMEC (LOGS).
     //
     // The same reason QACHWLOG and NWCLOG exist. This one changes
     // ductwork - it resizes ducts, drives fittings and takes joints
@@ -24,7 +24,7 @@ namespace ATKINSMEC
         {
             Lines.Length = 0;
 
-            Say("ATKINSMEC - equipment changer");
+            Say("Atkins MEP Toolkit - equipment changer");
             Say(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             Say(title);
             Say(string.Empty);
@@ -78,10 +78,7 @@ namespace ATKINSMEC
         {
             get
             {
-                return Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.DesktopDirectory),
-                    FileName);
+                return LOGS.PathOf(FileName);
             }
         }
     }

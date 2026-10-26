@@ -24,12 +24,15 @@
     <!-- Without this the filename alone triggers a UAC prompt -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
-    <Product>ATKINSMEC</Product>
-    <Company>ATKINS</Company>
-    <AssemblyTitle>ATKINSMEC add-ins for Revit</AssemblyTitle>
+    <Product>Atkins MEP Toolkit</Product>
+    <Company>Atkins</Company>
+    <AssemblyTitle>Atkins MEP Toolkit for Revit</AssemblyTitle>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Version>1.0.0</Version>
+
+    <!-- The payload packed by build-installer.ps1 - see below -->
+    <PayloadZip Condition="'$(PayloadZip)' == ''">payload.zip</PayloadZip>
 
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -37,8 +40,21 @@
     <DebugType>none</DebugType>
   </PropertyGroup>
 
+  <!--
+    AUTOVENT ON ITS OWN (build-installer.ps1 -AutoVent): the same
+    installer, its own name, its own payload and its own list of the files
+    it wrote (Edition.cs).
+  -->
+  <PropertyGroup Condition="'$(Edition)' == 'AutoVent'">
+    <AssemblyName>AUTOVENT-Setup</AssemblyName>
+    <Product>AUTOVENT</Product>
+    <AssemblyTitle>AUTOVENT for Revit (Atkins MEP Toolkit)</AssemblyTitle>
+    <DefineConstants>$(DefineConstants);AUTOVENT_ONLY</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Edition.cs" />
     <Compile Include="Payload.cs" />
     <Compile Include="Installer.cs" />
     <Compile Include="SetupForm.cs" />
@@ -55,14 +71,14 @@
     which is how Payload.cs works out where each file belongs.
   -->
   <ItemGroup>
-    <EmbeddedResource Include="payload.zip">
+    <EmbeddedResource Include="$(PayloadZip)">
       <LogicalName>PAYLOAD.zip</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
   <Target Name="RequirePayload" BeforeTargets="BeforeBuild">
-    <Error Condition="!Exists('payload.zip')"
-           Text="payload.zip is missing. Run build-installer.ps1 from the repository root - it stages the add-in and packs it before building this." />
+    <Error Condition="!Exists('$(PayloadZip)')"
+           Text="$(PayloadZip) is missing. Run build-installer.ps1 from the repository root - it stages the add-in and packs it before building this." />
   </Target>
 
 </Project>

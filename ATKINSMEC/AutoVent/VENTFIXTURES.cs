@@ -58,6 +58,44 @@ namespace ATKINSMEC
                 : roomLinks.ToList();
         }
 
+        // A MODEL TICKED IN THE DIALOG IS EVERY PLACEMENT OF IT (one row
+        // per model since 2026-10-17), a placement made after OK included:
+        // the dialog stores the placements it saw, and the rest of the same
+        // link type are added here. Only for a choice made in the dialog -
+        // the default stays the room links themselves.
+        private static List<long> EveryPlacement(Document doc, List<long> ids)
+        {
+            var types = new HashSet<long>();
+
+            foreach (long id in ids)
+            {
+                if (id == 0)
+                    continue;
+
+                var link = doc.GetElement(REVITCOMPAT.NewId(id)) as RevitLinkInstance;
+
+                if (link != null)
+                    types.Add(link.GetTypeId().ToValue());
+            }
+
+            var all = new List<long>(ids);
+
+            if (types.Count == 0)
+                return all;
+
+            foreach (RevitLinkInstance link in new FilteredElementCollector(doc)
+                         .OfClass(typeof(RevitLinkInstance))
+                         .Cast<RevitLinkInstance>())
+            {
+                long id = link.Id.ToValue();
+
+                if (types.Contains(link.GetTypeId().ToValue()) && !all.Contains(id))
+                    all.Add(id);
+            }
+
+            return all;
+        }
+
         private static string FamilyOf(FamilyInstance fixture)
         {
             try
@@ -113,7 +151,9 @@ namespace ATKINSMEC
             public int Counted;          // put in a room
             public int Outside;          // counted kind, but in no room
             public int Ignored;          // a family that does not count
-            public int Models;
+            public int Models;           // models, not placements
+            public int Placements;
+            public List<string> ModelNames = new List<string>();
             public List<string> Families = new List<string>();
         }
 
@@ -148,9 +188,33 @@ namespace ATKINSMEC
                 }
             }
 
-            List<Source> sources = Sources(doc, SourcesFor(roomLinks));
+            List<long> chosen = SourcesFor(roomLinks);
 
-            tally.Models = sources.Count;
+            if (VENTSETTINGS.FixtureSources.Count > 0)
+                chosen = EveryPlacement(doc, chosen);
+
+            List<Source> sources = Sources(doc, chosen);
+
+            tally.Placements = sources.Count;
+
+            foreach (Source source in sources)
+            {
+                string name;
+
+                try
+                {
+                    name = source.Id == 0 ? "this model" : source.Doc.Title;
+                }
+                catch
+                {
+                    name = "link " + source.Id;
+                }
+
+                if (!tally.ModelNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    tally.ModelNames.Add(name);
+            }
+
+            tally.Models = tally.ModelNames.Count;
 
             var families = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

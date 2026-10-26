@@ -307,9 +307,12 @@ internal static class Program
     // ==================================================================
 
     private static VENTFACING.Role Decide(bool faces, bool touching, bool inReach, double mouthZ,
-                                          bool inRoom, bool serves, double air, out VENTFACING.Reason why)
+                                          bool inRoom, bool serves, double air, out VENTFACING.Reason why,
+                                          bool roomHasOwn = false, bool unitStarved = false,
+                                          bool inSheet = true)
     {
-        return VENTFACING.Bellmouth(faces, touching, inReach, mouthZ, inRoom, serves, air, out why);
+        return VENTFACING.Bellmouth(faces, touching, inReach, mouthZ, inRoom, serves, air, out why,
+                                    roomHasOwn, unitStarved, inSheet);
     }
 
     private static void Decisions()
@@ -336,6 +339,23 @@ internal static class Program
             Decide(false, false, true, 0, true, false, 40, out why) == VENTFACING.Role.InRoom &&
             why == VENTFACING.Reason.ItsRoomNeedsAir);
 
+        // The gap the user's list named (2026-10-15)
+        Check("...but the corridor has its own fresh grille and the FCU's living room has nothing bringing it any: the FCU's",
+            Decide(false, false, true, 0, true, false, 40, out why, roomHasOwn: true, unitStarved: true) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.UnitNeedsIt);
+
+        Check("...its own grille, but the FCU's rooms already have theirs (or an endcap on it): still the corridor's",
+            Decide(false, false, true, 0, true, false, 40, out why, roomHasOwn: true, unitStarved: false) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.ItsRoomNeedsAir);
+
+        Check("...the FCU's room has nothing, but this bellmouth is the corridor's only terminal: the corridor's - never take a room's only air",
+            Decide(false, false, true, 0, true, false, 40, out why, roomHasOwn: false, unitStarved: true) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.ItsRoomNeedsAir);
+
+        Check("...and a mouth pointing down into the corridor is the corridor's, whatever the FCU lacks",
+            Decide(false, false, true, -1, true, false, 40, out why, roomHasOwn: true, unitStarved: true) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.IntoRoomBelow);
+
         // The user's four cases
         Check("case 1: discharging DOWN into its room, an FCU beside it - the room's",
             Decide(false, false, true, -1, true, true, 60, out why) == VENTFACING.Role.InRoom &&
@@ -355,6 +375,35 @@ internal static class Program
 
         Check("a mouth only a little down (30 degrees) is not 'into the room below'",
             Decide(false, false, true, -0.5, true, false, 0, out why) == VENTFACING.Role.Feeds);
+
+        // YANM3's STOREs (user, 2026-10-24: "this store fresh air was not
+        // detected"): BP01.B1.019's bellmouth 1488 mm from unit 2204575,
+        // BP01.B1.076's FACING unit 2032085 1220 mm off - both units supply
+        // no room in scope; the workbook another job's
+        Check("STORE: its room has no row in the sheet - not 'needs none': the store's",
+            Decide(false, false, true, 0, true, false, 0, out why, inSheet: false) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.NotInSheet);
+
+        Check("a unit supplying no room in scope can be fed nothing - faced, touched or near",
+            !VENTFACING.CanFeed(false, false));
+
+        Check("...nor a unit on the bellmouth's own duct system (an AHU's intake)",
+            !VENTFACING.CanFeed(true, true) && !VENTFACING.CanFeed(true, false));
+
+        Check("...any other unit can",
+            VENTFACING.CanFeed(false, true));
+
+        Check("STORE BP01.B1.076: the unit it faces left out, no other in reach - the store's",
+            Decide(false, false, false, 0, true, false, 0, out why, inSheet: false) == VENTFACING.Role.InRoom &&
+            why == VENTFACING.Reason.NoUnit);
+
+        Check("no row, but the unit supplies its room: still feeds it (same air)",
+            Decide(false, false, true, 0, true, true, 0, out why, inSheet: false) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.UnitServesItsRoom);
+
+        Check("no row, its own grille, the unit's room starved: the unit's, as with a row",
+            Decide(false, false, true, 0, true, false, 0, out why, roomHasOwn: true, unitStarved: true, inSheet: false) == VENTFACING.Role.Feeds &&
+            why == VENTFACING.Reason.UnitNeedsIt);
 
         Check("every reason has words for the log",
             ((VENTFACING.Reason[])Enum.GetValues(typeof(VENTFACING.Reason)))
@@ -381,6 +430,65 @@ internal static class Program
         Check("...a ceiling diffuser's in the same place in plan, as before",
             Near(down[0], 3) && Near(down[1], 4) &&
             VENTFACING.InFront(V(1, 1, 1), null, 0.3)[0] == 1);
+    }
+
+    // AN ENDCAP BY A RETURN DUCT (user, 2026-10-24, YANM3's EMCC rooms):
+    // the room's FCUs hang outside it, and the fresh air endcap is beside
+    // the return duct from the room, 3.4 m from the unit - beyond the reach
+    private static void Endcaps()
+    {
+        Console.WriteLine();
+        Console.WriteLine("Endcaps - the nearest unit, or a unit's return duct");
+
+        const double Reach = 1.5;
+        const double None = double.MaxValue;
+
+        Check("within the reach of a unit, no return duct: that unit, as always",
+            VENTFACING.Endcap(1.0, None, Reach) == VENTFACING.EndcapBy.Reach);
+
+        Check("beyond the reach, no return duct: rejected, as always",
+            VENTFACING.Endcap(2.4, None, Reach) == VENTFACING.EndcapBy.None);
+
+        Check("EMCC: 3.47 m from the unit, 0.48 m from its return duct - the return duct's unit",
+            VENTFACING.Endcap(3.47, 0.477, Reach) == VENTFACING.EndcapBy.ReturnDuct);
+
+        Check("...within the reach of the return duct: 1.16 m off it, 2.7 m from any unit - still its",
+            VENTFACING.Endcap(2.7, 1.158, Reach) == VENTFACING.EndcapBy.ReturnDuct);
+
+        // MCC ROOM BP01.B1.179 (2026-10-25: "this room fresh air is showing
+        // 3660"): two far endcaps taken as well as the unit's own
+        Check("MCC: 8.48 m from a return duct, 9.47 m from any unit - rejected, not the MCC's",
+            VENTFACING.Endcap(9.474, 8.478, Reach) == VENTFACING.EndcapBy.None);
+
+        Check("MCC: 2.94 m from a return duct, 4.74 m from any unit - rejected",
+            VENTFACING.Endcap(4.739, 2.937, Reach) == VENTFACING.EndcapBy.None);
+
+        Check("...the unit's own, 0.23 m from its return duct and 0.89 m from it: the unit's",
+            VENTFACING.Endcap(0.889, 0.233, Reach) == VENTFACING.EndcapBy.ReturnDuct);
+
+        Check("a unit nearer than any return duct keeps it (0.8 m vs 5 m)",
+            VENTFACING.Endcap(0.8, 5.0, Reach) == VENTFACING.EndcapBy.Reach);
+
+        Check("...and a return duct within the reach too does not take it from a nearer unit (0.4 m vs 1.2 m)",
+            VENTFACING.Endcap(0.4, 1.2, Reach) == VENTFACING.EndcapBy.Reach);
+
+        Check("just beyond its own unit (1.52 m) is not handed to a return duct 6 m off",
+            VENTFACING.Endcap(1.52, 6.0, Reach) == VENTFACING.EndcapBy.None);
+
+        Check("as near the return duct as a unit: the return duct",
+            VENTFACING.Endcap(0.5, 0.5, Reach) == VENTFACING.EndcapBy.ReturnDuct);
+
+        Check("a unit in no room in scope, supplying one: outside",
+            VENTFACING.Outside(null, new HashSet<string> { "EMCC" }));
+
+        Check("a unit in the corridor supplying the EMCC room: outside",
+            VENTFACING.Outside("CORRIDOR", new HashSet<string> { "EMCC" }));
+
+        Check("a unit over one of the rooms it supplies: not outside",
+            !VENTFACING.Outside("BEDROOM", new HashSet<string> { "BEDROOM", "DRESSING" }));
+
+        Check("a unit supplying nothing: not outside, whatever it stands in",
+            !VENTFACING.Outside(null, new HashSet<string>()) && !VENTFACING.Outside("CORRIDOR", null));
     }
 
     private static int Main()
@@ -699,6 +807,8 @@ internal static class Program
         Merged();
 
         Facing();
+
+        Endcaps();
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0

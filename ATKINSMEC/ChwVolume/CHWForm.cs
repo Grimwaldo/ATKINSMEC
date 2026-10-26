@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace ATKINSMEC
@@ -154,8 +155,18 @@ namespace ATKINSMEC
 
                     row.Tag = model;
 
-                    row.Cells[ColCheck].Value = true;
+                    // Another placement of a model already listed starts
+                    // unticked: its pipes are the same pipes again
+                    row.Cells[ColCheck].Value = !model.Repeat;
                     row.Cells[ColName].Value = model.ToString();
+
+                    // Each placement under the open model, each nested
+                    // link under its placement
+                    if (model.Depth > 0)
+                        row.Cells[ColName].Style.Padding = new Padding(18 * model.Depth, 0, 0, 0);
+
+                    if (model.Repeat)
+                        row.Cells[ColName].ToolTipText = "Placed again - tick it to count its pipes again";
 
                     EnsureItem(SupplyColumn(grid), model.SupplyType);
                     EnsureItem(ReturnColumn(grid), model.ReturnType);
@@ -208,7 +219,67 @@ namespace ATKINSMEC
 
             row.DefaultCellStyle.ForeColor = incomplete && ticked
                 ? System.Drawing.Color.Firebrick
-                : System.Drawing.SystemColors.WindowText;
+                : model.Repeat && !ticked
+                    ? System.Drawing.SystemColors.GrayText
+                    : System.Drawing.SystemColors.WindowText;
+        }
+
+        // ==================================================
+        // The search (user, 2026-10-19)
+        // ==================================================
+
+        // Every word typed, any order, any case - the AUTOVENT links
+        // search's rule. A model found shows with the placements above it,
+        // so the list still reads as a tree. It only HIDES rows: a model
+        // ticked and hidden is still measured.
+        private void Filter()
+        {
+            string query = txtSearch.Text;
+
+            foreach (DataGridView grid in new[] { dgvLocal, dgvCloud })
+            {
+                List<DataGridViewRow> rows = grid.Rows.Cast<DataGridViewRow>().ToList();
+
+                HashSet<int> shown = CHWTREE.Shown(rows.Select(r =>
+                {
+                    var model = r.Tag as CHWVOLUME.ModelItem;
+
+                    return model == null
+                        ? null
+                        : new CHWTREE.Row
+                        {
+                            Text = model.ToString(),
+                            Id = model.IsCloud ? 0 : model.LinkInstanceId,
+                            Parent = model.ParentInstanceId,
+                            Host = model.IsHost,
+                            Local = !model.IsCloud
+                        };
+                }).ToList(), query);
+
+                // A row with the current cell cannot always be hidden
+                grid.CurrentCell = null;
+
+                for (int i = 0; i < rows.Count; i++)
+                    rows[i].Visible = shown.Contains(i);
+            }
+
+            UpdateActionLabels();
+        }
+
+        private void txtSearch_TextChanged(object sender, EventArgs e)
+        {
+            Filter();
+        }
+
+        // Esc empties the search before anything else
+        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape && txtSearch.Text.Length > 0)
+            {
+                txtSearch.Clear();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
         }
 
         // Committing as soon as a box is ticked or a name picked, rather
@@ -383,10 +454,14 @@ namespace ATKINSMEC
             if (HasMultiSelection(grid))
                 return SelectedRows(grid);
 
+            // Everything SHOWING - nothing a search hides is changed
             var all = new List<DataGridViewRow>();
 
             foreach (DataGridViewRow row in grid.Rows)
-                all.Add(row);
+            {
+                if (row.Visible)
+                    all.Add(row);
+            }
 
             return all;
         }
@@ -483,10 +558,10 @@ namespace ATKINSMEC
                 ? "No model is open in Revit, so there is nothing to list " +
                   "here. The ACC models tab holds the models that can " +
                   "still be measured."
-                : $"{localCount} model(s): the one you have open and every " +
-                  "linked model loaded inside it. A link placed several " +
-                  "times is counted once. Click a system type cell to " +
-                  "pick or type the name." + Environment.NewLine +
+                : $"{localCount} row(s): the model you have open, each link " +
+                  "placed in it below, and each nested link below its " +
+                  "placement. A model placed again starts unticked - tick " +
+                  "it to count its pipes again." + Environment.NewLine +
                   "Select several rows with Ctrl or Shift and the buttons " +
                   "act on just those.";
 

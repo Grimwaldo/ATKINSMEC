@@ -38,6 +38,34 @@ namespace ATKINSMEC
     // in tests/ventleveltest, saved per model by VENTSAVED.
     public static class VENTARRANGE
     {
+        // A ROOM'S OCCUPANCY AS CHOSEN IN LEVELS AND ROOMS (user, 2026-10-26:
+        // "select the occupancy of the space just like the excel sheet") -
+        // what goes into its row of the sheet's copy for its new airflows
+        // (VENTWHATIF). Never written to the workbook. Each NULL follows the
+        // sheet; "" and NaN are a cell left blank.
+        public class RoomOccupancy
+        {
+            public string FreshCategory;     // Table 6-1
+            public string ExhaustCategory;   // Table 6-4
+            public string Use;               // nature of use / operation
+            public double? Occupants;        // N1
+            public double? Units;
+
+            public bool IsEmpty
+            {
+                get
+                {
+                    return FreshCategory == null && ExhaustCategory == null && Use == null &&
+                           !Occupants.HasValue && !Units.HasValue;
+                }
+            }
+
+            public RoomOccupancy Copy()
+            {
+                return (RoomOccupancy)MemberwiseClone();
+            }
+        }
+
         public class Arrangement
         {
             // Room keys ("link id:room id") of interior rooms written as
@@ -60,11 +88,32 @@ namespace ATKINSMEC
             // air and extract are one merged cell in the sheet, holding the
             // rooms' total, and the airflow write gives that total to the
             // group's connection once. Groups of room keys, two or more.
+            //
+            // FRESH AIR ONLY since 2026-10-22 (user: an FCU merge and the
+            // Merge button join "fresh air only" - TA-04-04's kitchen exhaust
+            // serves the kitchen alone, but showed as the foyer's and the
+            // living/dining's too). EXTRACT has its own groups, merged only
+            // where the SHEET merges extract cells (ExtractMerges).
             public List<List<string>> Merges = new List<List<string>>();
+            public List<List<string>> ExtractMerges = new List<List<string>>();
+
+            // SHEET OR MODEL in Levels and rooms (user, 2026-10-19). Merges
+            // are the ones in force - the export's and the airflows' - and
+            // ByModel says the window was left on Model (the FCUs' merges),
+            // so it opens there again
+            public bool ByModel;
+
+            // Each room's occupancy chosen in Levels and rooms, by room key
+            // (RoomOccupancy) - a room the sheet decides has none
+            public Dictionary<string, RoomOccupancy> Occupancy = new Dictionary<string, RoomOccupancy>(StringComparer.Ordinal);
 
             public bool IsEmpty
             {
-                get { return Ungrouped.Count == 0 && Orders.Count == 0 && Names.Count == 0 && Merges.Count == 0; }
+                get
+                {
+                    return Ungrouped.Count == 0 && Orders.Count == 0 && Names.Count == 0 &&
+                           Merges.Count == 0 && ExtractMerges.Count == 0 && !ByModel && Occupancy.Count == 0;
+                }
             }
 
             public Arrangement Clone()
@@ -82,13 +131,27 @@ namespace ATKINSMEC
                 foreach (List<string> group in Merges)
                     copy.Merges.Add(new List<string>(group));
 
+                foreach (List<string> group in ExtractMerges)
+                    copy.ExtractMerges.Add(new List<string>(group));
+
+                copy.ByModel = ByModel;
+
+                foreach (KeyValuePair<string, RoomOccupancy> room in Occupancy)
+                    copy.Occupancy[room.Key] = room.Value.Copy();
+
                 return copy;
             }
 
-            // The group a room is merged into, or null
+            // The fresh air group a room is merged into, or null
             public List<string> MergeOf(string key)
             {
                 return key == null ? null : Merges.FirstOrDefault(g => g.Contains(key));
+            }
+
+            // ...its extract group, or null
+            public List<string> ExtractMergeOf(string key)
+            {
+                return key == null ? null : ExtractMerges.FirstOrDefault(g => g.Contains(key));
             }
 
             // A group's id: its first room's key - what the export writes
@@ -97,6 +160,41 @@ namespace ATKINSMEC
             {
                 List<string> group = MergeOf(key);
                 return group == null ? null : group[0];
+            }
+
+            public string ExtractMergeIdOf(string key)
+            {
+                List<string> group = ExtractMergeOf(key);
+                return group == null ? null : group[0];
+            }
+
+            // EACH ROOM'S ROWS THAT MUST STAND TOGETHER: its fresh air group
+            // and its extract group, and theirs in turn - both columns'
+            // cells merge down, so nothing may come between either
+            public Dictionary<string, List<string>> Bound()
+            {
+                var bound = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+                foreach (List<string> group in Merges.Concat(ExtractMerges))
+                {
+                    var joined = new List<string>();
+
+                    foreach (string key in group)
+                    {
+                        List<string> already;
+
+                        foreach (string k in bound.TryGetValue(key, out already) ? already : new List<string> { key })
+                        {
+                            if (!joined.Contains(k))
+                                joined.Add(k);
+                        }
+                    }
+
+                    foreach (string key in joined)
+                        bound[key] = joined;
+                }
+
+                return bound;
             }
 
             // The name a room or apartment is written by: its new one, or
@@ -203,8 +301,10 @@ namespace ATKINSMEC
             if (items == null)
                 return new List<T>();
 
-            if (arrangement == null || arrangement.Merges.Count == 0)
+            if (arrangement == null || (arrangement.Merges.Count == 0 && arrangement.ExtractMerges.Count == 0))
                 return items.ToList();
+
+            Dictionary<string, List<string>> bound = arrangement.Bound();
 
             var result = new List<T>();
             var placed = new bool[items.Count];
@@ -214,7 +314,8 @@ namespace ATKINSMEC
                 if (placed[i])
                     continue;
 
-                List<string> group = arrangement.MergeOf(key(items[i]));
+                List<string> group;
+                bound.TryGetValue(key(items[i]) ?? string.Empty, out group);
 
                 if (group == null)
                 {
@@ -236,23 +337,27 @@ namespace ATKINSMEC
             return result;
         }
 
-        // MERGE ROOMS, and any group they are already in, into one. Only
-        // rooms written in one place - one apartment's rooms, or the
-        // level's own rows - since their cells merge down one column and
-        // nothing may stand between. Returns why not, or null.
-        public static string Merge(Arrangement arrangement, IList<Row> rows)
+        // MERGE ROOMS, and any group they are already in, into one - their
+        // FRESH AIR (the Merge button, an FCU's rooms), or their EXTRACT (the
+        // sheet's merged extract cells only). Only rooms written in one
+        // place - one apartment's rooms, or the level's own rows - since
+        // their cells merge down one column and nothing may stand between.
+        // Returns why not, or null.
+        public static string Merge(Arrangement arrangement, IList<Row> rows, bool extract = false)
         {
             if (arrangement == null || rows == null || rows.Count < 2)
                 return "Pick two or more rooms.";
 
             if (rows.Select(r => r.ApartmentKey ?? string.Empty).Distinct().Count() > 1)
-                return "Merge rooms of one apartment, or rooms outside apartments.";
+                return "Merge units of one redundant room, or rooms outside redundant rooms.";
+
+            List<List<string>> merges = extract ? arrangement.ExtractMerges : arrangement.Merges;
 
             var keys = new List<string>();
 
             foreach (Row row in rows)
             {
-                List<string> group = arrangement.MergeOf(row.Key);
+                List<string> group = merges.FirstOrDefault(g => g.Contains(row.Key));
 
                 foreach (string key in group ?? new List<string> { row.Key })
                 {
@@ -261,10 +366,10 @@ namespace ATKINSMEC
                 }
 
                 if (group != null)
-                    arrangement.Merges.Remove(group);
+                    merges.Remove(group);
             }
 
-            arrangement.Merges.Add(keys);
+            merges.Add(keys);
 
             return null;
         }
@@ -282,9 +387,15 @@ namespace ATKINSMEC
 
                 if (group != null)
                     group.Remove(key);
+
+                group = arrangement.ExtractMergeOf(key);
+
+                if (group != null)
+                    group.Remove(key);
             }
 
             arrangement.Merges.RemoveAll(g => g.Count < 2);
+            arrangement.ExtractMerges.RemoveAll(g => g.Count < 2);
         }
 
         // The keys in `saved` first, in that order; everything else after,
@@ -347,11 +458,11 @@ namespace ATKINSMEC
         }
 
         // ==================================================
-        // As the arrange dialog sees a level
+        // As Levels and rooms sees a level
         // ==================================================
 
-        // One room as the dialog shows it - plain data, made by the window
-        // from what the levels list holds
+        // One room as Levels and rooms shows it - plain data, made by the
+        // window from what it has read; its tick is the window's RoomRow
         public class Row
         {
             public string Key = string.Empty;
@@ -359,6 +470,12 @@ namespace ATKINSMEC
             public string ModelName = string.Empty;     // the model's own
             public string Number = string.Empty;
             public string LinkName = string.Empty;
+
+            // As the export writes them: m2, and m to the false ceiling
+            // (HeightToCeiling) or the room's own height; 0 = not read
+            public double AreaM2;
+            public double HeightM;
+            public bool HeightToCeiling;
 
             // The apartment it is written under NOW - null: a row of its own
             public string ApartmentKey;
@@ -371,9 +488,6 @@ namespace ATKINSMEC
             public string HomeKey;
             public string Home;
             public string HomeNumber;
-
-            // Unticked in the levels list: listed, but not exported
-            public bool Exported = true;
 
             public bool IsInterior
             {
@@ -646,7 +760,10 @@ namespace ATKINSMEC
             foreach (string key in arrangement.Names.Keys)
                 ids.Add(LinkOf(key));
 
-            foreach (string key in arrangement.Merges.SelectMany(g => g))
+            foreach (string key in arrangement.Merges.Concat(arrangement.ExtractMerges).SelectMany(g => g))
+                ids.Add(LinkOf(key));
+
+            foreach (string key in arrangement.Occupancy.Keys)
                 ids.Add(LinkOf(key));
 
             ids.Remove(0);
@@ -695,6 +812,15 @@ namespace ATKINSMEC
 
             for (int i = 0; i < arrangement.Merges.Count; i++)
                 arrangement.Merges[i] = arrangement.Merges[i].Select(moved).ToList();
+
+            for (int i = 0; i < arrangement.ExtractMerges.Count; i++)
+                arrangement.ExtractMerges[i] = arrangement.ExtractMerges[i].Select(moved).ToList();
+
+            var occupancy = arrangement.Occupancy.ToList();
+            arrangement.Occupancy.Clear();
+
+            foreach (KeyValuePair<string, RoomOccupancy> room in occupancy)
+                arrangement.Occupancy[moved(room.Key)] = room.Value;
         }
     }
 }

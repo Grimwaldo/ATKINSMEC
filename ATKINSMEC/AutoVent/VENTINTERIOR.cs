@@ -12,9 +12,11 @@ namespace ATKINSMEC
     // found in each level". Before this, EVERY loaded placement was
     // searched for rooms standing inside an apartment, whatever it was.
     //
-    //   - A KEYWORD names them (default "IND"): a placement whose label
-    //     holds every word of it is a candidate - VENTLINKFILTER's rule,
-    //     the same as the links search box.
+    //   - KEYWORDS name them (default "IND, ID" - "ID" added 2026-10-19,
+    //     the user: "can the container also detect models with 'ID'
+    //     instead of 'IND'"): any one of them, commas between, as WORDS of
+    //     the label (Named) - "ID" finds ...-3DM-ID-001220, never GRID or
+    //     SIDE. Until then one keyword, VENTLINKFILTER's substring rule.
     //   - Each candidate is offered under every storey of THIS model where
     //     it has ROOMS (each room's floor by VENTLEVELMAP.StoreyOf, the
     //     rule everything else uses) - so an interior model placed once
@@ -32,6 +34,40 @@ namespace ATKINSMEC
     // searched for them. Revit-free - tests/ventsettingstest.
     public static class VENTINTERIOR
     {
+        // AN INTERIOR MODEL BY ITS NAME: any of the keywords (commas or
+        // semicolons between), each a word of the label - a word of three
+        // letters or more STARTS one ("IND" finds IND-001220), one of one or
+        // two IS one ("ID" finds ID-001220, not GRID, SIDE or IND). A keyword
+        // of several words needs them all, in any order. No keyword at all:
+        // every placement, as before.
+        public static bool Named(string label, string keywords)
+        {
+            string[] name = Words(label);
+            bool any = false;
+
+            foreach (string keyword in (keywords ?? string.Empty).Split(',', ';'))
+            {
+                string[] words = Words(keyword);
+
+                if (words.Length == 0)
+                    continue;
+
+                any = true;
+
+                if (words.All(w => name.Any(n => w.Length >= 3 ? n.StartsWith(w, StringComparison.Ordinal) : n == w)))
+                    return true;
+            }
+
+            return !any;
+        }
+
+        private static string[] Words(string text)
+        {
+            return System.Text.RegularExpressions.Regex.Split((text ?? string.Empty).ToUpperInvariant(), "[^A-Z0-9]+")
+                .Where(w => w.Length > 0)
+                .ToArray();
+        }
+
         // One candidate placement on one storey of this model
         public class Found
         {
@@ -64,7 +100,7 @@ namespace ATKINSMEC
                 if (exclude != null && exclude.Contains(link.Key))
                     continue;
 
-                if (!VENTLINKFILTER.Matches(link.Value, keyword))
+                if (!Named(link.Value, keyword))
                     continue;
 
                 List<double> its;
@@ -117,7 +153,7 @@ namespace ATKINSMEC
             string keyword, bool chosen, IDictionary<string, HashSet<long>> picks)
         {
             if (!chosen)
-                return VENTLINKFILTER.Matches(label, keyword);
+                return Named(label, keyword);
 
             HashSet<long> on;
 

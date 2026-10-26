@@ -127,6 +127,17 @@ namespace ATKINSMEC
             public bool IsHost { get; set; }
             public long LinkInstanceId { get; set; }
 
+            // Where it sits in the list (user, 2026-10-19): 0 the open
+            // model, 1 a link placed in it, 2 and on a link nested in that
+            // placement - and the placement it is under (0: the open model)
+            public int Depth { get; set; }
+            public long ParentInstanceId { get; set; }
+            public string ParentName { get; set; }
+
+            // Another placement of a model listed above it: offered, not
+            // ticked - its pipes are the same pipes again
+            public bool Repeat { get; set; }
+
             // Chosen per model: two models can name their chilled water
             // systems differently, so one pair for all of them will not
             // do. For an ACC model these live on the Cloud entry so they
@@ -193,7 +204,15 @@ namespace ATKINSMEC
             }
         }
 
-        // The current model plus every loaded link in it
+        // THE CURRENT MODEL, EVERY PLACEMENT OF A LINK BELOW IT, AND EVERY
+        // NESTED LINK BELOW THE PLACEMENT IT IS IN (user, 2026-10-19: "list
+        // the linked instances of main model below it and the linked
+        // instances (nested links) of linked models"). Until then one row
+        // per linked model, its other placements folded in.
+        //
+        // A model placed more than once is listed once per placement, the
+        // first ticked and the rest Repeat (offered unticked) - so the
+        // total is what it was unless a person ticks a repeat in.
         public static List<ModelItem> GetModels(Document hostDoc)
         {
             var items = new List<ModelItem>();
@@ -210,33 +229,96 @@ namespace ATKINSMEC
                 LinkInstanceId = 0
             });
 
-            var links =
+            List<RevitLinkInstance> links =
                 new FilteredElementCollector(hostDoc)
                 .OfClass(typeof(RevitLinkInstance))
-                .Cast<RevitLinkInstance>();
+                .Cast<RevitLinkInstance>()
+                .Where(l => l.GetLinkDocument() != null)
+                .ToList();
 
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Each placement's name - the model, and which placement when
+            // there is more than one
+            Dictionary<long, string> labels = RVTLINKSELECTION.LinkLabels(hostDoc);
 
-            foreach (RevitLinkInstance link in links)
+            string LabelOf(RevitLinkInstance link)
             {
-                Document linkDoc = link.GetLinkDocument();
+                string label;
 
-                if (linkDoc == null)
-                    continue;
+                return labels.TryGetValue(link.Id.ToValue(), out label)
+                    ? label
+                    : link.GetLinkDocument().Title;
+            }
 
-                // A link placed several times holds one set of pipes
-                if (!seen.Add(linkDoc.Title))
-                    continue;
+            // The order, the nesting and the repeats: CHWTREE (Revit-free)
+            List<CHWTREE.Line> lines = CHWTREE.Order(
+                links.Select(l => new CHWTREE.Placement
+                {
+                    Id = l.Id.ToValue(),
+                    Parent = ParentPlacement(hostDoc, l, links),
+                    Label = LabelOf(l),
+                    Model = DocKey(l.GetLinkDocument())
+                }),
+                hostDoc.Title);
 
+            foreach (CHWTREE.Line line in lines)
+            {
                 items.Add(new ModelItem
                 {
-                    Name = linkDoc.Title,
+                    Name = line.Label,
                     IsHost = false,
-                    LinkInstanceId = link.Id.ToValue()
+                    LinkInstanceId = line.Id,
+                    Depth = line.Depth,
+                    ParentInstanceId = line.Parent,
+                    ParentName = line.ParentName,
+                    Repeat = line.Repeat
                 });
             }
 
             return items;
+        }
+
+        // One model, however many times it is placed
+        private static string DocKey(Document doc)
+        {
+            string path = doc.PathName;
+
+            return string.IsNullOrEmpty(path) ? doc.Title : path;
+        }
+
+        // THE PLACEMENT A NESTED LINK IS IN - 0 for a link placed in the open
+        // model itself. The nesting is known by TYPE (RevitLinkType.
+        // GetParentId); with the parent model placed more than once, the
+        // placement whose origin is nearest - a nested link sits with its
+        // own parent, as a tower's links with their tower.
+        private static long ParentPlacement(Document hostDoc, RevitLinkInstance link, List<RevitLinkInstance> links)
+        {
+            try
+            {
+                var type = hostDoc.GetElement(link.GetTypeId()) as RevitLinkType;
+
+                if (type == null || !type.IsNestedLink)
+                    return 0;
+
+                ElementId parentType = type.GetParentId();
+
+                List<RevitLinkInstance> parents = links
+                    .Where(l => l.Id != link.Id && l.GetTypeId() == parentType)
+                    .ToList();
+
+                double[] P(RevitLinkInstance l)
+                {
+                    XYZ o = l.GetTotalTransform().Origin;
+                    return new[] { o.X, o.Y, o.Z };
+                }
+
+                return CHWTREE.Nearest(
+                    parents.Select(p => new KeyValuePair<long, double[]>(p.Id.ToValue(), P(p))),
+                    P(link));
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         // Every piping system type found in the given models, by name
@@ -444,6 +526,10 @@ namespace ATKINSMEC
 
             var queue = new List<ModelItem>(models);
 
+            // A model ticked in two placements is measured once and counted
+            // twice - its pipes walked again would give the same figure
+            var measured = new Dictionary<string, ModelResult>(StringComparer.OrdinalIgnoreCase);
+
             for (int i = 0; i < queue.Count; i++)
             {
                 if (stop != null)
@@ -505,12 +591,23 @@ namespace ATKINSMEC
 
                 try
                 {
+                    string again = item.IsCloud
+                        ? null
+                        : DocKey(doc) + "\n" + item.SupplyType + "\n" + item.ReturnType;
+
+                    ModelResult before;
+
                     // Each model is measured against its own two types
-                    modelResult = Measure(
-                        doc,
-                        item,
-                        item.SupplyType,
-                        item.ReturnType);
+                    modelResult = again != null && measured.TryGetValue(again, out before)
+                        ? Again(before, item)
+                        : Measure(
+                            doc,
+                            item,
+                            item.SupplyType,
+                            item.ReturnType);
+
+                    if (again != null && !measured.ContainsKey(again))
+                        measured[again] = modelResult;
 
                     modelResult.SupplyTypeName = item.SupplyType;
                     modelResult.ReturnTypeName = item.ReturnType;
@@ -552,15 +649,39 @@ namespace ATKINSMEC
             return result;
         }
 
+        // The same model's figures under another placement's name
+        private static ModelResult Again(ModelResult before, ModelItem item)
+        {
+            return new ModelResult
+            {
+                ModelName = item.Depth >= 2 && !string.IsNullOrEmpty(item.ParentName)
+                    ? item.Name + "  (in " + item.ParentName + ")"
+                    : item.Name,
+                IsHost = item.IsHost,
+                SupplyPipes = before.SupplyPipes,
+                ReturnPipes = before.ReturnPipes,
+                SupplyLitres = before.SupplyLitres,
+                ReturnLitres = before.ReturnLitres,
+                SupplyFittings = before.SupplyFittings,
+                ReturnFittings = before.ReturnFittings,
+                SupplyFittingLitres = before.SupplyFittingLitres,
+                ReturnFittingLitres = before.ReturnFittingLitres,
+                SkippedNoSize = before.SkippedNoSize
+            };
+        }
+
         private static ModelResult Measure(
             Document doc,
             ModelItem item,
             string supplyTypeName,
             string returnTypeName)
         {
+            // A nested link says which placement it is in
             var modelResult = new ModelResult
             {
-                ModelName = item.Name,
+                ModelName = item.Depth >= 2 && !string.IsNullOrEmpty(item.ParentName)
+                    ? item.Name + "  (in " + item.ParentName + ")"
+                    : item.Name,
                 IsHost = item.IsHost
             };
 

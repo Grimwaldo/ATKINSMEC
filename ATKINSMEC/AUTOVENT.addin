@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+	<AddIn Type="Application">
+		<Name>AUTOVENT</Name>
+		<FullClassName>ATKINSMEC.UI</FullClassName>
+		<Text>AUTOVENT</Text>
+		<Description>AUTOVENT on its own, from the Atkins MEP Toolkit: ventilation airflows from the Excel schedule onto air terminals, and the model's rooms back into the sheet</Description>
+		<VisibilityMode>AlwaysVisible</VisibilityMode>
+		<Assembly>AUTOVENT\ATKINSMEC.AutoVent.dll</Assembly>
+		<AddInId>677EC2E1-2A5E-4846-A8CB-7F314E2F3CFA</AddInId>
+		<VendorId>ATKINS</VendorId>
+		<VendorDescription>Atkins</VendorDescription>
+	</AddIn>
+</RevitAddIns>

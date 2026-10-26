@@ -50,6 +50,15 @@ internal static class Program
         ApartmentsTest(template);
         ArrangedTest(template);
         MergedTest(template);
+        MatchTests();
+        UpdateTest(template);
+        UpdateWithoutKeysTest(template);
+        UpdateMergedTest(template);
+        OccupancyRuleTests(template);
+        OccupancyExportTest(template);
+        OccupancyUpdateTest(template);
+        KitchenUpdateTest(template);
+        TwinsTest(template);
         AddToOfficeTest(template);
         AddToBareTest(template);
         RefusalTests(template);
@@ -389,7 +398,7 @@ internal static class Program
     static void MergedTest(byte[] template)
     {
         Console.WriteLine();
-        Console.WriteLine("== merged rooms: one total of fresh air and extract");
+        Console.WriteLine("== merged rooms: one total of fresh air, or of extract - each side its own");
 
         const string Level = "LEVEL 04A";
 
@@ -403,7 +412,11 @@ internal static class Program
 
             if (merged)
             {
+                // The living and the kitchen merged on both sides (the sheet
+                // merged their extract cells too); the apartment's pair on
+                // fresh air only - an FCU's merge (2026-10-22)
                 living.Merge = kitchen.Merge = "k";
+                living.ExtractMerge = kitchen.ExtractMerge = "k";
                 bed.Merge = bath.Merge = "b";
 
                 // A group of one is no merge
@@ -421,7 +434,7 @@ internal static class Program
         VENTOFFICE.Result result = VENTOFFICE.NewWorkbook(
             template, Job("Merged", new List<VENTTEMPLATE.Level> { L(Level, 0, Rooms(true).ToArray()) }, null), mergedPath);
 
-        Check(result.Merged == 2, "two merged groups written (" + result.Merged + ")");
+        Check(result.Merged == 3, "three merged groups written - two of fresh air, one of extract (" + result.Merged + ")");
 
         // Both calculated with every room an office, as Calculate does
         // with one - and saved, so the importer reads what Excel would
@@ -500,6 +513,10 @@ internal static class Program
                 Check(ws.MergedCells[bed, layout.FreshAirCol] == Span(bed, bath, layout.FreshAirCol),
                       "rooms of one apartment merge the same way - " + ws.MergedCells[bed, layout.FreshAirCol]);
 
+                Check(ws.MergedCells[bed, layout.ExhaustAirCol] == null && ws.MergedCells[bath, layout.ExhaustAirCol] == null &&
+                      Math.Abs(Num(bath, layout.ExhaustAirCol) - extract["121.122"]) < 1e-9,
+                      "a fresh air merge leaves the extract alone: the ensuite keeps its own extract cell, " + Num(bath, layout.ExhaustAirCol));
+
                 Check(ws.MergedCells[living, layout.AreaCol] == null && Num(kitchen, layout.AreaCol) == 12,
                       "nothing else is merged: each room keeps its own area");
 
@@ -553,8 +570,1175 @@ internal static class Program
               Air("121.001").FreshMerge == null,
               "the apartment's pair is a group of its own; the lobby is in none");
 
+        Check(Air("121.121").ExhaustMerge == null && Air("121.122").ExhaustMerge == null,
+              "...on fresh air only: its extract reads back room by room");
+
         Check(Math.Abs(Air("121.125").FreshAir + Air("121.126").FreshAir - (fresh["121.125"] + fresh["121.126"])) < 1e-9,
               "the group's air read back is the total, once: " + Air("121.125").FreshAir + " + " + Air("121.126").FreshAir);
+    }
+
+    // ==================================================
+    // Updating the imported worksheet (VENTUPDATE)
+    // ==================================================
+
+    // User (2026-10-14): an export into the imported sheet keeps what was
+    // typed, adds the rooms the architect added, updates the ones changed;
+    // a room no longer in the model is kept, greyed, with a note.
+
+    const int Occ = 15;   // O: occupancy, as Calculate types it
+
+    static VENTUPDATE.Candidate C(string level, string key, string number, string name) =>
+        new VENTUPDATE.Candidate { Level = level, Key = key, Number = number, Name = name };
+
+    static VENTTEMPLATE.Room Rm(string key, string name, string number, double area, bool keep = false)
+    {
+        var r = R(name, number, area, 3);
+        r.Key = key;
+        r.Keep = keep;
+        return r;
+    }
+
+    static int RowOf(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, string number) =>
+        Enumerable.Range(layout.FirstDataRow, 80).FirstOrDefault(r => ws.Cells[r, layout.RoomNumberCol].Text.Trim() == number);
+
+    static int LevelRowOf(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, string level) =>
+        Enumerable.Range(layout.FirstDataRow, 80).FirstOrDefault(r => ws.Cells[r, layout.SpaceNameCol].Text.Trim() == level);
+
+    static string NameAt(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, int row) => VENTSHEET.NameOf(ws, row, layout);
+
+    // A column a person types into: headed, no formula in the room row,
+    // none the model writes
+    static int NoteColumn(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, int row)
+    {
+        var busy = new HashSet<int>
+        {
+            layout.RoomNumberCol, layout.AreaCol, layout.HeightCol, layout.UnitsCol,
+            layout.BedroomsCol, layout.FreshAirCol, layout.ExhaustAirCol, Occ
+        };
+
+        for (int c = layout.SpaceEndCol + 1; c <= ws.Dimension.End.Column; c++)
+        {
+            if (busy.Contains(c) || ws.Column(c).Hidden || !string.IsNullOrEmpty(ws.Cells[row, c].Formula))
+                continue;
+
+            if (Enumerable.Range(1, layout.HeaderEndRow).Any(r => ws.Cells[r, c].Text.Trim().Length > 0))
+                return c;
+        }
+
+        return 0;
+    }
+
+    // A level's five rows - level, spacer, two rooms, Sub Total - as text
+    // and R1C1 formulas, so where they stand does not matter
+    static string Snapshot(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, string level)
+    {
+        int top = LevelRowOf(ws, layout, level);
+        var parts = new List<string>();
+
+        for (int r = top; r < top + 5; r++)
+        {
+            for (int c = 1; c <= ws.Dimension.End.Column; c++)
+            {
+                ExcelRange cell = ws.Cells[r, c];
+
+                parts.Add(string.IsNullOrEmpty(cell.Formula) ? cell.Text : "=" + cell.FormulaR1C1);
+            }
+        }
+
+        return string.Join("|", parts);
+    }
+
+    static VENTUPDATE.Outcome Update(string from, string to, List<VENTTEMPLATE.Level> levels,
+                                     HashSet<string> ticked, List<string> storeys)
+    {
+        using (var p = new ExcelPackage(new FileInfo(from)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            VENTUPDATE.Outcome done = VENTUPDATE.Update(
+                ws, layout, levels, l => ticked.Contains(l.Trim()), storeys, "2026-10-14");
+
+            p.SaveAs(new FileInfo(to));
+
+            return done;
+        }
+    }
+
+    static void MatchTests()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== update: which row is which room");
+
+        int[] m = VENTUPDATE.Match(
+            new[] { C("L1", "k1", "1", "A"), C("L1", "k2", "2", "B") },
+            new[] { C("L1", "k2", "1", "A") });
+
+        Check(m[0] == 1, "the model ID wins over the number - a renumbered room is still its own row");
+
+        m = VENTUPDATE.Match(new[] { C("L1", "", "1", "A") }, new[] { C("L2", "", "1", "A") });
+
+        Check(m[0] == -1, "a number matches only on its own level");
+
+        m = VENTUPDATE.Match(new[] { C("L1", "", "1", "X"), C("L1", "", "1", "Y") }, new[] { C("L1", "", "1", "Y") });
+
+        Check(m[0] == 1, "two rows with one number: the one with the same name");
+
+        m = VENTUPDATE.Match(new[] { C("L1", "", "3", "STORE") }, new[] { C("L1", "", "13", "STORE") });
+
+        Check(m[0] == 0, "renumbered, no ID yet: found by a name only it has on the level");
+
+        m = VENTUPDATE.Match(new[] { C("L1", "", "5", "BEDROOM"), C("L1", "", "6", "BEDROOM") },
+                             new[] { C("L1", "", "15", "BEDROOM"), C("L1", "", "16", "BEDROOM") });
+
+        Check(m[0] == -1 && m[1] == -1, "...never by a name two rooms share - no guessing");
+
+        m = VENTUPDATE.Match(new[] { C("L1", "", "1", "A") }, new[] { C("L1", "", "1", "A"), C("L1", "", "1", "A") });
+
+        Check(m[0] == 0 && m[1] == -1, "a row is one room's only");
+
+        string[] storeys = { "L01", "L02", "L03" };
+
+        Check(VENTUPDATE.Place(new[] { "L01", "L02" }, new[] { "L03" }, storeys).SequenceEqual(new[] { 0, 1, -1 }),
+              "a new level above the sheet's goes after them");
+
+        Check(VENTUPDATE.Place(new[] { "L01", "L03" }, new[] { "L02" }, storeys).SequenceEqual(new[] { 0, -1, 1 }),
+              "...between them, where the model has it");
+
+        Check(VENTUPDATE.Place(new[] { "L02" }, new[] { "L03", "L01" }, storeys).SequenceEqual(new[] { -2, 0, -1 }),
+              "...below them, and several at once");
+
+        Check(VENTUPDATE.Place(new[] { "L03", "L01" }, new[] { "L02" }, storeys).SequenceEqual(new[] { 0, 1, -1 }),
+              "the sheet's own order of levels is never changed");
+    }
+
+    static void UpdateTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== update the imported worksheet: what was typed stays, rooms added, changed, removed");
+
+        var before = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, Rm("9:1", "OFFICE", "101", 20), Rm("9:2", "MEETING", "102", 15),
+                             Rm("9:3", "STORE", "103", 5), Rm("9:4", "PANTRY", "104", 8)),
+            L("LEVEL 02", 4, Rm("9:5", "OFFICE", "201", 30), Rm("9:6", "LOBBY", "202", 12))
+        };
+
+        string basePath = Path.Combine(Out, "update-base.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, Job("Vent", before, null), basePath);
+
+        // ---- the engineer's own inputs
+        string typedPath = Path.Combine(Out, "update-typed.xlsx");
+        int noteCol;
+        string level2Before;
+
+        using (var p = new ExcelPackage(new FileInfo(basePath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            int keyCol = VENTUPDATE.KeyColumn(ws, layout, false, out bool made);
+
+            Check(keyCol > 0 && ws.Column(keyCol).Hidden && ws.Cells[RowOf(ws, layout, "102"), keyCol].Text == "9:2",
+                  "every export writes each room's model ID in a hidden column (" + Col(keyCol) + ")");
+
+            foreach (string n in new[] { "101", "104", "201" })
+                ws.Cells[RowOf(ws, layout, n), Occ].Value = "Office Space";
+
+            noteCol = NoteColumn(ws, layout, RowOf(ws, layout, "102"));
+
+            if (noteCol > 0)
+                ws.Cells[RowOf(ws, layout, "102"), noteCol].Value = "checked MH";
+
+            ExcelRange fresh = ws.Cells[RowOf(ws, layout, "103"), layout.FreshAirCol];
+            fresh.Formula = null;
+            fresh.Value = 42.0;
+
+            level2Before = Snapshot(ws, layout, "LEVEL 02");
+
+            p.SaveAs(new FileInfo(typedPath));
+        }
+
+        Check(noteCol > 0, "an input column with no formula to type a note in: " + Col(noteCol));
+
+        // ---- the architect's changes
+        List<VENTTEMPLATE.Level> After(bool storeUnticked) => new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, Rm("9:1", "OFFICE", "101", 21), Rm("9:2", "MEETING ROOM", "112", 15),
+                             storeUnticked ? Rm("9:3", "STORE ROOM", "103", 9, keep: true) : Rm("9:3", "STORE", "103", 5),
+                             Rm("9:7", "COPY", "105", 6), Rm("9:8", "PRINT", "106", 4, keep: true)),
+            L("LEVEL 02", 4, Rm("9:5", "OPEN OFFICE", "201", 31)),
+            L("LEVEL 03", 8, Rm("9:9", "PLANT", "301", 40))
+        };
+
+        var ticked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "LEVEL 01", "LEVEL 03" };
+        var storeys = new List<string> { "LEVEL 01", "LEVEL 02", "LEVEL 03" };
+
+        string outPath = Path.Combine(Out, "update-out.xlsx");
+
+        VENTUPDATE.Outcome done = Update(typedPath, outPath, After(false), ticked, storeys);
+
+        Check(done.Matched == 3 && done.Changed == 2 && done.Added == 2 && done.Gone == 1 && done.Kept == 0 &&
+              done.LevelsAdded == 1 && done.LevelsLeft == 1,
+              "3 matched (2 changed), 2 added, 1 no longer in the model, a level added, one left alone: " +
+              $"{done.Matched} ({done.Changed}), {done.Added}, {done.Gone}, {done.LevelsAdded}, {done.LevelsLeft}");
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int nameCol = layout.SpaceNameCol;
+
+            int Row(string n) => RowOf(ws, layout, n);
+
+            int l1 = LevelRowOf(ws, layout, "LEVEL 01");
+            int l2 = LevelRowOf(ws, layout, "LEVEL 02");
+            int l3 = LevelRowOf(ws, layout, "LEVEL 03");
+
+            Check(l1 > 0 && l1 < l2 && l2 < l3,
+                  "the levels in the sheet's order, the new one where the model has it: " + l1 + ", " + l2 + ", " + l3);
+
+            string order = string.Join(",", Enumerable.Range(l1, l2 - l1)
+                .Select(r => ws.Cells[r, layout.RoomNumberCol].Text).Where(t => t.Length > 0));
+
+            Check(order == "101,112,103,105,104",
+                  "LEVEL 01 in the model's order, the room no longer in it last: " + order);
+
+            Check(ws.Cells[Row("101"), Occ].Text == "Office Space" &&
+                  Convert.ToDouble(ws.Cells[Row("101"), layout.AreaCol].Value) == 21,
+                  "a matched room keeps what was typed in it (its occupancy) and takes the model's new area");
+
+            int meeting = Row("112");
+
+            Check(meeting > 0 && NameAt(ws, layout, meeting) == "MEETING ROOM" && ws.Cells[meeting, noteCol].Text == "checked MH",
+                  "renamed AND renumbered: found by its model ID, the note typed in its row still there");
+
+            Check(ws.Cells[Row("103"), layout.FreshAirCol].Value is double typed && typed == 42 &&
+                  string.IsNullOrEmpty(ws.Cells[Row("103"), layout.FreshAirCol].Formula),
+                  "a value typed over the sheet's formula stays");
+
+            int copy = Row("105");
+
+            Check(copy > 0 && ws.Cells[copy, Occ].Text.Length == 0 && ws.Cells[copy, noteCol].Text.Length == 0 &&
+                  !string.IsNullOrEmpty(ws.Cells[copy, layout.FreshAirCol].Formula),
+                  "a new room: a row like the sheet's own, the inputs blank, the formulas in place");
+
+            Check(Row("106") == 0, "an unticked room with no row is not added");
+
+            int pantry = Row("104");
+
+            Check(pantry > 0 && ws.Cells[pantry, nameCol].Style.Font.Italic &&
+                  ws.Cells[pantry, nameCol].Comment != null &&
+                  ws.Cells[pantry, nameCol].Comment.Text.Contains("Not in the model") &&
+                  ws.Cells[pantry, Occ].Text == "Office Space",
+                  "a room no longer in the model: kept, greyed, with a note - and what was typed in it");
+
+            Check(Snapshot(ws, layout, "LEVEL 02") == level2Before && NameAt(ws, layout, Row("201")) == "OFFICE",
+                  "a level not ticked is left exactly as it was - the model's rename not applied");
+
+            Check(VENTSHEET.IsLevelFill(ws.Cells[l3, nameCol]) && Row("301") > l3,
+                  "the new level looks like the others, its room under it");
+
+            Check(ws.Cells[Row("301"), VENTUPDATE.KeyColumn(ws, layout, false, out bool _)].Text == "9:9",
+                  "...with its model ID");
+
+            p.Workbook.Calculate();
+
+            double Num(int r, int c) => ws.Cells[r, c].Value is double d ? d : 0;
+
+            int sub1 = Enumerable.Range(l1, l2 - l1).First(r => VENTSHEET.IsSubTotalRow(ws.Cells[r, nameCol].Text));
+
+            Check(Math.Abs(Num(sub1, layout.AreaCol) - (21 + 15 + 5 + 6 + 8)) < 1e-9,
+                  "LEVEL 01's Sub Total adds up its own rows, the greyed one's too: " + Num(sub1, layout.AreaCol));
+
+            int total = Enumerable.Range(l3, 20).First(r => ws.Cells[r, 1].Text.Trim() == "Total");
+
+            Check(Math.Abs(Num(total, layout.AreaCol) - (55 + 42 + 40)) < 1e-9,
+                  "the Total is every level's Sub Total, the new level's too: " + Num(total, layout.AreaCol) +
+                  " (" + Short(ws.Cells[total, layout.AreaCol].Formula) + ")");
+
+            ExcelRangeBase sumif = ws.Cells[total + 1, 1, ws.Dimension.End.Row, ws.Dimension.End.Column]
+                .FirstOrDefault(c => (c.Formula ?? string.Empty).StartsWith("SUMIF("));
+
+            System.Text.RegularExpressions.Match span = sumif == null
+                ? null
+                : System.Text.RegularExpressions.Regex.Match(sumif.Formula, @"\$[A-Z]+\$(\d+):\$[A-Z]+\$(\d+)");
+
+            Check(span != null && span.Success &&
+                  int.Parse(span.Groups[1].Value) == Row("101") && int.Parse(span.Groups[2].Value) == Row("301"),
+                  "the summary tables read every room row, the new ones too: " +
+                  (sumif == null ? "(none)" : Short(sumif.Formula)) + ", rooms " + Row("101") + "-" + Row("301"));
+
+            int errors = 0;
+
+            foreach (var cell in ws.Cells[layout.FirstDataRow, 1, total, ws.Dimension.End.Column])
+                if (cell.Value is ExcelErrorValue e && (e.ToString() == "#REF!" || e.ToString() == "#NAME?"))
+                    errors++;
+
+            Check(errors == 0, "no #REF! or #NAME? (" + errors + ")");
+        }
+
+        // ---- read back through the REAL importer
+        VENTSHEET.sheetpath = outPath;
+        VENTSHEET.sheetname = "Vent";
+
+        Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> read = new VENTSHEET().excelsheet();
+
+        bool Has(string level, string name, string number) =>
+            read.Keys.Any(k => k.Level == level && k.SpaceName == name && k.RoomNumber == number);
+
+        Check(read.Count == 8 && Has("LEVEL 01", "MEETING ROOM", "112") && Has("LEVEL 03", "PLANT", "301") &&
+              Has("LEVEL 02", "OFFICE", "201") && Has("LEVEL 01", "PANTRY", "104"),
+              "the importer reads it all back, each room under its level: " + read.Count + " of 8");
+
+        // ---- again, nothing changed: nothing moves
+        VENTUPDATE.Outcome again = Update(outPath, Path.Combine(Out, "update-again.xlsx"), After(false), ticked, storeys);
+
+        Check(again.Matched == 5 && again.Added == 0 && again.Changed == 0 && again.Gone == 1 &&
+              again.LevelsAdded == 0 && again.RowsBefore == again.RowsAfter,
+              $"updated again with nothing changed: all 5 found, nothing added, as many rows ({again.RowsBefore} -> {again.RowsAfter})");
+
+        // ---- an unticked room keeps its row as it is
+        string keptPath = Path.Combine(Out, "update-kept.xlsx");
+
+        VENTUPDATE.Outcome left = Update(outPath, keptPath, After(true), ticked, storeys);
+
+        using (var p = new ExcelPackage(new FileInfo(keptPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int store = RowOf(ws, layout, "103");
+
+            Check(left.Kept == 1 && NameAt(ws, layout, store) == "STORE" &&
+                  Convert.ToDouble(ws.Cells[store, layout.AreaCol].Value) == 5 &&
+                  ws.Cells[store, layout.FreshAirCol].Value is double v && v == 42,
+                  "an unticked room keeps its row exactly - the model's new name and area not taken");
+        }
+    }
+
+    static void UpdateWithoutKeysTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== update a sheet written before there was a model ID column");
+
+        var before = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, R("OFFICE", "101", 20, 3), R("MEETING", "102", 15, 3), R("STORE", "103", 5, 3),
+                             R("BEDROOM", "104", 12, 3), R("BEDROOM", "105", 12, 3))
+        };
+
+        string basePath = Path.Combine(Out, "update-nokeys.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, Job("Vent", before, null), basePath);
+
+        using (var p = new ExcelPackage(new FileInfo(basePath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+
+            Check(VENTUPDATE.KeyColumn(ws, VENTSHEET.DetectLayout(ws, false), false, out bool _) == 0,
+                  "rooms with no model ID: no ID column written");
+        }
+
+        var after = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, Rm("9:1", "OFFICE", "101", 20), Rm("9:2", "BOARDROOM", "102", 15),
+                             Rm("9:3", "STORE", "113", 5), Rm("9:4", "BEDROOM", "114", 12), Rm("9:5", "BEDROOM", "115", 12))
+        };
+
+        string outPath = Path.Combine(Out, "update-nokeys-out.xlsx");
+
+        VENTUPDATE.Outcome done = Update(basePath, outPath, after,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "LEVEL 01" }, new List<string> { "LEVEL 01" });
+
+        Check(done.KeyColumnAdded && done.Matched == 3 && done.Added == 2 && done.Gone == 2,
+              "renamed: by its number; renumbered: by a name only it has; two bedrooms renumbered: new rows, " +
+              $"the old ones greyed - {done.Matched} matched, {done.Added} added, {done.Gone} greyed");
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int keyCol = VENTUPDATE.KeyColumn(ws, layout, false, out bool _);
+
+            Check(keyCol > 0 && ws.Column(keyCol).Hidden && ws.Cells[RowOf(ws, layout, "113"), keyCol].Text == "9:3",
+                  "the ID column added on the way, hidden - the next update matches exactly");
+        }
+    }
+
+    static void UpdateMergedTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== update a sheet with merged rooms");
+
+        List<VENTTEMPLATE.Level> Rooms()
+        {
+            VENTTEMPLATE.Room living = Rm("9:1", "LIVING", "101", 30);
+            VENTTEMPLATE.Room kitchen = Rm("9:2", "KITCHEN", "102", 12);
+
+            living.Merge = kitchen.Merge = "9:1";
+
+            return new List<VENTTEMPLATE.Level> { L("LEVEL 01", 0, living, kitchen, Rm("9:3", "BED", "103", 14)) };
+        }
+
+        string basePath = Path.Combine(Out, "update-merged.xlsx");
+        string typedPath = Path.Combine(Out, "update-merged-typed.xlsx");
+        string outPath = Path.Combine(Out, "update-merged-out.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, Job("Vent", Rooms(), null), basePath);
+
+        double was;
+
+        using (var p = new ExcelPackage(new FileInfo(basePath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            foreach (string n in new[] { "101", "102", "103" })
+                ws.Cells[RowOf(ws, layout, n), Occ].Value = "Office Space";
+
+            p.SaveAs(new FileInfo(typedPath));
+            p.Workbook.Calculate();
+
+            was = ws.Cells[RowOf(ws, layout, "101"), layout.FreshAirCol].Value is double d ? d : -1;
+        }
+
+        Update(typedPath, outPath, Rooms(),
+               new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "LEVEL 01" }, new List<string> { "LEVEL 01" });
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int top = RowOf(ws, layout, "101");
+            int col = layout.FreshAirCol;
+            string f = ws.Cells[top, col].Formula ?? string.Empty;
+            int n = (f.Length - f.Replace("N(", string.Empty).Length) / 2;
+
+            Check(ws.MergedCells[top, col] == Col(col) + top + ":" + Col(col) + (top + 1) && n == 2,
+                  "the merged pair merged again, its total made from each room's own formula, not the old total: " + Short(f));
+
+            p.Workbook.Calculate();
+
+            double now = ws.Cells[top, col].Value is double d ? d : -2;
+
+            Check(was > 0 && Math.Abs(now - was) < 1e-9, "...and it adds up to what it did: " + now + " = " + was);
+        }
+
+        // ---- a total typed over the merged cell is the engineer's
+        string overPath = Path.Combine(Out, "update-merged-typed-total.xlsx");
+        string overOut = Path.Combine(Out, "update-merged-typed-total-out.xlsx");
+
+        using (var p = new ExcelPackage(new FileInfo(typedPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            ExcelRange cell = ws.Cells[RowOf(ws, layout, "101"), layout.FreshAirCol];
+
+            cell.Formula = null;
+            cell.Value = 99.0;
+
+            p.SaveAs(new FileInfo(overPath));
+        }
+
+        Update(overPath, overOut, Rooms(),
+               new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "LEVEL 01" }, new List<string> { "LEVEL 01" });
+
+        using (var p = new ExcelPackage(new FileInfo(overOut)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int top = RowOf(ws, layout, "101");
+            int col = layout.FreshAirCol;
+
+            Check(ws.MergedCells[top, col] == Col(col) + top + ":" + Col(col) + (top + 1) &&
+                  ws.Cells[top, col].Value is double typed && typed == 99 &&
+                  string.IsNullOrEmpty(ws.Cells[top, col].Formula),
+                  "a total typed over the merged cell stays, the pair still merged - not added to the rooms' own");
+        }
+    }
+
+    // ==================================================
+    // Occupancy categories from room names (VENTOCCUPANCY)
+    // ==================================================
+
+    // User (2026-10-14): "automatically detect Occupancy Category and
+    // assign it to the room for both fresh and exhaust". Apartments take
+    // "Dwelling Unit" (the user's choice), whose occupant test was broken in
+    // the office's own workbook.
+
+    static VENTTEMPLATE.Room Dw(VENTTEMPLATE.Room room)
+    {
+        room.InDwelling = true;
+        return room;
+    }
+
+    static void OccupancyRuleTests(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== occupancy: which rule a room name takes");
+
+        List<VENTOCCUPANCY.Rule> rules = VENTOCCUPANCY.Defaults();
+
+        string For(string name, bool apartment)
+        {
+            VENTOCCUPANCY.Rule rule = VENTOCCUPANCY.RuleFor(name, apartment, rules);
+            return rule == null ? "(none)" : rule.Fresh + " / " + rule.Exhaust;
+        }
+
+        Check(For("MASTER BEDROOM", true) == "Dwelling Unit / ", "an apartment's bedroom: Dwelling Unit, no exhaust - " + For("MASTER BEDROOM", true));
+
+        Check(For("KITCHEN", true) == "Dwelling Unit / Residential kitchens- Apartments" &&
+              For("KITCHEN", false) == "Kitchen (Cooking) / Kitchen-Commercial",
+              "a kitchen in an apartment or not: " + For("KITCHEN", true) + " | " + For("KITCHEN", false));
+
+        Check(For("MASTER ENSUITE", true) == " / Toilets - private (residential)" && For("GENTS TOILET", false) == " / Toilets - public",
+              "toilets: exhaust only, private in an apartment, public elsewhere");
+
+        Check(For("LIFT LOBBY", false).StartsWith("Common Corridors") && For("MAIN LOBBY", false).StartsWith("Main Entry Lobbies"),
+              "the more specific rule wins: LIFT LOBBY over LOBBY");
+
+        // User (2026-10-16): FIREMAN LOBBY had no category - a lift lobby's,
+        // not the plain LOBBY's main entry lobby
+        Check(For("FIREMAN LOBBY", false) == "Common Corridors / " && For("FIRE MAN LOBBY", false) == "Common Corridors / ",
+              "a fireman lobby is circulation, as a lift lobby is: " + For("FIREMAN LOBBY", false));
+
+        Check(For("STAIR 01", false) == " / ", "...and a rule may say: nothing (" + For("STAIR 01", false) + ")");
+
+        Check(For("BATHROOM", true).EndsWith("Toilets - private (residential)"), "a rule's word starts a name's: BATH finds BATHROOM");
+
+        Check(For("G.RM", false).EndsWith("recycling") && !For("GYM RM", false).EndsWith("recycling") && For("W.C.", true).EndsWith("(residential)"),
+              "a word of one or two letters must be a whole word: G.RM is a garbage room, GYM RM is not");
+
+        // "EQUALS" (user, 2026-10-19): the name IS the words - and such a
+        // rule wins over every "contains" rule
+        List<VENTOCCUPANCY.Rule> withEquals = VENTOCCUPANCY.Defaults();
+
+        withEquals.Add(new VENTOCCUPANCY.Rule { Words = "LOBBY", Exact = true, Fresh = "Reception Areas" });
+        withEquals.Add(new VENTOCCUPANCY.Rule { Words = "KITCHEN", Exact = true, Fresh = "Break Room", Exhaust = "Kitchenettes" });
+        withEquals.Add(new VENTOCCUPANCY.Rule
+        {
+            Scope = VENTOCCUPANCY.Scope.Apartment, Words = "kitchen", Exact = true, Fresh = "Dwelling Unit", Exhaust = "Kitchenettes"
+        });
+        withEquals.Add(new VENTOCCUPANCY.Rule
+        {
+            Scope = VENTOCCUPANCY.Scope.Apartment, Words = "master bedroom", Exact = true, Fresh = "Bedroom / Living Room"
+        });
+
+        string Eq(string name, bool apartment)
+        {
+            VENTOCCUPANCY.Rule rule = VENTOCCUPANCY.RuleFor(name, apartment, withEquals);
+            return rule == null ? "(none)" : rule.Fresh + " / " + rule.Exhaust;
+        }
+
+        Check(Eq("LOBBY", false) == "Reception Areas / ", "equals LOBBY: a room named LOBBY takes it, not contains LOBBY's");
+        Check(Eq("lobby", false) == "Reception Areas / " && Eq(" Lobby. ", false) == "Reception Areas / ",
+              "equals: any case, any spaces or stops around it");
+        Check(Eq("LIFT LOBBY", false).StartsWith("Common Corridors") && Eq("MAIN LOBBY", false).StartsWith("Main Entry Lobbies") &&
+              Eq("LOBBY 2", false).StartsWith("Main Entry Lobbies"),
+              "equals takes no longer name: LIFT LOBBY, MAIN LOBBY, LOBBY 2 keep the contains rules'");
+        Check(Eq("KITCHEN", false) == "Break Room / Kitchenettes",
+              "an equals rule for any room beats a contains rule for the room's own kind: " + Eq("KITCHEN", false));
+        Check(Eq("KITCHEN", true) == "Dwelling Unit / Kitchenettes",
+              "two equals rules: the one for apartments beats the one for any room - " + Eq("KITCHEN", true));
+        Check(Eq("Master-Bedroom", true) == "Bedroom / Living Room / ",
+              "words compared past spaces and punctuation: Master-Bedroom equals MASTER BEDROOM");
+        Check(Eq("MASTER BEDROOM 2", true) == "Dwelling Unit / " && Eq("BEDROOM MASTER", true) == "Dwelling Unit / ",
+              "not MASTER BEDROOM 2, nor BEDROOM MASTER: the same words in the same order, nothing more");
+        Check(Eq("MASTER BEDROOM", false) == "Bedroom / Living Room / ",
+              "an equals rule for apartments: not a room outside one - the contains rule's");
+
+        Check(For("SWITCH ROOM", false) == "(none)" && For("PLANT", false) == "(none)", "a name no rule fits: left blank");
+
+        // Every built-in category spelled as the office's lists have it -
+        // VLOOKUP finds nothing for a near miss
+        using (var p = new ExcelPackage(new MemoryStream(template)))
+        {
+            List<string> fresh = VENTOCCUPANCY.Table(p.Workbook, false);
+            List<string> exhaust = VENTOCCUPANCY.Table(p.Workbook, true);
+
+            var wrong = rules.Where(r => r.Fresh.Length > 0 && VENTOCCUPANCY.Pick(r.Fresh, fresh) == null).Select(r => r.Fresh)
+                .Concat(rules.Where(r => r.Exhaust.Length > 0 && VENTOCCUPANCY.Pick(r.Exhaust, exhaust) == null).Select(r => r.Exhaust))
+                .Distinct().ToList();
+
+            Check(wrong.Count == 0, "every built-in category is one Table 6-1 / 6-4 has" +
+                                    (wrong.Count == 0 ? "" : ": NOT " + string.Join(", ", wrong)));
+
+            Check(fresh.Contains("Dwelling Unit") && !fresh.Contains("Residential") && !fresh.Contains("Office Buildings"),
+                  "Table 6-1's section headings are not offered as categories (" + fresh.Count + " offered)");
+
+            Check(VENTOCCUPANCY.Pick("toilets – PUBLIC", exhaust) == exhaust.First(e => e.StartsWith("Toilets") && e.EndsWith("public")),
+                  "a category written with another dash or case is the list's own spelling");
+        }
+
+        // ---- the office's rules, on this PC
+        List<VENTOCCUPANCY.Rule> back = VENTOCCUPANCY.Parse(VENTOCCUPANCY.Compose(rules));
+
+        Check(back.Count == rules.Count &&
+              back.Zip(rules, (a, b) => a.Scope == b.Scope && a.Words == b.Words && a.Fresh == b.Fresh && a.Exhaust == b.Exhaust &&
+                                        a.Use == b.Use && a.Units == b.Units).All(x => x) &&
+              back.Any(r => r.Exhaust == VENTOCCUPANCY.ApartmentKitchen && r.Units == 1) &&
+              back.Any(r => r.Use == VENTOCCUPANCY.LightUse && r.Units == 1) &&
+              VENTOCCUPANCY.Parse("rule\tany\tOFFICE\tOffice Space\t\n")[0].Units == 0,
+              "the rules survive being saved and read back: " + back.Count);
+
+        // The override of 2026-10-15..19 was an eighth field: never read as
+        // anything now - least of all as units
+        VENTOCCUPANCY.Rule eighth = VENTOCCUPANCY.Parse(
+            "rule\tapartment\tKITCHEN\tDwelling Unit\tResidential kitchens- Apartments\t\t\t50\n")[0];
+
+        Check(eighth.Units == 0 && eighth.Use == "" && !eighth.Exact && eighth.Exhaust == VENTOCCUPANCY.ApartmentKitchen,
+              "an old file's override (an eighth field) is read as nothing - not units, not equals");
+
+        VENTOCCUPANCY.Rule equalsBack = VENTOCCUPANCY.Parse(VENTOCCUPANCY.Compose(new[]
+        {
+            new VENTOCCUPANCY.Rule { Words = "LOBBY", Exact = true, Fresh = "Reception Areas" },
+            new VENTOCCUPANCY.Rule { Words = "LOBBY", Fresh = "Main Entry Lobbies" }
+        }))[0];
+
+        Check(equalsBack.Exact && equalsBack.Words == "LOBBY" && !VENTOCCUPANCY.Parse(VENTOCCUPANCY.Compose(new[]
+              {
+                  new VENTOCCUPANCY.Rule { Words = "LOBBY", Fresh = "Main Entry Lobbies" }
+              }))[0].Exact,
+              "equals and contains survive being saved and read back");
+
+        VENTOCCUPANCY.Rule equalsKitchen = VENTOCCUPANCY.Defaults()
+            .First(r => r.Scope == VENTOCCUPANCY.Scope.Apartment && r.Words == "KITCHEN").Clone();
+        equalsKitchen.Exact = true;
+        equalsKitchen.Units = 0;
+
+        Check(VENTOCCUPANCY.WithBuiltIn(new List<VENTOCCUPANCY.Rule> { equalsKitchen })[0].Units == 0,
+              "a built-in rule made 'equals' is the office's own: no built-in values given to it");
+
+        string path = Path.Combine(Out, "occupancy-rules.txt");
+
+        VENTOCCUPANCY.Forget(path);
+
+        Check(VENTOCCUPANCY.Load(path).Count == rules.Count, "no rules saved: the built-in ones");
+
+        VENTOCCUPANCY.Save(new List<VENTOCCUPANCY.Rule>
+        {
+            new VENTOCCUPANCY.Rule { Scope = VENTOCCUPANCY.Scope.Apartment, Words = "BEDROOM", Fresh = "Bedroom / Living Room" }
+        }, path);
+
+        Check(VENTOCCUPANCY.Load(path).Count == 1 && VENTOCCUPANCY.Load(path)[0].Fresh == "Bedroom / Living Room",
+              "rules saved are the office's from then on");
+
+        // A FILE SAVED BEFORE THE BUILT-IN VALUES IT LACKS (user, 2026-10-19:
+        // KIFAF's kitchens at 0 L/s). Saved like the user's own: the
+        // built-in rules with the units gone, the apartment toilets' nature
+        // of use kept - plus a value typed, a category changed, a rule of
+        // the office's own and a word typed in lower case
+        List<VENTOCCUPANCY.Rule> old = VENTOCCUPANCY.Defaults();
+
+        foreach (VENTOCCUPANCY.Rule r in old)
+        {
+            if (!(r.Scope == VENTOCCUPANCY.Scope.Apartment && r.Use == VENTOCCUPANCY.LightUse))
+                r.Use = string.Empty;
+
+            r.Units = 0;
+        }
+
+        VENTOCCUPANCY.Rule Saved(VENTOCCUPANCY.Scope scope, string words)
+        {
+            return old.First(r => r.Scope == scope && r.Words == words);
+        }
+
+        Saved(VENTOCCUPANCY.Scope.Apartment, "PANTRY").Units = 3;
+        Saved(VENTOCCUPANCY.Scope.Apartment, "TOILET").Exhaust = "Toilets - public";
+        Saved(VENTOCCUPANCY.Scope.Apartment, "SHOWER").Words = "shower";
+        old.Add(new VENTOCCUPANCY.Rule
+        {
+            Scope = VENTOCCUPANCY.Scope.Apartment, Words = "SCULLERY", Exhaust = "Residential kitchens- Apartments"
+        });
+
+        VENTOCCUPANCY.Rule anyKitchen = Saved(VENTOCCUPANCY.Scope.Apartment, "KITCHEN").Clone();
+        anyKitchen.Scope = VENTOCCUPANCY.Scope.Any;
+        old.Add(anyKitchen);
+
+        VENTOCCUPANCY.Save(old, path);
+
+        List<VENTOCCUPANCY.Rule> loaded = VENTOCCUPANCY.Load(path);
+
+        VENTOCCUPANCY.Rule Got(VENTOCCUPANCY.Scope scope, string words)
+        {
+            return loaded.First(r => r.Scope == scope && VENTOCCUPANCY.Tokens(r.Words).SequenceEqual(VENTOCCUPANCY.Tokens(words)));
+        }
+
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "KITCHEN").Units == 1,
+              "an old file's apartment KITCHEN gets the built-in 1 unit");
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "ENSUITE").Units == 1 &&
+              Got(VENTOCCUPANCY.Scope.Apartment, "ENSUITE").Use == VENTOCCUPANCY.LightUse,
+              "a blank units takes the built-in 1, the nature of use typed stands");
+        Check(Got(VENTOCCUPANCY.Scope.Other, "SHOWER").Use == VENTOCCUPANCY.LightUse &&
+              Got(VENTOCCUPANCY.Scope.Other, "SHOWER").Units == 1,
+              "a rule with both blank takes both");
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "SHOWER").Units == 1, "words match in any case");
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "PANTRY").Units == 3, "a value typed in the file stands");
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "TOILET").Units == 0 &&
+              Got(VENTOCCUPANCY.Scope.Apartment, "TOILET").Use == VENTOCCUPANCY.LightUse,
+              "a rule whose category was changed is the office's own: its blanks stay blank");
+        Check(Got(VENTOCCUPANCY.Scope.Apartment, "SCULLERY").Units == 0, "a rule the built-in list has not is left alone");
+        Check(Got(VENTOCCUPANCY.Scope.Any, "KITCHEN").Units == 0, "the apartment KITCHEN rule made one for any room: left alone");
+        Check(Got(VENTOCCUPANCY.Scope.Other, "KITCHEN").Units == 0 && Got(VENTOCCUPANCY.Scope.Any, "OFFICE").Units == 0,
+              "a built-in rule with nothing to give gets nothing");
+        Check(loaded.Count == old.Count, "every saved rule is still there, none added: " + loaded.Count);
+
+        VENTOCCUPANCY.Forget(path);
+
+        Check(!File.Exists(path) && VENTOCCUPANCY.Load(path).Count == rules.Count, "Reset: the built-in rules again");
+    }
+
+    static void OccupancyExportTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== occupancy: categories into a new sheet; Dwelling Unit calculates");
+
+        var levels = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 05", 0,
+              R("OFFICE", "501", 40, 3), R("LIFT LOBBY", "502", 12, 3), R("GENTS TOILET", "503", 10, 3), R("PLANT", "504", 20, 3),
+              Dw(In("9:1", "1BDR", "A-01", "BEDROOM", "505", 14)), Dw(In("9:1", "1BDR", "A-01", "KITCHEN", "506", 8)),
+              Dw(In("9:1", "1BDR", "A-01", "ENSUITE", "507", 5)),
+              Dw(In("9:2", "2BDR", "A-02", "MASTER BEDROOM", "510", 16)), Dw(In("9:2", "2BDR", "A-02", "BEDROOM 2", "511", 12)),
+              Dw(In("9:3", "STUDIO", "A-03", "STUDIO ROOM", "520", 28)))
+        };
+
+        VENTOFFICE.Job job = Job("Occ", levels, null);
+        job.Occupancy = VENTOCCUPANCY.Defaults();
+
+        // A rule naming a category Table 6-1 has not got
+        job.Occupancy.Add(new VENTOCCUPANCY.Rule { Words = "PLANT", Fresh = "Plant Room" });
+
+        string path = Path.Combine(Out, "occupancy.xlsx");
+
+        VENTOFFICE.Result result = VENTOFFICE.NewWorkbook(template, job, path);
+
+        Check(result.Occupancy.Fresh == 6 && result.Occupancy.Exhaust == 3,
+              $"6 outside air and 3 exhaust categories filled: {result.Occupancy.Fresh}, {result.Occupancy.Exhaust}");
+
+        Check(result.Occupancy.Apartments == 3 && result.Occupancy.Occupants == 6,
+              $"3 apartments given bedrooms and occupants, 6 people in all (2 + 3 + 1): {result.Occupancy.Apartments}, {result.Occupancy.Occupants}");
+
+        Check(result.Occupancy.NoUnits.Contains("503 GENTS TOILET") && result.Occupancy.NoUnits.Count == 1,
+              "a public toilet with no fixtures counted is said to get 0 L/s: " + string.Join(", ", result.Occupancy.NoUnits));
+
+        Check(result.DwellingFixed == 1, "the room row's \"Dwelling Unit\" test mended (" + result.DwellingFixed + ")");
+
+        using (var p = new ExcelPackage(new FileInfo(path)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            int fresh = layout.FreshCategoryCol, exhaust = layout.ExhaustCategoryCol;
+
+            Check(fresh == Occ && Col(exhaust) == "AC", "the two category columns found by their headings: " + Col(fresh) + ", " + Col(exhaust));
+
+            string Cat(string number, int col) => ws.Cells[RowOf(ws, layout, number), col].Text;
+
+            Check(Cat("501", fresh) == "Office Space" && Cat("502", fresh) == "Common Corridors" &&
+                  Cat("505", fresh) == "Dwelling Unit" && Cat("506", fresh) == "Dwelling Unit",
+                  "outside air: the office, the lift lobby, the apartment's rooms");
+
+            Check(Cat("503", exhaust) == "Toilets - public" && Cat("506", exhaust) == "Residential kitchens- Apartments" &&
+                  Cat("507", exhaust) == "Toilets - private (residential)" && Cat("503", fresh) == "" && Cat("507", fresh) == "",
+                  "exhaust: the toilets and the apartment's kitchen; no outside air for a toilet");
+
+            Check(Cat("504", fresh) == "" && Cat("504", exhaust) == "" && result.Occupancy.Missing.Contains("Plant Room"),
+                  "a rule naming a category the sheet's list has not got writes nothing - and says so");
+
+            int bed = RowOf(ws, layout, "505");
+
+            Check((ws.Cells[bed, 18].Formula ?? "").Contains("'ASHRAE 62.1 - Table 6-1'!$A$81"),
+                  "the Dwelling Unit test reads Table 6-1's own cell: " + Short(ws.Cells[bed, 18].Formula));
+
+            p.Workbook.Calculate();
+
+            var errors = new List<string>();
+
+            foreach (string number in new[] { "501", "502", "503", "504", "505", "506", "507", "510", "511", "520" })
+            {
+                int row = RowOf(ws, layout, number);
+
+                for (int c = 1; c <= ws.Dimension.End.Column; c++)
+                {
+                    if (ws.Cells[row, c].Value is ExcelErrorValue e && e.ToString() != "#DIV/0!")
+                        errors.Add(number + " " + Col(c) + " " + e.ToString());
+                }
+            }
+
+            Check(errors.Count == 0, "no #VALUE!, #N/A or #REF! on any room row" + (errors.Count == 0 ? "" : ": " + string.Join(", ", errors)));
+
+            double Num(string number, int col) => ws.Cells[RowOf(ws, layout, number), col].Value is double d ? d : -1;
+
+            // ---- the exhaust each category now gives (user, 2026-10-15)
+            int kitchen = RowOf(ws, layout, "506");
+
+            // Per unit, as a private toilet (user, 2026-10-19) - not the
+            // override it had from 10-15
+            Check(result.Kitchen.Rates && result.Kitchen.Formulas == 2,
+                  "the apartment kitchen made per unit: Table 6-4's rates, and 2 room formulas (" + result.Kitchen.Formulas + ")");
+
+            ExcelWorksheet table = p.Workbook.Worksheets.First(w => w.Name.Contains("Table 6-4"));
+            int kRow = Enumerable.Range(1, 60).First(r => table.Cells[r, 1].Text == VENTOCCUPANCY.ApartmentKitchen);
+
+            Check(table.Cells[kRow, 7].Value is double lo && lo == 25 && table.Cells[kRow, 9].Value is double hi && hi == 50 &&
+                  table.Cells[kRow, 2].Text == "50" && table.Cells[kRow, 4].Text == "100",
+                  "Table 6-4's apartment kitchen row: 50 / 100 cfm, 25 / 50 L/s a unit");
+
+            Check(ws.Cells[kitchen, layout.OverrideCol].Text == "" && ws.Cells[kitchen, layout.BalancingCol].Text == "" &&
+                  Num("506", layout.UnitsCol) == 1 && Num("506", layout.ExhaustAirCol) == 50,
+                  "the apartment kitchen: 1 unit x 50 L/s, no override - " + Col(layout.ExhaustAirCol) + " " +
+                  Num("506", layout.ExhaustAirCol));
+
+            ws.Cells[kitchen, layout.UseCol].Value = VENTOCCUPANCY.LightUse;
+            p.Workbook.Calculate();
+
+            Check(Num("506", layout.ExhaustAirCol) == 25, "light use: 25 L/s, as a private toilet takes its lower rate - " +
+                                                         Num("506", layout.ExhaustAirCol));
+
+            ws.Cells[kitchen, layout.UseCol].Value = null;
+            p.Workbook.Calculate();
+
+            Check(Cat("507", layout.UseCol) == VENTOCCUPANCY.LightUse && Num("507", layout.UnitsCol) == 1 &&
+                  Num("507", layout.ExhaustAirCol) == 10,
+                  "the ensuite: light use, one fixture - 10 L/s, not 0 - " + Num("507", layout.ExhaustAirCol));
+
+            Check(Num("503", layout.ExhaustAirCol) == 0, "a public toilet with no fixtures counted: 0 L/s, as the log says");
+
+            // ---- each apartment's bedrooms and people
+            Check(Num("505", layout.BedroomsCol) == 1 && Num("510", layout.BedroomsCol) == 2 && Num("520", layout.BedroomsCol) == 0,
+                  "No of Bedrooms on each apartment's first row: 1, 2 and the studio's 0");
+
+            Check(Num("505", layout.OccupantsCol) == 2 && Num("510", layout.OccupantsCol) == 2 &&
+                  Num("511", layout.OccupantsCol) == 1 && Num("520", layout.OccupantsCol) == 1 &&
+                  Cat("506", layout.OccupantsCol) == "",
+                  "bedrooms + 1 people: 2 in the master bedroom, 1 in each other; the studio's 1; none in the kitchen");
+
+            Check(ws.Cells[bed, 18].Text == "NA" && Num("505", 19) == 2 && Num("505", layout.FreshAirCol) == 10,
+                  "a Dwelling Unit bedroom takes its 2 people: 2.5 x 2 + 0.3 x 14 m2 = 9.2, rounded up to " + Num("505", layout.FreshAirCol));
+
+            Check(ws.Cells[RowOf(ws, layout, "501"), layout.FreshAirCol].Value is double o && o == 20,
+                  "the office: 2.5 x 2 people + 0.3 x 40 m2 = 17, rounded up to 20 - " + ws.Cells[RowOf(ws, layout, "501"), layout.FreshAirCol].Text);
+        }
+
+        // ---- read back as Levels and rooms reads it (user, 2026-10-25: the
+        // sheet's columns in the window): categories, occupants, units, area
+        VENTSHEET.sheetpath = path;
+        VENTSHEET.sheetname = "Occ";
+
+        new VENTSHEET().excelsheet();
+
+        VENTSHEET.AirData Read(string number) => VENTSHEET.LoadedRows.First(r => r.Key.RoomNumber == number).Value;
+
+        Check(Read("501").FreshCategory == "Office Space" && Read("501").ExhaustCategory == string.Empty && Read("501").AreaM2 == 40,
+              "the reader keeps the office's categories and area: '" + Read("501").FreshCategory + "', '" + Read("501").ExhaustCategory + "', " + Read("501").AreaM2);
+
+        Check(Read("503").ExhaustCategory == "Toilets - public" && Read("503").FreshCategory == string.Empty,
+              "...the public toilet's exhaust category, no outside air one");
+
+        Check(Read("505").Occupants == 2 && Read("511").Occupants == 1 && double.IsNaN(Read("506").Occupants),
+              "...the bedrooms' occupants, and a blank (NaN, not 0) for the kitchen: " + Read("505").Occupants + ", " + Read("511").Occupants + ", " + Read("506").Occupants);
+
+        Check(Read("507").Units == 1 && double.IsNaN(Read("503").Units),
+              "...the ensuite's unit; the public toilet's blank: " + Read("507").Units + ", " + Read("503").Units);
+    }
+
+    // A SHEET MADE BEFORE 2026-10-19, UPDATED - KIFAF 5's case: the kitchen
+    // has its category and nothing else, Table 6-4's row for it is empty
+    // and no formula names it, so it reads 0 L/s. The update must make it
+    // per unit (KitchenCheck) and give it its unit.
+    static void KitchenUpdateTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== the apartment kitchen of an old sheet, updated: per unit, as a private toilet");
+
+        var levels = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 05", 0,
+              Dw(In("9:1", "1BDR", "A-01", "BEDROOM", "505", 14)), Dw(In("9:1", "1BDR", "A-01", "KITCHEN", "506", 8)),
+              Dw(In("9:1", "1BDR", "A-01", "ENSUITE", "507", 5)))
+        };
+
+        string oldPath = Path.Combine(Out, "kitchen-old.xlsx");
+        string outPath = Path.Combine(Out, "kitchen-updated.xlsx");
+
+        VENTOFFICE.Job job = Job("Vent", levels, null);
+        job.Occupancy = VENTOCCUPANCY.Defaults();
+        VENTOFFICE.NewWorkbook(template, job, oldPath);
+
+        double Exhaust(ExcelWorksheet ws, VENTSHEET.SheetLayout layout, string number) =>
+            ws.Cells[RowOf(ws, layout, number), layout.ExhaustAirCol].Value is double d ? d : -1;
+
+        // Back to the office's workbook as it was: the table row emptied,
+        // the kitchen taken out of every formula, its unit cleared
+        using (var p = new ExcelPackage(new FileInfo(oldPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+            ExcelWorksheet table = p.Workbook.Worksheets.First(w => w.Name.Contains("Table 6-4"));
+            int kRow = Enumerable.Range(1, 60).First(r => table.Cells[r, 1].Text == VENTOCCUPANCY.ApartmentKitchen);
+
+            foreach (int c in new[] { 2, 3, 4, 7, 8, 9 })
+                table.Cells[kRow, c].Value = null;
+
+            int undone = 0;
+
+            foreach (ExcelRangeBase cell in ws.Cells[ws.Dimension.Address])
+            {
+                if (string.IsNullOrEmpty(cell.Formula))
+                    continue;
+
+                string f = Regex.Replace(cell.Formula, @",\(\$?[A-Z]+\$?\d+=""Residential kitchens- Apartments""\)", "");
+
+                if (f != cell.Formula)
+                {
+                    cell.Formula = f;
+                    undone++;
+                }
+            }
+
+            ws.Cells[RowOf(ws, layout, "506"), layout.UnitsCol].Value = null;
+
+            p.Workbook.Calculate();
+
+            Check(undone >= 2 && Exhaust(ws, layout, "506") == 0,
+                  "the old sheet: the kitchen at 0 L/s, as KIFAF 5's (" + undone + " formulas taken back)");
+
+            p.Save();
+        }
+
+        VENTUPDATE.Outcome done;
+
+        using (var p = new ExcelPackage(new FileInfo(oldPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+
+            done = VENTUPDATE.Update(ws, VENTSHEET.DetectLayout(ws, false), levels, l => true,
+                                     new List<string> { "LEVEL 05" }, "2026-10-19", VENTOCCUPANCY.Defaults());
+
+            p.SaveAs(new FileInfo(outPath));
+        }
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            p.Workbook.Calculate();
+
+            Check(done.Kitchen.Rates && done.Kitchen.Formulas == 2,
+                  "the update gave Table 6-4 its rates and the room formulas the kitchen (" + done.Kitchen.Formulas + ")");
+
+            Check(ws.Cells[RowOf(ws, layout, "506"), layout.UnitsCol].Value is double u && u == 1 &&
+                  Exhaust(ws, layout, "506") == 50,
+                  "updated: the kitchen 1 unit x 50 L/s - " + Exhaust(ws, layout, "506"));
+
+            Check(Exhaust(ws, layout, "507") == 10, "the ensuite as it was: 10 L/s - " + Exhaust(ws, layout, "507"));
+
+            // The office then types its own rate into the row
+            ExcelWorksheet table = p.Workbook.Worksheets.First(w => w.Name.Contains("Table 6-4"));
+            int kRow = Enumerable.Range(1, 60).First(r => table.Cells[r, 1].Text == VENTOCCUPANCY.ApartmentKitchen);
+            table.Cells[kRow, 9].Value = 60d;
+
+            p.Save();
+        }
+
+        // Updated again: nothing to make, and the office's 60 stands
+        string againPath = Path.Combine(Out, "kitchen-updated-again.xlsx");
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+
+            done = VENTUPDATE.Update(ws, VENTSHEET.DetectLayout(ws, false), levels, l => true,
+                                     new List<string> { "LEVEL 05" }, "2026-10-19", VENTOCCUPANCY.Defaults());
+
+            p.SaveAs(new FileInfo(againPath));
+        }
+
+        using (var p = new ExcelPackage(new FileInfo(againPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            p.Workbook.Calculate();
+
+            string af = ws.Cells[RowOf(ws, layout, "506"), layout.ExhaustCategoryCol + 3].Formula ?? "";
+
+            Check(!done.Kitchen.Rates && done.Kitchen.Formulas == 0 &&
+                  Regex.Matches(af, "Residential kitchens- Apartments").Count == 1,
+                  "updated again: nothing made twice (" + done.Kitchen.Formulas + ")");
+
+            Check(Exhaust(ws, layout, "506") == 60, "a rate typed into the row stands: 60 L/s - " + Exhaust(ws, layout, "506"));
+        }
+    }
+
+    static void OccupancyUpdateTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== occupancy: an update follows the sheet's own choices");
+
+        var before = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, Rm("9:1", "OFFICE", "101", 20), Rm("9:2", "OFFICE", "102", 20), Rm("9:3", "STORE", "103", 5))
+        };
+
+        string basePath = Path.Combine(Out, "occupancy-update-base.xlsx");
+        string typedPath = Path.Combine(Out, "occupancy-update-typed.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, Job("Vent", before, null), basePath);
+
+        using (var p = new ExcelPackage(new FileInfo(basePath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            Check(ws.Cells[RowOf(ws, layout, "101"), Occ].Text == "", "with the categories switched off, none is filled");
+
+            // The engineer's own choice for this project's offices
+            ws.Cells[RowOf(ws, layout, "101"), Occ].Value = "Reception Areas";
+            p.SaveAs(new FileInfo(typedPath));
+        }
+
+        var after = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 01", 0, Rm("9:1", "OFFICE", "101", 20), Rm("9:2", "OFFICE", "102", 20), Rm("9:3", "STORE", "103", 5),
+                             Rm("9:4", "OFFICE", "104", 20), Rm("9:5", "MEETING", "105", 15))
+        };
+
+        string outPath = Path.Combine(Out, "occupancy-update-out.xlsx");
+        VENTUPDATE.Outcome done;
+
+        using (var p = new ExcelPackage(new FileInfo(typedPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+
+            done = VENTUPDATE.Update(ws, VENTSHEET.DetectLayout(ws, false), after, l => true,
+                                     new List<string> { "LEVEL 01" }, "2026-10-14", VENTOCCUPANCY.Defaults());
+
+            p.SaveAs(new FileInfo(outPath));
+        }
+
+        using (var p = new ExcelPackage(new FileInfo(outPath)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Vent"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            string Cat(string number) => ws.Cells[RowOf(ws, layout, number), Occ].Text;
+
+            Check(Cat("101") == "Reception Areas", "a category somebody chose stays");
+
+            Check(Cat("102") == "Reception Areas" && Cat("104") == "Reception Areas",
+                  "offices left blank, and a new one, follow what the sheet chose for OFFICE - not the rule's Office Space");
+
+            Check(Cat("105") == "Conference / Meeting" && Cat("103") == "Occupiable Storage Rooms for dry material",
+                  "names the sheet has not decided: the rules");
+
+            Check(done.Occupancy.Fresh == 4, "4 filled (" + done.Occupancy.Fresh + ")");
+        }
+    }
+
+    // ==================================================
+    // Rooms of one name and number; a workbook never saved in Excel
+    // ==================================================
+
+    // User's list (2026-10-15): KIFAF has MASTER ENSUITE 121.141 and two
+    // others twice - two apartments built from one interior model - and
+    // both rooms took one row's air. And a sheet AUTOVENT wrote, read back
+    // before Excel ever saved it, read every room's air as 0.
+    // A room's row, or an empty one - a missing room fails a check
+    // rather than ending the run
+    static VENTSHEET.AirData Row(Dictionary<string, VENTSHEET.AirData> airOf, string room) =>
+        airOf.TryGetValue(room, out VENTSHEET.AirData air) ? air : new VENTSHEET.AirData { FreshAir = -1 };
+
+    static void TwinsTest(byte[] template)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== two rooms of one name and number; formulas with no saved results");
+
+        VENTTEMPLATE.Room Twin(string key, string apartment, string aptNumber, double area)
+        {
+            VENTTEMPLATE.Room room = Dw(In(apartment, "2BDR", aptNumber, "BEDROOM", "121.143", area));
+            room.Key = key;
+            return room;
+        }
+
+        var levels = new List<VENTTEMPLATE.Level>
+        {
+            L("LEVEL 04A", 0, Twin("21:143", "9:1", "A-01", 14), Twin("22:143", "9:2", "A-02", 40))
+        };
+
+        VENTOFFICE.Job job = Job("Twins", levels, null);
+        job.Occupancy = VENTOCCUPANCY.Defaults();
+
+        string path = Path.Combine(Out, "twins.xlsx");
+
+        VENTOFFICE.NewWorkbook(template, job, path);
+
+        // ---- read straight back: nobody has opened it in Excel
+        VENTSHEET.sheetpath = path;
+        VENTSHEET.sheetname = "Twins";
+
+        Dictionary<VENTSHEET.SpaceKey, VENTSHEET.AirData> read = new VENTSHEET().excelsheet();
+
+        Check(VENTSHEET.Calculated && VENTSHEET.LoadedRows.Count == 2 && VENTSHEET.LoadedRows.All(r => r.Value.FreshAir > 0),
+              "a sheet with formulas and no saved results is worked out on reading - not 0 L/s: " +
+              string.Join(", ", VENTSHEET.LoadedRows.Select(r => r.Value.FreshAir)));
+
+        Check(read.Count == 1 && VENTSHEET.LoadedRows.Count == 2,
+              "both rows are read, though they share a name, number and level");
+
+        var key = new VENTSHEET.SpaceKey { SpaceName = "BEDROOM", RoomNumber = "121.143", Level = "LEVEL 04A" };
+
+        var rooms = new List<KeyValuePair<string, VENTSHEET.SpaceKey>>
+        {
+            new KeyValuePair<string, VENTSHEET.SpaceKey>("21:143", key),
+            new KeyValuePair<string, VENTSHEET.SpaceKey>("22:143", key)
+        };
+
+        Dictionary<string, VENTSHEET.AirData> airOf = VENTSHEET.Resolve(VENTSHEET.LoadedRows, rooms, out List<string> shared);
+
+        Check(Row(airOf, "21:143").FreshAir == 10 && Row(airOf, "22:143").FreshAir == 20 && shared.Count == 0,
+              "each room takes its own row, by the model ID: " + Row(airOf, "21:143").FreshAir + " and " + Row(airOf, "22:143").FreshAir);
+
+        // ---- the same sheet without the IDs (one written before them)
+        var bare = VENTSHEET.LoadedRows
+            .Select(r => new KeyValuePair<VENTSHEET.SpaceKey, VENTSHEET.AirData>(r.Key, new VENTSHEET.AirData
+            {
+                FreshAir = r.Value.FreshAir, ExhaustAir = r.Value.ExhaustAir, Id = string.Empty
+            }))
+            .ToList();
+
+        airOf = VENTSHEET.Resolve(bare, rooms, out shared);
+
+        Check(Row(airOf, "21:143").Id != null && Row(airOf, "21:143") != Row(airOf, "22:143") && shared.Count == 2,
+              "with no IDs: one row each, not one row for both - and both said to be a guess");
+
+        // ---- a row whose ID is another room's is never taken by name
+        var stale = new List<KeyValuePair<string, VENTSHEET.SpaceKey>>
+        {
+            new KeyValuePair<string, VENTSHEET.SpaceKey>("21:143", key),
+            new KeyValuePair<string, VENTSHEET.SpaceKey>("30:143", key)
+        };
+
+        airOf = VENTSHEET.Resolve(VENTSHEET.LoadedRows, stale, out shared);
+
+        Check(Row(airOf, "21:143").Id == "21:143" && Row(airOf, "30:143").Id == "22:143",
+              "a room whose ID the sheet has not got (a link loaded again) takes the row no model room claims");
+
+        // ---- saved with results: read as Excel left them, not worked out
+        string saved = Path.Combine(Out, "twins-saved.xlsx");
+
+        using (var p = new ExcelPackage(new FileInfo(path)))
+        {
+            p.Workbook.Calculate();
+            p.SaveAs(new FileInfo(saved));
+        }
+
+        VENTSHEET.sheetpath = saved;
+        new VENTSHEET().excelsheet();
+
+        Check(!VENTSHEET.Calculated, "a sheet saved with its results is read as it is");
     }
 
     // ==================================================
@@ -946,43 +2130,29 @@ internal static class Program
         Calculate(p, ws, layout, firstRoom, total, pattern);
     }
 
-    // The office's own absolute references ($H$363 in the occupancy
-    // formula) point into the lists under the Total. However many rows
-    // the block grew or shrank by, they must still land the same
-    // distance below the Total as they did in the office's sheet.
+    // The office's occupancy "NA" test (IF(O=$H$363,"NA",...)) compares the
+    // category with a cell meant to hold "Dwelling Unit" - and in the
+    // office's own workbook that $H$ points tens of rows away from it, in
+    // every pattern. Since 2026-10-14 every export points it at Table
+    // 6-1's "Dwelling Unit" cell itself (VENTOCCUPANCY.DwellingCheck).
     static void AbsoluteCheck(ExcelWorksheet ws, byte[] template, string pattern, int firstRoom, int total)
     {
         using (var src = new ExcelPackage(new MemoryStream(template)))
         {
             ExcelWorksheet o = src.Workbook.Worksheets[pattern];
+            ExcelWorksheet table = src.Workbook.Worksheets["ASHRAE 62.1 - Table 6-1"];
 
-            int oTotal = 0;
+            int dwelling = Enumerable.Range(1, 200).First(r => table.Cells[r, 1].Text.Trim() == "Dwelling Unit");
 
-            for (int r = 10; r <= o.Dimension.End.Row && oTotal == 0; r++)
-                if (o.Cells[r, 1].Text.Trim() == "Total") oTotal = r;
+            // What the office's own sheet points at, for the record
+            Match theirs = Regex.Match(o.Cells[12, 17].Formula ?? "", @"\$H\$(\d+)");
+            string pointed = theirs.Success ? o.Cells["H" + theirs.Groups[1].Value].Text : "(none)";
 
-            // The occupancy "NA" test is in column Q of the office sheet,
-            // R once the room number column is in
-            var offsets = new Dictionary<int, int>();
+            string formula = ws.Cells[firstRoom, 18].Formula ?? "";
 
-            for (int r = 12; r < oTotal; r++)
-            {
-                Match m = Regex.Match(o.Cells[r, 17].Formula ?? "", @"\$H\$(\d+)");
-
-                if (m.Success)
-                {
-                    int off = int.Parse(m.Groups[1].Value) - oTotal;
-                    offsets[off] = offsets.TryGetValue(off, out int n) ? n + 1 : 1;
-                }
-            }
-
-            int want = offsets.OrderByDescending(kv => kv.Value).First().Key;
-
-            Match got = Regex.Match(ws.Cells[firstRoom, 18].Formula ?? "", @"\$H\$(\d+)");
-
-            Check(got.Success && int.Parse(got.Groups[1].Value) - total == want,
-                  "the occupancy test's $H$ reference is still " + want + " rows under the Total (" +
-                  (got.Success ? "$H$" + got.Groups[1].Value : "none") + ")");
+            Check(formula.Contains("'ASHRAE 62.1 - Table 6-1'!$A$" + dwelling + ",\"NA\"") && !Regex.IsMatch(formula, @"=\$H\$\d+,""NA"""),
+                  "the occupancy test reads Table 6-1's \"Dwelling Unit\" (A" + dwelling + ") - the office's $H$ pointed at [" +
+                  pointed + "]: " + Short(formula));
         }
     }
 
@@ -1201,9 +2371,12 @@ internal static class Program
             Check(names.Count == before.Workbook.Worksheets.Count + 1 && names.Last() == "Tower 3",
                   "one worksheet added, at the end: " + string.Join(" | ", names));
 
-            // Every existing sheet is untouched, formula for formula
+            // Every existing sheet is untouched, formula for formula - but
+            // for Table 6-4's EMPTY apartment kitchen row, given its rates
+            // so the new worksheet's kitchens are not 0 L/s (2026-10-19)
             bool same = true;
             string where = null;
+            var kitchenCells = new HashSet<string>();
 
             foreach (var old in before.Workbook.Worksheets)
             {
@@ -1211,8 +2384,25 @@ internal static class Program
 
                 if (old.Dimension == null) continue;
 
+                if (old.Name.Contains("Table 6-4"))
+                {
+                    int kRow = Enumerable.Range(1, 60).FirstOrDefault(r => old.Cells[r, 1].Text == VENTOCCUPANCY.ApartmentKitchen);
+
+                    foreach (int c in new[] { 2, 3, 4, 7, 8, 9 })
+                    {
+                        if (kRow > 0 && old.Cells[kRow, c].Text == "")
+                            kitchenCells.Add(old.Name + "!" + old.Cells[kRow, c].Address);
+                    }
+
+                    Check(result.Kitchen.Rates && kRow > 0 && now.Cells[kRow, 9].Value is double hi && hi == 50,
+                          "its own Table 6-4's empty apartment kitchen row given the rates, and said");
+                }
+
                 foreach (var cell in old.Cells[old.Dimension.Address])
                 {
+                    if (kitchenCells.Contains(old.Name + "!" + cell.Address))
+                        continue;
+
                     var c2 = now.Cells[cell.Address];
 
                     // EPPlus writes "=+IF(" back as "=IF(" - the same formula

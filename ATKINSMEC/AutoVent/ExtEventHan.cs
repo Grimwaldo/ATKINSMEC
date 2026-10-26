@@ -15,8 +15,19 @@ namespace ATKINSMEC
 {
     public class ExtEventHan : IExternalEventHandler
     {
-        // 1 = write the airflows, 2 = export the rooms, 3 = show a room
+        // 1 = write the airflows, 2 = export the rooms, 3 = show a room,
+        // 4 = write the airflows of Levels and rooms onto those rooms
         public int Request { get; set; }
+
+        // Request 4: each room's air (VENTFLOWS.Overrides) and the rooms
+        // whose fresh air / extract is written - set by the window
+        public Dictionary<string, VENTFLOWS.Air> WriteOverrides { get; set; }
+        public HashSet<string> WriteFresh { get; set; }
+        public HashSet<string> WriteExtract { get; set; }
+
+        // False for the Model's write: rooms grouped by the arrangement's
+        // merges alone, as the window showed them - not the sheet's too
+        public bool WriteSheetMerges { get; set; } = true;
 
         // Request 3: which rooms ({ link id, room id } each), the level of
         // THIS model they were put under, and how many picked rooms on
@@ -103,6 +114,25 @@ namespace ATKINSMEC
                 REVITROOMS rooms = new REVITROOMS();
                 rooms.Rooms(doc);
             }
+            else if (request == 4)
+            {
+                var rooms = new REVITROOMS
+                {
+                    Doing = REVITROOMS.Mode.Write,
+                    Overrides = WriteOverrides ?? new Dictionary<string, VENTFLOWS.Air>(),
+                    WriteFresh = WriteFresh ?? new HashSet<string>(),
+                    WriteExtract = WriteExtract ?? new HashSet<string>(),
+                    SheetMerges = WriteSheetMerges
+                };
+
+                rooms.Rooms(doc);
+
+                // WHAT THE TERMINALS CARRY NOW, for Levels and rooms' Model
+                // columns - read here, not asked for: a request raised
+                // inside this handler would arrive empty
+                if (Command.Window != null)
+                    Command.Window.Take(VENTREAD.Do(Command.Window.Document, new VENTREAD.Ask { Terminals = true }));
+            }
             else if (request == 2)
             {
                 REVITEXPORT export = new REVITEXPORT();
@@ -130,7 +160,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINS MEP";
+            return "Atkins MEP Toolkit - AUTOVENT";
         }
     }
 }

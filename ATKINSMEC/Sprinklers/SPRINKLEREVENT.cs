@@ -111,7 +111,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINS sprinklers";
+            return "Atkins MEP Toolkit - sprinklers";
         }
 
         // Each link on its own, so the window can keep them per link and

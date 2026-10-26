@@ -445,6 +445,33 @@ internal static class Program
             VENTINTERIOR.Find(links, null, storeys, "IND", null).Count == 0 &&
             VENTINTERIOR.Find(links, floors, null, "IND", null).Count == 0);
 
+        // ---- KEYWORDS: "IND, ID" (user, 2026-10-19: "can the container
+        // also detect models with 'ID' instead of 'IND'") ----------------
+        const string Ind = "5232535-ATR-TRA-ZZZ-3DM-IND-001220 : TOWER A - TIER 35";
+        const string Id = "5232535-ATR-TRA-ZZZ-3DM-ID-001220.rvt : 2";
+
+        Check("the default finds IND and ID models: \"" + VENTSETTINGS.DefaultInteriorKeyword + "\"",
+            VENTINTERIOR.Named(Ind, VENTSETTINGS.DefaultInteriorKeyword) &&
+            VENTINTERIOR.Named(Id, VENTSETTINGS.DefaultInteriorKeyword));
+
+        Check("ID is a word of the name, never letters inside one: not GRID, SIDE, MIDDLE, nor IND",
+            !VENTINTERIOR.Named("ATR-TWR-GRID-000010.rvt", "ID") && !VENTINTERIOR.Named("WEST SIDE-ARC.rvt", "ID") &&
+            !VENTINTERIOR.Named("MIDDLE BLOCK.rvt", "ID") && !VENTINTERIOR.Named(Ind, "ID"));
+
+        Check("a keyword of three letters or more starts a word: IND finds INDOOR-FITOUT, not WIND",
+            VENTINTERIOR.Named("INDOOR-FITOUT.rvt", "IND") && !VENTINTERIOR.Named("WIND-STUDY.rvt", "IND"));
+
+        Check("any one keyword will do; any case; semicolons too",
+            VENTINTERIOR.Named(Id, "ind, id") && VENTINTERIOR.Named(Id, "IND; ID") && !VENTINTERIOR.Named(Id, "IND"));
+
+        Check("a keyword of several words needs them all, in any order",
+            VENTINTERIOR.Named(Ind, "TIER IND") && !VENTINTERIOR.Named(Ind, "IND TOWER B"));
+
+        Check("no keyword at all - blank, or only commas - every placement, as before",
+            VENTINTERIOR.Named(Ind, "") && VENTINTERIOR.Named(Ind, " , ") && VENTINTERIOR.Named(Ind, null));
+
+        Check("an MEP model is not an interior model", !VENTINTERIOR.Named("5232535-ATR-TRA-ZZZ-3DM-HVC-000100.rvt", "IND, ID"));
+
         // ---- what the run searches: Allowed ---------------------------
         Check("following the keyword: a matching placement is searched on every level",
             VENTINTERIOR.Allowed("GR_GROUND FLOOR", 22, "ATR-TWR-IND-000030.rvt : 2", "IND", false, null) &&
@@ -527,8 +554,9 @@ internal static class Program
                     ["L01_LEVEL 01"] = new System.Collections.Generic.HashSet<long> { 23, 22 }
                 }));
 
-        Check("the default keyword is IND",
-            VENTSETTINGS.DefaultInteriorKeyword == "IND" && !VENTSETTINGS.InteriorChosen);
+        // "ID" too since 2026-10-19
+        Check("the default keywords are IND and ID",
+            VENTSETTINGS.DefaultInteriorKeyword == "IND, ID" && !VENTSETTINGS.InteriorChosen);
     }
 
     // ==================================================================
@@ -569,6 +597,7 @@ internal static class Program
                 EndcapNames = "Endcap, BellMouth Fresh",
                 BellmouthNames = "",
                 CountFixtures = false,
+                Occupancy = false,
                 RoomLinks = { L(1001, "ARC-000010.rvt"), L(1002, "ARC-000020.rvt : 1 : Tower A") },
                 Apartments = { L(1002, "ARC-000020.rvt : 1 : Tower A") },
                 FixtureSources = { L(0, "This model"), L(1003, "PLU-000030.rvt") },
@@ -618,6 +647,9 @@ internal static class Program
             Check("the second model's lines do not leak onto the first, or the first's onto it",
                 p.RoomLinks.Count == 0 && p.FixtureFamilies.Count == 0 &&
                 p.Extract.Count == 1 && t.Extract == null && p.ReachMm == VENTSETTINGS.DefaultEndcapReachMm);
+
+            Check("the occupancy switch survives; a model never given one fills categories, as the default does",
+                !t.Occupancy && p.Occupancy);
 
             Check("a model never given a fixture switch counts fixtures, as the default does",
                 p.CountFixtures);
@@ -741,6 +773,10 @@ internal static class Program
                     new System.Collections.Generic.List<string> { "3589272:121126", "3589272:121125" },
                     new System.Collections.Generic.List<string> { "3001198:41", "3001198:42", "3001198:43" }
                 },
+                ExtractMerges =
+                {
+                    new System.Collections.Generic.List<string> { "3001198:41", "3001198:44" }
+                },
                 Rooms =
                 {
                     new System.Collections.Generic.KeyValuePair<string, bool>("3001198:7", false),
@@ -759,6 +795,11 @@ internal static class Program
                 sessionBack[0].Merges.Count == 2 &&
                 string.Join(",", sessionBack[0].Merges[0]) == "3589272:121126,3589272:121125" &&
                 sessionBack[0].Merges[1].Count == 3);
+
+            Check("...each side its own: the extract merge survives apart from the fresh air ones",
+                sessionBack[0].ExtractMerges.Count == 1 &&
+                string.Join(",", sessionBack[0].ExtractMerges[0]) == "3001198:41,3001198:44" &&
+                sessionBack[1].ExtractMerges.Count == 0);
 
             Check("rooms ticked and unticked by hand survive",
                 sessionBack[0].Rooms.Count == 2 &&
@@ -779,6 +820,20 @@ internal static class Program
 
             Check("a merge of one room, or a key twice, is no merge",
                 VENTSAVED.Parse("model\tk\nmerge\t1:2\nmerge\t1:2\t1:2\n")[0].Merges.Count == 0);
+
+            // Levels and rooms left on Model: so it opens there again
+            var onModel = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\model.rvt",
+                Merges = { new System.Collections.Generic.List<string> { "7:1", "7:2", "7:3" } },
+                MergesByModel = true
+            };
+
+            var modelBack = VENTSAVED.Parse(VENTSAVED.Compose(new[] { onModel, plainModel() }));
+
+            Check("left on Model: said, the Model's merges in force; a model left on Sheet says nothing",
+                modelBack[0].MergesByModel && modelBack[0].Merges.Count == 1 && modelBack[0].Merges[0].Count == 3 &&
+                !modelBack[1].MergesByModel);
 
             Check("a room line with no key is passed over",
                 VENTSAVED.Parse("model\tk\nroom\t\toff\n")[0].Rooms.Count == 0);

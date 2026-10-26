@@ -4,7 +4,7 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // WHAT THE APARTMENTS MAP FOUND, AND WHY, written to the Desktop as
+    // WHAT THE APARTMENTS MAP FOUND, AND WHY, written to %AppData%\ATKINSMEC as
     // ATKINSMEC_apartments_log.txt every time the map is built - by the
     // levels list, the export or the airflow write; whichever ran last
     // owns the file.
@@ -32,7 +32,7 @@ namespace ATKINSMEC
         {
             Lines.Length = 0;
 
-            Say("ATKINSMEC - AUTOVENT apartments");
+            Say("Atkins MEP Toolkit - AUTOVENT redundant rooms");
             Say(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  -  built for " + (purpose ?? "the window"));
             Say(title ?? string.Empty);
         }
@@ -70,9 +70,7 @@ namespace ATKINSMEC
         {
             get
             {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                    FileName);
+                return LOGS.PathOf(FileName);
             }
         }
     }

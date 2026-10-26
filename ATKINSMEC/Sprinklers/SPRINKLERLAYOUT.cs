@@ -197,6 +197,18 @@ namespace ATKINSMEC
             result.SpacingXFt = sx;
             result.SpacingYFt = sy;
 
+            // ONE HEAD: IN THE MIDDLE OF THE ROOM'S MAIN PART (user,
+            // 2026-10-25: a store's head well off its middle - "SPRINKLERS
+            // placed it"). One cell is the whole rectangle round the room,
+            // and its centre is the centre of the whole OUTLINE: a store
+            // whose outline takes in a nook or a recess had its head pulled
+            // towards it. The middle of the largest rectangle inside the
+            // outline instead (MainPart) - a plain rectangle's is its own
+            // centre, as before. A column or wall standing there is dodged
+            // as for any grid point, and a part then beyond the head's reach
+            // gets a head of its own from the gap filling.
+            UV single = nx == 1 && ny == 1 ? MainPart(polygon.Outer, angle, min, max) : null;
+
             // 3. Grid points, each at half a cell from the rectangle edge,
             //    which keeps every sprinkler within spacing/2 of the wall
             var points = new List<UV>();
@@ -208,7 +220,7 @@ namespace ATKINSMEC
             {
                 for (int j = 0; j < ny; j++)
                 {
-                    UV local = new UV(
+                    UV local = single ?? new UV(
                         min.U + sx * (i + 0.5),
                         min.V + sy * (j + 0.5));
 
@@ -959,6 +971,73 @@ namespace ATKINSMEC
 
             point = anywhere;
             return point != null;
+        }
+
+        // THE MIDDLE OF THE LARGEST RECTANGLE INSIDE THE OUTLINE, in the
+        // room's own frame (the minimum-area rectangle's, `angle`): the
+        // rectangle round the room sampled on a grid, a sample IN when its
+        // middle is inside the outline, and the largest block of samples
+        // that are all in - row by row, the largest rectangle under a
+        // histogram. A rectangle is all in, so its own centre comes back
+        // exactly; for anything else to within half a sample.
+        private const int PartSamples = 48;
+
+        private static UV MainPart(List<UV> outer, double angle, UV min, UV max)
+        {
+            double cw = (max.U - min.U) / PartSamples;
+            double ch = (max.V - min.V) / PartSamples;
+
+            if (cw <= 0 || ch <= 0)
+                return new UV((min.U + max.U) / 2, (min.V + max.V) / 2);
+
+            var heights = new int[PartSamples];
+
+            double best = -1;
+            int bestLeft = 0, bestRight = PartSamples - 1, bestBottom = 0, bestTop = PartSamples - 1;
+
+            for (int j = 0; j < PartSamples; j++)
+            {
+                for (int i = 0; i < PartSamples; i++)
+                {
+                    UV local = new UV(min.U + cw * (i + 0.5), min.V + ch * (j + 0.5));
+
+                    heights[i] = InRing(outer, Rotate(local, angle)) ? heights[i] + 1 : 0;
+                }
+
+                // The largest rectangle under this row's histogram
+                var open = new Stack<int>();
+
+                for (int i = 0; i <= PartSamples; i++)
+                {
+                    int h = i == PartSamples ? 0 : heights[i];
+
+                    while (open.Count > 0 && heights[open.Peek()] >= h)
+                    {
+                        int top = open.Pop();
+                        int tall = heights[top];
+                        int left = open.Count == 0 ? 0 : open.Peek() + 1;
+                        double area = (i - left) * cw * tall * ch;
+
+                        if (tall > 0 && area > best + 1e-9)
+                        {
+                            best = area;
+                            bestLeft = left;
+                            bestRight = i - 1;
+                            bestTop = j;
+                            bestBottom = j - tall + 1;
+                        }
+                    }
+
+                    open.Push(i);
+                }
+            }
+
+            if (best <= 0)
+                return new UV((min.U + max.U) / 2, (min.V + max.V) / 2);
+
+            return new UV(
+                min.U + cw * (bestLeft + bestRight + 1) / 2.0,
+                min.V + ch * (bestBottom + bestTop + 1) / 2.0);
         }
 
         private static bool InteriorPoint(

@@ -543,13 +543,32 @@ namespace ATKINSMEC
 
         // HOW FAR THIS MODEL'S LEVELS ARE OUT, in feet, measured on its own
         // rooms and spaces (VENTLEVELMAP.LevelError): add it to InternalZ
-        // to get a level's real height. Zero for a model with no rooms or
-        // spaces, or whose rooms agree with its levels. Read only, and up to
-        // sixty of them - a model's levels are out by one amount or not at
-        // all.
+        // to get a level's real height. Zero for a model whose rooms agree
+        // with its levels. Read only, and up to sixty of them - a model's
+        // levels are out by one amount or not at all.
+        //
+        // A MODEL WITH NO ROOMS OR SPACES IS MEASURED ON ITS DUCTS, PIPES,
+        // CABLE TRAYS AND CONDUITS (user, 2026-10-24: "autovent doesnt
+        // detect the rooms from the linked model of the currently opened
+        // model in revit 2024"). It used to count as no error at all, and
+        // an MEP model with no spaces is the usual open model. On YANM3 its
+        // levels were 3.9 m high - by exactly what the architect's own
+        // rooms put its levels out by - and 137 of 138 linked rooms fell
+        // below its lowest level. A run's start is at its reference level
+        // plus its Start Middle Elevation, so the difference is the error.
         public static double LevelError(Document doc)
         {
+            string measuredOn;
+
+            return LevelError(doc, out measuredOn);
+        }
+
+        // ... and what it was measured on, for the logs
+        public static double LevelError(Document doc, out string measuredOn)
+        {
             var deltas = new List<double>();
+
+            measuredOn = "nothing - no rooms, spaces, ducts or pipes";
 
             if (doc == null)
                 return 0;
@@ -595,7 +614,66 @@ namespace ATKINSMEC
                 // what was measured before it failed still counts
             }
 
+            if (deltas.Count > 0)
+            {
+                measuredOn = deltas.Count + " of its rooms and spaces";
+
+                return VENTLEVELMAP.LevelError(deltas);
+            }
+
+            try
+            {
+                foreach (Element element in new FilteredElementCollector(doc)
+                             .WherePasses(new ElementMulticategoryFilter(new List<BuiltInCategory>
+                             {
+                                 BuiltInCategory.OST_DuctCurves, BuiltInCategory.OST_PipeCurves,
+                                 BuiltInCategory.OST_CableTray, BuiltInCategory.OST_Conduit
+                             }))
+                             .WhereElementIsNotElementType())
+                {
+                    if (deltas.Count >= 60)
+                        break;
+
+                    double delta;
+
+                    if (StartError(element as MEPCurve, out delta))
+                        deltas.Add(delta);
+                }
+            }
+            catch
+            {
+                // what was measured before it failed still counts
+            }
+
+            if (deltas.Count > 0)
+                measuredOn = deltas.Count + " of its ducts and pipes (no rooms or spaces)";
+
             return VENTLEVELMAP.LevelError(deltas);
+        }
+
+        // Where a duct or pipe starts, less where its level and its Start
+        // Middle Elevation say it starts
+        private static bool StartError(MEPCurve curve, out double delta)
+        {
+            delta = 0;
+
+            try
+            {
+                var location = curve == null ? null : curve.Location as LocationCurve;
+                Level level = curve == null ? null : curve.ReferenceLevel;
+                Parameter start = curve == null ? null : curve.get_Parameter(BuiltInParameter.RBS_START_OFFSET_PARAM);
+
+                if (location == null || location.Curve == null || level == null || start == null || !start.HasValue)
+                    return false;
+
+                delta = location.Curve.GetEndPoint(0).Z - (InternalZ(level) + start.AsDouble());
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // EVERY ROOM OF ONE LINK, as plain data and with no apartment on
@@ -624,6 +702,10 @@ namespace ATKINSMEC
             if (labels == null || !labels.TryGetValue(linkId, out label))
                 label = linkedDoc.Title;
 
+            // The link's false ceilings, for each room's height - as the
+            // export measures it
+            List<CeilingBox> ceilings = Ceilings(linkedDoc);
+
             foreach (Room room in new FilteredElementCollector(linkedDoc)
                          .OfCategory(BuiltInCategory.OST_Rooms)
                          .WhereElementIsNotElementType()
@@ -636,6 +718,9 @@ namespace ATKINSMEC
 
                     Parameter name = room.get_Parameter(BuiltInParameter.ROOM_NAME);
 
+                    bool toCeiling;
+                    double height = RoomHeightM(room, ceilings, out toCeiling);
+
                     read.Add(new LinkedRoom
                     {
                         LinkId = linkId,
@@ -644,7 +729,10 @@ namespace ATKINSMEC
                         Number = room.Number ?? string.Empty,
                         LinkName = label,
                         LinkLevel = own == null ? string.Empty : own.Name,
-                        Floor = HostElevationOf(linkInstance, linkedDoc, room)
+                        Floor = HostElevationOf(linkInstance, linkedDoc, room),
+                        AreaM2 = UnitUtils.ConvertFromInternalUnits(room.Area, UnitTypeId.SquareMeters),
+                        HeightM = height,
+                        HeightToCeiling = toCeiling
                     });
                 }
                 catch
@@ -654,6 +742,201 @@ namespace ATKINSMEC
             }
 
             return read;
+        }
+
+        // THE ROOMS OF ONE LINK THAT HAVE NO AREA but are placed - not
+        // enclosed, or redundant (inside another room's boundary): what
+        // ReadRooms leaves out, for Levels and rooms to list
+        // (VENTUNENCLOSED). A room never placed (no location) is not one -
+        // it is in a schedule, not on a plan.
+        public static List<VENTUNENCLOSED.Room> ReadUnenclosed(
+            Document doc, long linkId, IDictionary<long, string> labels)
+        {
+            var read = new List<VENTUNENCLOSED.Room>();
+
+            var linkInstance = doc == null
+                ? null
+                : doc.GetElement(REVITCOMPAT.NewId(linkId)) as RevitLinkInstance;
+
+            Document linkedDoc = linkInstance == null ? null : linkInstance.GetLinkDocument();
+
+            if (linkedDoc == null)
+                return read;
+
+            string label;
+
+            if (labels == null || !labels.TryGetValue(linkId, out label))
+                label = linkedDoc.Title;
+
+            foreach (Room room in new FilteredElementCollector(linkedDoc)
+                         .OfCategory(BuiltInCategory.OST_Rooms)
+                         .WhereElementIsNotElementType()
+                         .Cast<Room>()
+                         .Where(r => r.Area <= 0 && r.Location is LocationPoint))
+            {
+                try
+                {
+                    var own = linkedDoc.GetElement(room.LevelId) as Level;
+
+                    Parameter name = room.get_Parameter(BuiltInParameter.ROOM_NAME);
+
+                    // The room whose boundary it stands in, a foot above its
+                    // point - a redundant room's
+                    string inside = null;
+
+                    XYZ point = ((LocationPoint)room.Location).Point;
+                    Room other = linkedDoc.GetRoomAtPoint(point + new XYZ(0, 0, 1));
+
+                    if (other != null && other.Id != room.Id && other.Area > 0)
+                    {
+                        Parameter otherName = other.get_Parameter(BuiltInParameter.ROOM_NAME);
+
+                        inside = ((other.Number ?? string.Empty) + " " +
+                                  (otherName == null ? string.Empty : otherName.AsString() ?? string.Empty)).Trim();
+                    }
+
+                    read.Add(new VENTUNENCLOSED.Room
+                    {
+                        LinkId = linkId,
+                        RoomId = room.Id.ToValue(),
+                        Number = room.Number ?? string.Empty,
+                        Name = name == null ? string.Empty : name.AsString() ?? string.Empty,
+                        LinkName = label,
+                        Level = own == null ? string.Empty : own.Name,
+                        LevelZ = own == null ? 0 : InternalZ(own),
+                        Inside = inside
+                    });
+                }
+                catch
+                {
+                    // One unreadable room is left out, not the link
+                }
+            }
+
+            return read;
+        }
+
+        // ==================================================
+        // A room's height, as the export writes it and Levels and rooms
+        // shows it (moved here from REVITEXPORT, 2026-10-24, so the two
+        // cannot disagree)
+        // ==================================================
+
+        public class CeilingBox
+        {
+            public double MinX { get; set; }
+            public double MaxX { get; set; }
+            public double MinY { get; set; }
+            public double MaxY { get; set; }
+            public double UnderZ { get; set; }
+        }
+
+        // Every ceiling of a model, by its box
+        public static List<CeilingBox> Ceilings(Document linkedDoc)
+        {
+            var result = new List<CeilingBox>();
+
+            if (linkedDoc == null)
+                return result;
+
+            var ceilings =
+                new FilteredElementCollector(linkedDoc)
+                .OfCategory(BuiltInCategory.OST_Ceilings)
+                .WhereElementIsNotElementType();
+
+            foreach (Element ceiling in ceilings)
+            {
+                BoundingBoxXYZ bbox = ceiling.get_BoundingBox(null);
+
+                if (bbox == null)
+                    continue;
+
+                result.Add(new CeilingBox
+                {
+                    MinX = bbox.Min.X,
+                    MaxX = bbox.Max.X,
+                    MinY = bbox.Min.Y,
+                    MaxY = bbox.Max.Y,
+
+                    // The box starts at the ceiling's underside, which
+                    // is the surface the clear height is measured to
+                    UnderZ = bbox.Min.Z
+                });
+            }
+
+            return result;
+        }
+
+        // Floor to the underside of the false ceiling above the room.
+        // Without a ceiling, the room's own bounding box height is used.
+        public static double RoomHeightM(
+            Room room,
+            List<CeilingBox> ceilings,
+            out bool fromCeiling)
+        {
+            fromCeiling = false;
+
+            BoundingBoxXYZ bbox = room.get_BoundingBox(null);
+
+            if (bbox == null)
+                return 0;
+
+            double baseZ = bbox.Min.Z;
+            double topZ = bbox.Max.Z;
+
+            XYZ point;
+
+            LocationPoint lp = room.Location as LocationPoint;
+
+            if (lp != null)
+            {
+                point = lp.Point;
+            }
+            else
+            {
+                point = new XYZ(
+                    (bbox.Min.X + bbox.Max.X) / 2,
+                    (bbox.Min.Y + bbox.Max.Y) / 2,
+                    baseZ);
+            }
+
+            // ~150 mm, so a ceiling sitting on the floor slab or just
+            // above the room's upper limit is not mistaken for one inside
+            const double tolerance = 0.5;
+
+            double lowestUnderside = double.MaxValue;
+
+            foreach (CeilingBox ceiling in ceilings ?? new List<CeilingBox>())
+            {
+                if (point.X < ceiling.MinX - 0.1 ||
+                    point.X > ceiling.MaxX + 0.1 ||
+                    point.Y < ceiling.MinY - 0.1 ||
+                    point.Y > ceiling.MaxY + 0.1)
+                    continue;
+
+                if (ceiling.UnderZ <= baseZ + tolerance)
+                    continue;
+
+                if (ceiling.UnderZ > topZ + tolerance)
+                    continue;
+
+                // The false ceiling is the lowest one over the floor
+                if (ceiling.UnderZ < lowestUnderside)
+                    lowestUnderside = ceiling.UnderZ;
+            }
+
+            if (lowestUnderside < double.MaxValue)
+            {
+                fromCeiling = true;
+
+                return UnitUtils.ConvertFromInternalUnits(
+                    lowestUnderside - baseZ,
+                    UnitTypeId.Meters);
+            }
+
+            return UnitUtils.ConvertFromInternalUnits(
+                topZ - baseZ,
+                UnitTypeId.Meters);
         }
 
         public static List<string> GetLevelNamesWithRooms(

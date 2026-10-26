@@ -10,9 +10,10 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // Rewrites the level / room block of the selected worksheet from the
-    // linked Revit models. Every other column keeps the formulas of the
-    // row it was copied from; cells that held a constant are left blank.
+    // The linked models' rooms into a ventilation worksheet: an update of
+    // the imported one (VENTUPDATE - what was typed stays, new rooms are
+    // added, changed ones updated), or a new one from the office template
+    // (VENTOFFICE).
     public class REVITEXPORT
     {
         // Where to save, chosen in the form before the event is raised
@@ -26,16 +27,17 @@ namespace ATKINSMEC
         // user's request.
         //
         // Filling an imported worksheet was the only one there was, and
-        // it needs a sheet to exist already - Rewrite works by cloning
-        // the styles off the level and room rows that are there, and
-        // says so when there are none. The other two start from the
+        // it needs a sheet to exist already - it works by cloning the
+        // styles off the level and room rows that are there, and says
+        // so when there are none. Since 2026-10-14 it UPDATES the sheet
+        // rather than replacing its rooms (VENTUPDATE). The other two start from the
         // OFFICE'S OWN WORKBOOK, built into the add-in (VENTOFFICE), so a
         // job that has no sheet yet does not have to go and find last
         // job's to import.
         public enum Way
         {
-            // Replace the level/room rows of the imported worksheet,
-            // keeping its formatting and its formulas
+            // Update the imported worksheet: matched rooms keep what was
+            // typed, new rooms are added, removed ones greyed (VENTUPDATE)
             IntoImported = 0,
 
             // A brand new workbook: one worksheet in the office layout,
@@ -58,15 +60,6 @@ namespace ATKINSMEC
         // real workbook.
 
         // Footprint of a ceiling plus the elevation of its underside
-        private class CeilingBox
-        {
-            public double MinX { get; set; }
-            public double MaxX { get; set; }
-            public double MinY { get; set; }
-            public double MaxY { get; set; }
-            public double UnderZ { get; set; }
-        }
-
         public void Export(Autodesk.Revit.DB.Document doc)
         {
             try
@@ -75,12 +68,20 @@ namespace ATKINSMEC
 
                 // ONE LINE ON SCREEN, at the user's request (2026-10-11):
                 // the whole report used to be the dialog. It goes to the
-                // Desktop log instead, as the airflow run's does.
+                // log instead, as the airflow run's does (LOGS).
                 SaveLog(report);
 
                 TaskDialog.Show(
                     "AUTOVENT",
-                    "The sheet has been exported to " + TargetPath);
+                    "The sheet has been exported to " + TargetPath +
+                    (LastGone > 0
+                        ? Environment.NewLine + Environment.NewLine +
+                          LastGone + " room(s) no longer in the model - greyed in the sheet."
+                        : string.Empty) +
+                    (LastFilled > 0
+                        ? Environment.NewLine + Environment.NewLine +
+                          LastFilled + " occupancy categories filled from room names - check them."
+                        : string.Empty));
             }
             catch (Exception ex)
             {
@@ -90,15 +91,14 @@ namespace ATKINSMEC
             }
         }
 
-        // Desktop\ATKINSMEC_export_log.txt - what the export did, in full
+        // %AppData%\ATKINSMEC\ATKINSMEC_export_log.txt - what the export
+        // did, in full (on the Desktop until 2026-10-16)
         private static void SaveLog(string report)
         {
             try
             {
                 File.WriteAllText(
-                    Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                        "ATKINSMEC_export_log.txt"),
+                    LOGS.PathOf("ATKINSMEC_export_log.txt"),
                     "=== AUTOVENT export " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
                     " ===\r\n\r\n" + report + "\r\n");
             }
@@ -136,8 +136,11 @@ namespace ATKINSMEC
             int unticked;
             VENTFIXTURES.Tally fixtures;
             VENTAPARTMENTS.Map apartments;
+            List<string> storeyOrder;
 
-            List<VENTTEMPLATE.Level> blocks = CollectRooms(
+            // Every room on the ticked levels - the unticked ones too,
+            // marked Keep: an update leaves their rows as they are
+            List<VENTTEMPLATE.Level> all = CollectRooms(
                 doc2,
                 out heightsFromCeiling,
                 out heightsFromBoundingBox,
@@ -145,7 +148,14 @@ namespace ATKINSMEC
                 out belowEveryLevel,
                 out unticked,
                 out fixtures,
-                out apartments);
+                out apartments,
+                out storeyOrder);
+
+            // ...and the rooms actually written
+            List<VENTTEMPLATE.Level> blocks = Written(all);
+
+            LastGone = 0;
+            LastFilled = 0;
 
             if (blocks.Count == 0)
                 throw new Exception(
@@ -176,8 +186,10 @@ namespace ATKINSMEC
             if (unticked > 0)
             {
                 heights +=
-                    "\r\n\r\n" + unticked + " room(s) unticked in the " +
-                    "levels list were left out.";
+                    "\r\n\r\n" + unticked + " room(s) unticked in Levels and rooms" +
+                    (How == Way.IntoImported
+                        ? ": their rows were left as they are, and none was added."
+                        : " were left out.");
             }
 
             if (How != Way.IntoImported)
@@ -202,42 +214,110 @@ namespace ATKINSMEC
                         worksheetName + "\".");
 
                 // The target sheet need not have a room number column;
-                // one is added when it is missing
+                // the update adds one when it is missing
                 VENTSHEET.SheetLayout layout =
                     VENTSHEET.DetectLayout(ws, false);
 
-                bool addedNumberColumn = false;
+                HashSet<string> ticked = RVTLINKSELECTION.SelectedLevels;
 
-                if (layout.RoomNumberCol == 0)
-                {
-                    int insertedAt = VENTROWS.InsertRoomNumberColumn(ws, layout);
+                VENTUPDATE.Outcome done = VENTUPDATE.Update(
+                    ws, layout, all,
+                    level => ticked.Count == 0 || ticked.Contains((level ?? string.Empty).Trim()),
+                    storeyOrder,
+                    DateTime.Now.ToString("yyyy-MM-dd"),
+                    VENTSETTINGS.Occupancy ? VENTOCCUPANCY.Load() : null);
 
-                    // Shift the indices by hand rather than re-detecting:
-                    // the new column is still empty, so the structural
-                    // search would have nothing to key off.
-                    VENTROWS.ShiftColumns(layout, insertedAt);
+                LastGone = done.Gone;
+                LastFilled = done.Occupancy.Total;
 
-                    addedNumberColumn = true;
-                }
-
-                int groups;
-                string report = Rewrite(ws, layout, blocks, out groups);
-
-                if (addedNumberColumn)
-                {
-                    report +=
-                        "\r\n\r\nA \"Room Number\" column was added at " +
-                        ExcelCellAddress.GetColumnLetter(layout.RoomNumberCol) +
-                        ".";
-                }
+                string report = Updated(ws.Name, layout, done);
 
                 report += heights + Fixtures(fixtures, layout.UnitsCol) +
-                          Apartments(apartments, blocks, groups) + Arranged(blocks);
+                          Apartments(apartments, blocks, done.Apartments) + Arranged(blocks) +
+                          Occupancy(done.Occupancy, done.DwellingFixed, done.Kitchen);
 
                 package.SaveAs(new FileInfo(TargetPath));
 
                 return report;
             }
+        }
+
+        // How many rooms the last update greyed as no longer in the model -
+        // said on screen, in one line
+        public static int LastGone;
+
+        // The rooms written by the two template ways: none unticked, and no
+        // level left with nothing in it
+        private static List<VENTTEMPLATE.Level> Written(List<VENTTEMPLATE.Level> all)
+        {
+            var written = new List<VENTTEMPLATE.Level>();
+
+            foreach (VENTTEMPLATE.Level level in all)
+            {
+                List<VENTTEMPLATE.Room> rooms = level.Rooms.Where(r => !r.Keep).ToList();
+
+                if (rooms.Count > 0)
+                {
+                    written.Add(new VENTTEMPLATE.Level
+                    {
+                        LevelName = level.LevelName,
+                        Elevation = level.Elevation,
+                        Rooms = rooms
+                    });
+                }
+            }
+
+            return written;
+        }
+
+        // What an update did, for the export log
+        private static string Updated(string sheet, VENTSHEET.SheetLayout layout, VENTUPDATE.Outcome done)
+        {
+            var report = new StringBuilder();
+
+            report.AppendLine("Worksheet: " + sheet + " - updated");
+            report.AppendLine();
+            report.AppendLine($"Rooms matched: {done.Matched} ({done.Changed} changed in the model)");
+            report.AppendLine($"Rooms added: {done.Added}");
+            report.AppendLine($"Rooms no longer in the model (greyed, kept): {done.Gone}");
+            report.AppendLine($"Unticked rooms left as they were: {done.Kept}");
+            report.AppendLine($"Levels added: {done.LevelsAdded}");
+            report.AppendLine($"Levels not ticked, left as they were: {done.LevelsLeft}");
+            report.AppendLine($"Rows: {done.RowsBefore} -> {done.RowsAfter}");
+
+            if (done.Lines.Count > 0)
+            {
+                report.AppendLine();
+
+                foreach (string line in done.Lines)
+                    report.AppendLine("    " + line);
+            }
+
+            report.AppendLine();
+            report.AppendLine("Columns written from the model:");
+            report.AppendLine("    Name: " + VENTROWS.ColName(layout.SpaceNameCol));
+            report.AppendLine("    Number: " + VENTROWS.ColName(layout.RoomNumberCol));
+            report.AppendLine("    Area (m2): " + VENTROWS.ColName(layout.AreaCol));
+            report.AppendLine("    Height (m): " + VENTROWS.ColName(layout.HeightCol));
+            report.AppendLine("    No. of Units: " + VENTROWS.ColName(layout.UnitsCol));
+            report.AppendLine("Everything else typed in a room's row was kept.");
+
+            if (done.NumberColumnAdded)
+                report.AppendLine("A \"Room Number\" column was added at " + VENTROWS.ColName(layout.RoomNumberCol) + ".");
+
+            if (done.KeyColumnAdded)
+                report.AppendLine("A hidden \"" + VENTUPDATE.KeyHeading + "\" column was added - the next update matches every room by it.");
+
+            if (done.FilterRemoved)
+                report.AppendLine("The sheet's AutoFilter was removed.");
+
+            if (done.Merged > 0)
+                report.AppendLine(done.Merged + " merged group(s): their fresh air, or extract, as one total.");
+
+            report.AppendLine();
+            report.Append("Saved to: " + TargetPath);
+
+            return report.ToString();
         }
 
         // ==================================================
@@ -263,7 +343,8 @@ namespace ATKINSMEC
                 SheetName = name,
                 ProjectName = info == null ? null : info.Name,
                 ProjectNumber = info == null ? null : info.Number,
-                Levels = blocks
+                Levels = blocks,
+                Occupancy = VENTSETTINGS.Occupancy ? VENTOCCUPANCY.Load() : null
             };
 
             byte[] template = VENTOFFICE.Template();
@@ -277,11 +358,13 @@ namespace ATKINSMEC
 
                 unitsCol = made.UnitsCol;
                 groups = made.Apartments;
+                LastFilled = made.Occupancy.Total;
 
                 return "A new workbook was written.\r\n\r\n" +
                        VENTOFFICE.Describe(made) +
                        "\r\n\r\nIt also holds the three ASHRAE worksheets " +
                        "the formulas read." +
+                       Occupancy(made.Occupancy, made.DwellingFixed, made.Kitchen) +
                        saved;
             }
 
@@ -294,11 +377,81 @@ namespace ATKINSMEC
 
             unitsCol = added.UnitsCol;
             groups = added.Apartments;
+            LastFilled = added.Occupancy.Total;
 
             return "A worksheet was added; every worksheet already in " +
-                   "the workbook was left as it was.\r\n\r\n" +
+                   "the workbook was left as it was" +
+                   (added.Kitchen.Rates ? ", but for Table 6-4's apartment kitchen rates (below)" : string.Empty) +
+                   ".\r\n\r\n" +
                    VENTOFFICE.Describe(added) +
+                   Occupancy(added.Occupancy, added.DwellingFixed, added.Kitchen) +
                    saved;
+        }
+
+        // How many occupancy categories the last export filled - said on
+        // screen, in one line, so they get checked
+        public static int LastFilled;
+
+        // What the occupancy categories did, for the export log
+        private static string Occupancy(VENTOCCUPANCY.Filled filled, int dwellingFixed, VENTOCCUPANCY.Kitchen kitchen)
+        {
+            var said = new StringBuilder();
+
+            said.Append("\r\n\r\nOccupancy categories: ");
+
+            if (!VENTSETTINGS.Occupancy)
+            {
+                said.Append("not filled (switched off in the window).");
+            }
+            else
+            {
+                said.Append(filled.Fresh + " outside air (Table 6-1), " + filled.Exhaust +
+                            " exhaust (Table 6-4) filled from room names, into blank cells only.");
+
+                foreach (KeyValuePair<string, int> given in filled.Given.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+                    said.Append("\r\n    " + given.Key + (given.Value > 1 ? "   x" + given.Value : string.Empty));
+
+                if (filled.Missing.Count > 0)
+                {
+                    said.Append("\r\n    Not in this sheet's lists, so not written: " +
+                                string.Join(", ", filled.Missing.OrderBy(m => m)));
+                }
+
+                if (filled.Apartments > 0)
+                {
+                    said.Append("\r\n\r\n" + filled.Apartments + " redundant room(s) given their number of bedrooms and " +
+                                filled.Occupants + " occupant(s) in all: 2 in the master bedroom, 1 in each other.");
+                }
+
+                if (filled.NoUnits.Count > 0)
+                {
+                    said.Append("\r\n\r\n" + filled.NoUnits.Count + " room(s) exhausted per fixture with no " +
+                                "\"No. of Units\" - 0 L/s until the fixtures are counted or typed:\r\n    " +
+                                string.Join(", ", filled.NoUnits.Distinct().OrderBy(n => n)));
+                }
+            }
+
+            if (dwellingFixed > 0)
+            {
+                said.Append("\r\n\r\nThe \"Dwelling Unit\" test in the room formulas pointed at a cell " +
+                            "that does not hold \"Dwelling Unit\" (as in the office's own workbook); " +
+                            "it now reads Table 6-1 itself, so a dwelling takes its occupants " +
+                            "from \"No. of Occupants\".");
+            }
+
+            if (kitchen != null && (kitchen.Rates || kitchen.Formulas > 0))
+            {
+                said.Append("\r\n\r\n\"" + VENTOCCUPANCY.ApartmentKitchen + "\" is calculated per unit, as " +
+                            "\"Toilets - private\": No. of Units x 25 L/s for light use, 50 L/s otherwise.");
+
+                if (kitchen.Rates)
+                    said.Append(" Table 6-4's row for it was empty; it was given those rates.");
+
+                if (kitchen.Formulas > 0)
+                    said.Append(" " + kitchen.Formulas + " room formula(s) now name it beside \"Toilets - private\".");
+            }
+
+            return said.ToString();
         }
 
         // What the fixture count did, said in the report - including
@@ -311,7 +464,9 @@ namespace ATKINSMEC
 
             string said = "\r\n\r\nFixtures into \"No. of Units\": " + tally.Counted +
                           " counted into " + tally.ByRoom.Count + " room(s), from " +
-                          tally.Models + " model(s)";
+                          tally.Models + " model(s)" +
+                          (tally.Placements > tally.Models ? " in " + tally.Placements + " placements" : string.Empty) +
+                          (tally.ModelNames.Count == 0 ? string.Empty : " (" + string.Join(", ", tally.ModelNames) + ")");
 
             said += tally.Families.Count == 0
                 ? "."
@@ -360,7 +515,8 @@ namespace ATKINSMEC
             out int belowEveryLevel,
             out int unticked,
             out VENTFIXTURES.Tally fixtures,
-            out VENTAPARTMENTS.Map apartments)
+            out VENTAPARTMENTS.Map apartments,
+            out List<string> storeyOrder)
         {
             heightsFromCeiling = 0;
             heightsFromBoundingBox = 0;
@@ -399,6 +555,10 @@ namespace ATKINSMEC
             List<VENTLEVELMAP.Storey> storeys =
                 RVTLINKSELECTION.GetHostLevels(doc2);
 
+            // This model's levels, bottom up - where an update puts a level
+            // the sheet has not got yet
+            storeyOrder = storeys.Select(s => s.Name).ToList();
+
             foreach (long linkId in roomLinks)
             {
                 RevitLinkInstance linkInstance =
@@ -413,7 +573,7 @@ namespace ATKINSMEC
                 if (linkedDoc == null)
                     continue;
 
-                List<CeilingBox> ceilings = CollectCeilings(linkedDoc);
+                List<RVTLINKSELECTION.CeilingBox> ceilings = RVTLINKSELECTION.Ceilings(linkedDoc);
 
                 ceilingsFound += ceilings.Count;
 
@@ -459,14 +619,19 @@ namespace ATKINSMEC
                     if (apartments.Holding.Contains(roomKey))
                         continue;
 
-                    // Unticked under its level in the window
-                    if (RVTLINKSELECTION.ExcludedRooms.Contains(roomKey))
-                    {
+                    // Unticked under its level in the window: carried as
+                    // KEEP - an update leaves its row as it is, the other
+                    // exports leave it out (Written)
+                    bool keep = RVTLINKSELECTION.ExcludedRooms.Contains(roomKey);
+
+                    if (keep)
                         unticked++;
-                        continue;
-                    }
 
                     VENTAPARTMENTS.Apartment apartment = apartments.Of(roomKey);
+
+                    // In a dwelling, grouped under it or not - what its
+                    // occupancy category is guessed by (VENTOCCUPANCY)
+                    bool inDwelling = apartment != null;
 
                     // Taken out of its apartment in Arrange rooms...: a row
                     // of its own, by its own name (VENTARRANGE)
@@ -495,12 +660,16 @@ namespace ATKINSMEC
 
                     bool fromCeiling;
 
-                    double heightM = RoomHeightM(
+                    double heightM = RVTLINKSELECTION.RoomHeightM(
                         room,
                         ceilings,
                         out fromCeiling);
 
-                    if (fromCeiling)
+                    if (keep)
+                    {
+                        // counted with the unticked, not the heights
+                    }
+                    else if (fromCeiling)
                         heightsFromCeiling++;
                     else
                         heightsFromBoundingBox++;
@@ -521,7 +690,9 @@ namespace ATKINSMEC
                         Fixtures = FixturesIn(fixtures, linkId, room),
                         ApartmentKey = apartment == null ? null : apartment.Key,
                         Apartment = apartment == null ? null : VENTARRANGE.Current.NameOf(apartment.Key, apartment.Name),
-                        ApartmentNumber = apartment == null ? null : apartment.Number
+                        ApartmentNumber = apartment == null ? null : apartment.Number,
+                        Keep = keep,
+                        InDwelling = inDwelling
                     });
                 }
             }
@@ -541,9 +712,13 @@ namespace ATKINSMEC
                     r => r.Key, r => r.ApartmentKey);
 
                 // Merged rooms - next to each other by now (Together) -
-                // have their air written as one total (VENTROWS.MergeAir)
+                // have their air written as one total (VENTROWS.MergeAir),
+                // each side by its own merges
                 foreach (VENTTEMPLATE.Room room in block.Rooms)
+                {
                     room.Merge = VENTARRANGE.Current.MergeIdOf(room.Key);
+                    room.ExtractMerge = VENTARRANGE.Current.ExtractMergeIdOf(room.Key);
+                }
             }
 
             return blocks;
@@ -580,14 +755,14 @@ namespace ATKINSMEC
             if (renamed > 0)
                 said.Add(renamed + " renamed");
 
-            int merges = arrangement.Merges.Count(g => g.Count(keys.Contains) > 1);
+            int merges = arrangement.Merges.Concat(arrangement.ExtractMerges).Count(g => g.Count(keys.Contains) > 1);
 
             if (merges > 0)
                 said.Add(merges + " merged group(s)");
 
             return said.Count == 0
                 ? string.Empty
-                : "\r\n\r\nArrange rooms: " + string.Join(", ", said) + ".";
+                : "\r\n\r\nLevels and rooms: " + string.Join(", ", said) + ".";
         }
 
         // What the apartments did, for the report
@@ -598,23 +773,23 @@ namespace ATKINSMEC
 
             int inside = blocks.Sum(b => b.Rooms.Count(r => !string.IsNullOrEmpty(r.ApartmentKey)));
 
-            string said = "\r\n\r\nApartments from " + map.Label + ": " + written +
-                          " written, holding " + inside + " room(s) from interior models - the " +
-                          "apartment down the Space column, each room's own name beside it.";
+            string said = "\r\n\r\nRedundant rooms from " + map.Label + ": " + written +
+                          " written, holding " + inside + " unit(s) from interior models - the " +
+                          "redundant room down the Space column, each unit's own name beside it.";
 
             foreach (string line in map.Describe())
                 said += "\r\n    " + line;
 
             if (map.OtherStorey > 0)
             {
-                said += "\r\n    " + map.OtherStorey + " room(s) stood inside an apartment on ANOTHER " +
+                said += "\r\n    " + map.OtherStorey + " room(s) stood inside a redundant room on ANOTHER " +
                         "level of this model, and were not put under it.";
             }
 
             // Never silent: an interior room in no apartment is in no sheet
             if (map.Outside > 0)
             {
-                said += "\r\n    " + map.Outside + " room(s) of the interior models stood in NO apartment (" +
+                said += "\r\n    " + map.Outside + " room(s) of the interior models stood in NO redundant room (" +
                         string.Join(", ", map.OutsideOn.Select(o =>
                             (o.Key >= 0 && o.Key < map.Storeys.Count ? map.Storeys[o.Key].Name : "?") + " " + o.Value)) +
                         ") and are not in the sheet.";
@@ -626,8 +801,8 @@ namespace ATKINSMEC
 
             if (spread.Count > 0)
             {
-                said += "\r\n    CHECK: " + spread.Count + " apartment(s) took rooms from more than one interior " +
-                        "placement - the architect's room probably runs across several apartments:";
+                said += "\r\n    CHECK: " + spread.Count + " redundant room(s) took units from more than one interior " +
+                        "placement - the architect's room probably runs across several redundant rooms:";
 
                 foreach (string line in spread)
                     said += "\r\n        " + line;
@@ -637,434 +812,6 @@ namespace ATKINSMEC
                 said += "\r\n    What each room was found in, and what the other models have there: " + VENTAPTLOG.Where;
 
             return said;
-        }
-
-        private static List<CeilingBox> CollectCeilings(
-            Autodesk.Revit.DB.Document linkedDoc)
-        {
-            var result = new List<CeilingBox>();
-
-            var ceilings =
-                new FilteredElementCollector(linkedDoc)
-                .OfCategory(BuiltInCategory.OST_Ceilings)
-                .WhereElementIsNotElementType();
-
-            foreach (Element ceiling in ceilings)
-            {
-                BoundingBoxXYZ bbox = ceiling.get_BoundingBox(null);
-
-                if (bbox == null)
-                    continue;
-
-                result.Add(new CeilingBox
-                {
-                    MinX = bbox.Min.X,
-                    MaxX = bbox.Max.X,
-                    MinY = bbox.Min.Y,
-                    MaxY = bbox.Max.Y,
-
-                    // The box starts at the ceiling's underside, which
-                    // is the surface the clear height is measured to
-                    UnderZ = bbox.Min.Z
-                });
-            }
-
-            return result;
-        }
-
-        // Floor to the underside of the false ceiling above the room.
-        // Without a ceiling, the room's own bounding box height is used.
-        private static double RoomHeightM(
-            Room room,
-            List<CeilingBox> ceilings,
-            out bool fromCeiling)
-        {
-            fromCeiling = false;
-
-            BoundingBoxXYZ bbox = room.get_BoundingBox(null);
-
-            if (bbox == null)
-                return 0;
-
-            double baseZ = bbox.Min.Z;
-            double topZ = bbox.Max.Z;
-
-            XYZ point;
-
-            LocationPoint lp = room.Location as LocationPoint;
-
-            if (lp != null)
-            {
-                point = lp.Point;
-            }
-            else
-            {
-                point = new XYZ(
-                    (bbox.Min.X + bbox.Max.X) / 2,
-                    (bbox.Min.Y + bbox.Max.Y) / 2,
-                    baseZ);
-            }
-
-            // ~150 mm, so a ceiling sitting on the floor slab or just
-            // above the room's upper limit is not mistaken for one inside
-            const double tolerance = 0.5;
-
-            double lowestUnderside = double.MaxValue;
-
-            foreach (CeilingBox ceiling in ceilings)
-            {
-                if (point.X < ceiling.MinX - 0.1 ||
-                    point.X > ceiling.MaxX + 0.1 ||
-                    point.Y < ceiling.MinY - 0.1 ||
-                    point.Y > ceiling.MaxY + 0.1)
-                    continue;
-
-                if (ceiling.UnderZ <= baseZ + tolerance)
-                    continue;
-
-                if (ceiling.UnderZ > topZ + tolerance)
-                    continue;
-
-                // The false ceiling is the lowest one over the floor
-                if (ceiling.UnderZ < lowestUnderside)
-                    lowestUnderside = ceiling.UnderZ;
-            }
-
-            if (lowestUnderside < double.MaxValue)
-            {
-                fromCeiling = true;
-
-                return UnitUtils.ConvertFromInternalUnits(
-                    lowestUnderside - baseZ,
-                    UnitTypeId.Meters);
-            }
-
-            return UnitUtils.ConvertFromInternalUnits(
-                topZ - baseZ,
-                UnitTypeId.Meters);
-        }
-
-
-        // ==================================================
-        // Excel side
-        // ==================================================
-
-        private static bool DownMerged(ExcelWorksheet ws, int row, int col)
-        {
-            string merged = ws.MergedCells[row, col];
-
-            return !string.IsNullOrEmpty(merged) &&
-                   new ExcelAddress(merged).Start.Row != new ExcelAddress(merged).End.Row;
-        }
-
-        private static string Rewrite(
-            ExcelWorksheet ws,
-            VENTSHEET.SheetLayout layout,
-            List<VENTTEMPLATE.Level> blocks,
-            out int groups)
-        {
-            int lastCol = ws.Dimension.Columns;
-            int lastRow = ws.Dimension.Rows;
-            int nameCol = layout.SpaceNameCol;
-            int firstDataRow = layout.FirstDataRow;
-
-
-            // 1. Extent of the existing level/room block
-            int lastDataRow = firstDataRow - 1;
-
-            for (int r = firstDataRow; r <= lastRow; r++)
-            {
-                if (ws.Cells[r, nameCol].Text.Trim().Length > 0)
-                    lastDataRow = r;
-            }
-
-            if (lastDataRow < firstDataRow)
-                throw new Exception(
-                    "The worksheet has no existing level/room rows to replace.");
-
-            // 2. Template rows, captured before anything moves
-            int levelRow = 0;
-            int spacerRow = 0;
-            int roomRow = 0;
-            int subTotalRow = 0;
-
-            // A row that is not part of a group merged DOWN: neither an
-            // apartment's name, nor merged rooms' air (VENTROWS.MergeAir) -
-            // whose formula is the total of several rooms and would be
-            // copied onto every room
-            bool Plain(int r) =>
-                !DownMerged(ws, r, nameCol) &&
-                (layout.FreshAirCol <= 0 || !DownMerged(ws, r, layout.FreshAirCol)) &&
-                (layout.ExhaustAirCol <= 0 || !DownMerged(ws, r, layout.ExhaustAirCol));
-
-            for (int r = firstDataRow; r <= lastDataRow; r++)
-            {
-                string text = ws.Cells[r, nameCol].Text.Trim();
-
-                if (VENTSHEET.IsSubTotalRow(text))
-                {
-                    if (subTotalRow == 0)
-                        subTotalRow = r;
-
-                    continue;
-                }
-
-                if (text.Length == 0)
-                    continue;
-
-                bool isLevel = layout.LevelsByColor
-                    ? VENTSHEET.IsLevelFill(ws.Cells[r, nameCol])
-                    : ws.Cells[r, layout.RoomNumberCol].Text.Trim().Length == 0;
-
-                if (isLevel)
-                {
-                    if (levelRow == 0)
-                    {
-                        levelRow = r;
-
-                        // A blank spacer row often follows the level header
-                        if (r + 1 <= lastDataRow &&
-                            ws.Cells[r + 1, nameCol].Text.Trim().Length == 0)
-                        {
-                            spacerRow = r + 1;
-                        }
-                    }
-                }
-                else if (roomRow == 0 || (!Plain(roomRow) && Plain(r)))
-                {
-                    // An ordinary room's row, where there is one: an
-                    // apartment's first row has its name merged DOWN, and
-                    // merged rooms' first row their air, and either would
-                    // teach every room the wrong shape
-                    roomRow = r;
-                }
-            }
-
-            if (levelRow == 0 || roomRow == 0)
-                throw new Exception(
-                    "Could not find a level row and a room row to use as templates.");
-
-            VENTROWS.RowTemplate levelTemplate = VENTROWS.Capture(ws, levelRow, lastCol, nameCol);
-            VENTROWS.RowTemplate roomTemplate = VENTROWS.Capture(ws, roomRow, lastCol, nameCol);
-
-            VENTROWS.RowTemplate spacerTemplate = spacerRow == 0
-                ? null
-                : VENTROWS.Capture(ws, spacerRow, lastCol, nameCol);
-
-            VENTROWS.RowTemplate subTotalTemplate = subTotalRow == 0
-                ? null
-                : VENTROWS.Capture(ws, subTotalRow, lastCol, nameCol);
-
-            // The room rows the template sub total summed over, so its
-            // ranges can be re-pointed at each new block
-            int tmplBlockFirst = 0;
-            int tmplBlockLast = 0;
-
-            if (subTotalRow > 0)
-            {
-                for (int r = subTotalRow - 1; r >= firstDataRow; r--)
-                {
-                    string text = ws.Cells[r, nameCol].Text.Trim();
-
-                    if (text.Length == 0)
-                        break;
-
-                    bool isLevel = layout.LevelsByColor
-                        ? VENTSHEET.IsLevelFill(ws.Cells[r, nameCol])
-                        : ws.Cells[r, layout.RoomNumberCol].Text.Trim().Length == 0;
-
-                    if (isLevel || VENTSHEET.IsSubTotalRow(text))
-                        break;
-
-                    tmplBlockFirst = r;
-
-                    if (tmplBlockLast == 0)
-                        tmplBlockLast = r;
-                }
-            }
-
-            // 3. Plan the new rows
-            var plan = new List<VENTROWS.PlannedRow>();
-
-            foreach (VENTTEMPLATE.Level block in blocks)
-            {
-                plan.Add(new VENTROWS.PlannedRow
-                {
-                    Kind = VENTROWS.RowKind.Level,
-                    LevelName = block.LevelName
-                });
-
-                if (spacerTemplate != null)
-                    plan.Add(new VENTROWS.PlannedRow { Kind = VENTROWS.RowKind.Spacer });
-
-                int blockFirst = firstDataRow + plan.Count;
-
-                foreach (VENTTEMPLATE.Room room in block.Rooms)
-                {
-                    plan.Add(new VENTROWS.PlannedRow
-                    {
-                        Kind = VENTROWS.RowKind.Room,
-                        Room = room
-                    });
-                }
-
-                int blockLast = firstDataRow + plan.Count - 1;
-
-                if (subTotalTemplate != null)
-                {
-                    plan.Add(new VENTROWS.PlannedRow
-                    {
-                        Kind = VENTROWS.RowKind.SubTotal,
-                        BlockFirstRoomRow = blockFirst,
-                        BlockLastRoomRow = blockLast
-                    });
-                }
-            }
-
-            // 4. Make the region exactly as long as the plan. Rows are
-            //    added or removed at the end of the region so that
-            //    formulas elsewhere follow the range.
-            int existing = lastDataRow - firstDataRow + 1;
-            int needed = plan.Count;
-
-            if (needed > existing)
-                ws.InsertRow(lastDataRow + 1, needed - existing, roomRow);
-            else if (needed < existing)
-                ws.DeleteRow(firstDataRow + needed, existing - needed);
-
-            // 5. Write - into a block cleared of merges first: a sheet
-            //    exported with apartments last time carries their names
-            //    merged DOWN, and the rows now under them are not theirs
-            foreach (string merged in ws.MergedCells.ToList())
-            {
-                if (string.IsNullOrEmpty(merged))
-                    continue;
-
-                var a = new ExcelAddress(merged);
-
-                if (a.Start.Row <= firstDataRow + needed - 1 && a.End.Row >= firstDataRow)
-                    ws.Cells[merged].Merge = false;
-            }
-
-            int written = 0;
-
-            var roomRows = new List<KeyValuePair<int, VENTTEMPLATE.Room>>();
-
-            for (int i = 0; i < plan.Count; i++)
-            {
-                VENTROWS.PlannedRow planned = plan[i];
-                int row = firstDataRow + i;
-
-                VENTROWS.RowTemplate template;
-
-                switch (planned.Kind)
-                {
-                    case VENTROWS.RowKind.Level: template = levelTemplate; break;
-                    case VENTROWS.RowKind.Spacer: template = spacerTemplate; break;
-                    case VENTROWS.RowKind.SubTotal: template = subTotalTemplate; break;
-                    default: template = roomTemplate; break;
-                }
-
-                VENTROWS.ApplyTemplate(ws, row, template, lastCol);
-
-                if (planned.Kind == VENTROWS.RowKind.SubTotal)
-                {
-                    VENTROWS.ApplySubTotalFormulas(
-                        ws,
-                        row,
-                        template,
-                        lastCol,
-                        subTotalRow,
-                        tmplBlockFirst,
-                        tmplBlockLast,
-                        planned.BlockFirstRoomRow,
-                        planned.BlockLastRoomRow);
-
-                    ws.Cells[row, nameCol].Value = "Sub Total";
-                    continue;
-                }
-
-                if (planned.Kind == VENTROWS.RowKind.Level)
-                {
-                    ws.Cells[row, nameCol].Value = planned.LevelName;
-                    continue;
-                }
-
-                if (planned.Kind == VENTROWS.RowKind.Spacer)
-                    continue;
-
-                // Room rows are written in plain text: the source sheet
-                // colours some of them (red, for instance) and that
-                // highlighting is not carried over to exported rooms
-                VENTROWS.ClearFontColor(ws, row, lastCol);
-
-                ws.Cells[row, nameCol].Value = planned.Room.Name;
-
-                if (layout.RoomNumberCol > 0)
-                    ws.Cells[row, layout.RoomNumberCol].Value = planned.Room.Number;
-
-                if (layout.AreaCol > 0)
-                    ws.Cells[row, layout.AreaCol].Value =
-                        Math.Round(planned.Room.AreaM2, 2);
-
-                if (layout.HeightCol > 0)
-                    ws.Cells[row, layout.HeightCol].Value =
-                        Math.Round(planned.Room.HeightM, 2);
-
-                // Water closets and urinals; a room with none keeps
-                // whatever the worksheet had there
-                if (layout.UnitsCol > 0 && planned.Room.Fixtures > 0)
-                    ws.Cells[row, layout.UnitsCol].Value = planned.Room.Fixtures;
-
-                roomRows.Add(new KeyValuePair<int, VENTTEMPLATE.Room>(row, planned.Room));
-
-                written++;
-            }
-
-            // Apartments, in the office's Tower-1 pattern - the same
-            // writer the office-template export uses
-            groups = VENTROWS.Apartments(ws, layout, roomRows);
-
-            // Rooms merged in Arrange rooms: their air as one total
-            int mergedGroups = VENTROWS.MergeAir(ws, layout, roomRows);
-
-            // The rewritten worksheet is left without an AutoFilter
-            bool filterRemoved = VENTROWS.RemoveAutoFilter(ws);
-
-            // Open at the top, not wherever the sheet was saved scrolled to
-            VENTROWS.Home(ws);
-
-            var report = new StringBuilder();
-
-            report.AppendLine("Worksheet: " + ws.Name);
-            report.AppendLine();
-            report.AppendLine($"Levels written: {blocks.Count}");
-            report.AppendLine($"Rooms written: {written}");
-            report.AppendLine(
-                $"Rows replaced: {existing} -> {needed}");
-            report.AppendLine();
-            report.AppendLine("Columns written:");
-            report.AppendLine("    Name: " + VENTROWS.ColName(nameCol));
-            report.AppendLine("    Number: " + VENTROWS.ColName(layout.RoomNumberCol));
-            report.AppendLine("    Area (m2): " + VENTROWS.ColName(layout.AreaCol));
-            report.AppendLine("    Height (m): " + VENTROWS.ColName(layout.HeightCol));
-            report.AppendLine("    No. of Units: " + VENTROWS.ColName(layout.UnitsCol));
-            report.AppendLine();
-            report.AppendLine(
-                subTotalTemplate == null
-                    ? "No Sub Total template row found; none written."
-                    : "Sub Total rows rebuilt per level.");
-
-            if (filterRemoved)
-                report.AppendLine("The sheet's AutoFilter was removed.");
-
-            if (mergedGroups > 0)
-                report.AppendLine(mergedGroups + " merged group(s): fresh air and extract as one total.");
-
-            report.AppendLine();
-            report.Append("Saved to: " + TargetPath);
-
-            return report.ToString();
         }
     }
 }

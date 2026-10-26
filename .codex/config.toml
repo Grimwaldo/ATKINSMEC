@@ -1,0 +1,6 @@
+[mcp_servers.windows-mcp]
+command = 'C:\Users\moham\.local\bin\uvx.exe'
+args = [
+    "windows-mcp",
+    "serve",
+]

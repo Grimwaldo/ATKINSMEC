@@ -52,7 +52,7 @@ namespace ATKINSMEC
         }
 
         // A level built by the REAL LevelRow.Build (VENTLEVELROWS is
-        // compiled in), so the render shows its real label and ticks
+        // compiled in), so the card's count is the real one
         private ObservableCollection<LevelRow> _levels;
 
         private readonly System.Collections.Generic.Dictionary<string, bool> _choices =
@@ -115,42 +115,6 @@ namespace ATKINSMEC
 
         private void TxtLinkSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
 
-        // The levels search, with the REAL rule (VENTLEVELROWS.Search), as
-        // VENTWindow.TxtLevelSearch_TextChanged does
-        private readonly System.Collections.Generic.Dictionary<string, bool> _openBeforeSearch =
-            new System.Collections.Generic.Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-
-        private void TxtLevelSearch_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (TxtLevelSearchHint == null || ListLevels == null || _levels == null)
-                return;
-
-            TxtLevelSearchHint.Visibility = string.IsNullOrEmpty(TxtLevelSearch.Text)
-                ? System.Windows.Visibility.Visible
-                : System.Windows.Visibility.Collapsed;
-
-            int found = Search.Apply(_levels, TxtLevelSearch.Text, _openBeforeSearch);
-
-            string query = TxtLevelSearch.Text.Trim();
-
-            TxtStatus.Text = query.Length == 0
-                ? "Every level and room showing again."
-                : found + " room(s) on " + _levels.Count(l => l.IsShown) + " level(s) match \"" + query +
-                  "\". Hidden rooms keep their ticks; All, None and a level's tick act on the rooms showing.";
-        }
-
-        private void TxtLevelSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) { }
-
-        private void BodyScroll_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            VENTFIT.Body(BodyScroll, BodyGrid);
-        }
-
-        public void SearchLevels(string text)
-        {
-            TxtLevelSearch.Text = text;
-        }
-
         public void SearchLinks(string text)
         {
             TxtLinkSearch.Text = text;
@@ -169,6 +133,10 @@ namespace ATKINSMEC
         public VENTWindow()
         {
             InitializeComponent();
+
+            // As the real constructor: no bigger than the screen, sized to
+            // its content until it is first drawn
+            VENTFIT.Screen(this);
         }
 
         // What a real run looks like, so the window can be judged full
@@ -193,10 +161,10 @@ namespace ATKINSMEC
                            Span = "L04_LEVEL 04  to  L48_ROOF   -   1386 room(s)" },
                 new Tick { Label = "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 1",
                            Span = "L04_LEVEL 04  to  L10_LEVEL 10   -   168 room(s)",
-                           Paired = "in apartments on L04_LEVEL 04 to L10_LEVEL 10  -  5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 1 : Tower A" },
+                           Paired = "in containers on L04_LEVEL 04 to L10_LEVEL 10  -  5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 1 : Tower A" },
                 new Tick { Label = "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 2",
                            Span = "L11_LEVEL 11  to  L20_LEVEL 20   -   240 room(s)",
-                           Paired = "in apartments on L11_LEVEL 11 to L20_LEVEL 20  -  5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 2 : Tower B" },
+                           Paired = "in containers on L11_LEVEL 11 to L20_LEVEL 20  -  5232535-ATR-TWR-ZZZ-3DM-ARC-000020.rvt : 2 : Tower B" },
                 new Tick { Label = "5232535-ATR-POD-ZZZ-3DM-STR-000004.rvt",
                            Span = "B1_BASEMENT  to  P3_PODIUM 3   -   no rooms" }
             };
@@ -209,15 +177,15 @@ namespace ATKINSMEC
                 "ARC-000020.rvt : 1 : Tower A, ARC-000020.rvt : 2 : Tower B",
                 new System.Collections.Generic.List<string>
                 {
-                    "IND-000030.rvt : 1  ->  ARC-000020.rvt : 1 : Tower A apartments on L04_LEVEL 04 to L10_LEVEL 10",
-                    "IND-000030.rvt : 2  ->  ARC-000020.rvt : 2 : Tower B apartments on L11_LEVEL 11 to L20_LEVEL 20"
+                    "IND-000030.rvt : 1  ->  ARC-000020.rvt : 1 : Tower A containers on L04_LEVEL 04 to L10_LEVEL 10",
+                    "IND-000030.rvt : 2  ->  ARC-000020.rvt : 2 : Tower B containers on L11_LEVEL 11 to L20_LEVEL 20"
                 }, 0, 24, "L21_LEVEL 21 24",
                 new System.Collections.Generic.List<string> { "2BDR-A1 (TA-03-09) - rooms of 4 placements" },
-                @"C:\Users\someone\Desktop\ATKINSMEC_apartments_log.txt");
+                @"C:\Users\someone\AppData\Roaming\ATKINSMEC\ATKINSMEC_apartments_log.txt");
 
             TxtLinksInfo.Text =
                 "6 loaded link(s). Tick the architectural model(s) to " +
-                "read rooms from; Apartments on one whose rooms are apartments.";
+                "read rooms from; Containers on one whose rooms hold units.";
 
             // The ground floor open, the way somebody looking for a
             // room would leave it
@@ -243,13 +211,16 @@ namespace ATKINSMEC
             };
 
             // Two ground floor rooms unticked, as a person would - the
-            // level goes to the third state and its label counts them
+            // card counts them
             levels[0].Rooms[1].IsOn = false;
             levels[0].Rooms[6].IsOn = false;
 
-            ListLevels.ItemsSource = levels;
-
             _levels = levels;
+
+            // The REAL wording, as VENTWindow.ShowTicks has it
+            TxtTicked.Text = VENTLEVELNOTE.Ticked(
+                levels.Count(l => l.Checked != false), levels.Count,
+                levels.Sum(l => l.TickedRooms), levels.Sum(l => l.Rooms.Count), 3);
 
             // The REAL summary lines (VENTSYSTEMDIALOG is compiled in)
             TxtFreshTypes.Text = VENTSYSTEMDIALOG.Summary(
@@ -309,23 +280,6 @@ namespace ATKINSMEC
         }
         public void ShowAssign() { TabActions.SelectedIndex = 0; }
 
-        // Several rows picked by the REAL Picks rules, as a person would:
-        // a click on one room, Shift+click two further down, and
-        // Ctrl+click on another level - so the render shows the pick
-        // drawn on rooms AND on a level, and the button live
-        public void PickRoom()
-        {
-            object anchor = Picks.Click(_levels, null, _levels[0].Rooms[2], false, false);
-            anchor = Picks.Click(_levels, anchor, _levels[0].Rooms[4], false, true);
-            Picks.Click(_levels, anchor, _levels[0], true, false);
-
-            BtnShowRoom.IsEnabled = Picks.Rooms(_levels).Count > 0;
-
-            TxtStatus.Text = Picks.Count(_levels) + " rows picked - " +
-                             Picks.Rooms(_levels).Count + " room(s). Tick any of " +
-                             "them to tick them all, or press Show in plan.";
-        }
-
         // What VENTWindow.ShowLevelNote does, fed the same numbers
         public void Levels(
             int model, int withRooms, int links,
@@ -359,27 +313,14 @@ namespace ATKINSMEC
         private void Window_Loaded(object sender, RoutedEventArgs e) { }
         private void BtnRefreshLinks_Click(object sender, RoutedEventArgs e) { }
         private void BtnInteriors_Click(object sender, RoutedEventArgs e) { }
-        private void BtnArrange_Click(object sender, RoutedEventArgs e) { }
+        private void BtnLevels_Click(object sender, RoutedEventArgs e) { }
         private void BtnFreshTypes_Click(object sender, RoutedEventArgs e) { }
         private void BtnExtractTypes_Click(object sender, RoutedEventArgs e) { }
         private void BtnImport_Click(object sender, RoutedEventArgs e) { }
         private void CboWorksheet_SelectionChanged(
             object sender, SelectionChangedEventArgs e) { }
-        private void BtnAllLevels_Click(object sender, RoutedEventArgs e) { }
-        private void BtnShowRoom_Click(object sender, RoutedEventArgs e) { }
         private void TabActions_SelectionChanged(
             object sender, SelectionChangedEventArgs e) { }
-        private void ListLevels_SelectedItemChanged(
-            object sender, RoutedPropertyChangedEventArgs<object> e) { }
-        private void ListLevels_MouseDoubleClick(
-            object sender, System.Windows.Input.MouseButtonEventArgs e) { }
-        private void ListLevels_PreviewMouseLeftButtonDown(
-            object sender, System.Windows.Input.MouseButtonEventArgs e) { }
-        private void ListLevels_PreviewKeyDown(
-            object sender, System.Windows.Input.KeyEventArgs e) { }
-        private void LevelTick_Click(object sender, RoutedEventArgs e) { }
-        private void RoomTick_Click(object sender, RoutedEventArgs e) { }
-        private void BtnNoLevels_Click(object sender, RoutedEventArgs e) { }
         private void BtnRun_Click(object sender, RoutedEventArgs e) { }
         private void BtnExport_Click(object sender, RoutedEventArgs e) { }
         private void ExportWay_Changed(object sender, RoutedEventArgs e) { }
@@ -389,5 +330,7 @@ namespace ATKINSMEC
         private void BtnClose_Click(object sender, RoutedEventArgs e) { }
         private void ChkFixtures_Click(object sender, RoutedEventArgs e) { }
         private void BtnFixtures_Click(object sender, RoutedEventArgs e) { }
+        private void ChkOccupancy_Click(object sender, RoutedEventArgs e) { }
+        private void BtnOccupancy_Click(object sender, RoutedEventArgs e) { }
     }
 }

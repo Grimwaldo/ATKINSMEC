@@ -39,8 +39,8 @@ namespace ATKINSMEC.Setup
         }
 
         // For rolling out across an office without anyone clicking:
-        //     ATKINSMEC-Setup.exe /silent
-        //     ATKINSMEC-Setup.exe /silent /uninstall
+        //     AtkinsMEPToolkit-Setup.exe /silent
+        //     AtkinsMEPToolkit-Setup.exe /silent /uninstall
         private static int Headless(bool uninstall)
         {
             try

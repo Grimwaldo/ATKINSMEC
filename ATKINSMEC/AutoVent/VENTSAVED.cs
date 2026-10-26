@@ -71,6 +71,9 @@ namespace ATKINSMEC
 
             public bool CountFixtures = true;
 
+            // Occupancy categories from room names (VENTOCCUPANCY)
+            public bool Occupancy = true;
+
             // The links ticked to read rooms from
             public List<LinkRef> RoomLinks = new List<LinkRef>();
 
@@ -81,7 +84,7 @@ namespace ATKINSMEC
             public List<string> FixtureFamilies = new List<string>();
 
             // The interior models (VENTINTERIOR). The keyword: null = the
-            // default ("IND"); "" = every placement. The picks: NULL =
+            // default ("IND, ID"); "" = every placement. The picks: NULL =
             // follow the keyword; an empty list = chose none.
             public string InteriorKeyword;
             public List<InteriorPick> InteriorPicks;
@@ -99,9 +102,19 @@ namespace ATKINSMEC
             // Merges), each group its room keys
             public List<List<string>> Merges = new List<List<string>>();
 
+            // ...extract's, the sheet's merged extract cells (VENTARRANGE.
+            // ExtractMerges); and Levels and rooms was left on Model
+            // (VENTARRANGE.ByModel)
+            public List<List<string>> ExtractMerges = new List<List<string>>();
+            public bool MergesByModel;
+
             // Each room a person ticked or unticked in the levels list, by
             // room key; a room never touched follows its level
             public List<KeyValuePair<string, bool>> Rooms = new List<KeyValuePair<string, bool>>();
+
+            // Each room's occupancy chosen in Levels and rooms
+            // (VENTARRANGE.RoomOccupancy), as text
+            public List<RoomPick> RoomOccupancy = new List<RoomPick>();
 
             public List<LinkRef> ArrangeLinks = new List<LinkRef>();
 
@@ -117,6 +130,22 @@ namespace ATKINSMEC
             public string ExportSheet = string.Empty;
             public string NewSheet = string.Empty;
         }
+
+        // A ROOM'S OCCUPANCY as chosen: its key, then its fresh and exhaust
+        // categories, nature of use, occupants and units - each NULL where
+        // it follows the sheet, "" where it is left blank; numbers as
+        // invariant text. Saved as "~" for null.
+        public class RoomPick
+        {
+            public string Key = string.Empty;
+            public string Fresh;
+            public string Exhaust;
+            public string Use;
+            public string Occupants;
+            public string Units;
+        }
+
+        private const string FollowsSheet = "~";
 
         // One placement ticked as an interior model on one storey
         public class InteriorPick
@@ -346,6 +375,7 @@ namespace ATKINSMEC
                     Line(text, "bellmouthnames", m.BellmouthNames);
 
                 Line(text, "fixtures", m.CountFixtures ? "on" : "off");
+                Line(text, "occupancy", m.Occupancy ? "on" : "off");
 
                 foreach (LinkRef link in m.RoomLinks)
                     Line(text, "roomlink", link.Id.ToString(CultureInfo.InvariantCulture), link.Label);
@@ -390,8 +420,26 @@ namespace ATKINSMEC
                         Line(text, "merge", group.ToArray());
                 }
 
+                foreach (List<string> group in m.ExtractMerges)
+                {
+                    if (group != null && group.Count > 1)
+                        Line(text, "xmerge", group.ToArray());
+                }
+
+                // Left on Model
+                if (m.MergesByModel)
+                    Line(text, "mergeview", "model");
+
                 foreach (KeyValuePair<string, bool> room in m.Rooms)
                     Line(text, "room", room.Key, room.Value ? "on" : "off");
+
+                foreach (RoomPick pick in m.RoomOccupancy)
+                {
+                    Func<string, string> field = v => v ?? FollowsSheet;
+
+                    Line(text, "roomoccupancy", pick.Key, field(pick.Fresh), field(pick.Exhaust), field(pick.Use),
+                         field(pick.Occupants), field(pick.Units));
+                }
 
                 foreach (LinkRef link in m.ArrangeLinks)
                     Line(text, "arrangelink", link.Id.ToString(CultureInfo.InvariantCulture), link.Label);
@@ -490,6 +538,10 @@ namespace ATKINSMEC
                         m.CountFixtures = !string.Equals(a.Trim(), "off", StringComparison.OrdinalIgnoreCase);
                         break;
 
+                    case "occupancy":
+                        m.Occupancy = !string.Equals(a.Trim(), "off", StringComparison.OrdinalIgnoreCase);
+                        break;
+
                     case "roomlink":
                         Add(m.RoomLinks, a, b);
                         break;
@@ -561,6 +613,37 @@ namespace ATKINSMEC
                         // One room merges with nothing
                         if (group.Count > 1)
                             m.Merges.Add(group);
+
+                        break;
+
+                    case "xmerge":
+                        List<string> extract = f.Skip(1).Select(k => k.Trim()).Where(k => k.Length > 0)
+                                                .Distinct(StringComparer.Ordinal).ToList();
+
+                        if (extract.Count > 1)
+                            m.ExtractMerges.Add(extract);
+
+                        break;
+
+                    case "mergeview":
+                        m.MergesByModel = string.Equals(a.Trim(), "model", StringComparison.OrdinalIgnoreCase);
+                        break;
+
+                    case "roomoccupancy":
+                        if (a.Trim().Length > 0)
+                        {
+                            Func<int, string> field = i => f.Length <= i || f[i] == FollowsSheet ? null : f[i].Trim();
+
+                            m.RoomOccupancy.Add(new RoomPick
+                            {
+                                Key = a.Trim(),
+                                Fresh = field(2),
+                                Exhaust = field(3),
+                                Use = field(4),
+                                Occupants = field(5),
+                                Units = field(6)
+                            });
+                        }
 
                         break;
 

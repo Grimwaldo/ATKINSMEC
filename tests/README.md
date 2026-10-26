@@ -35,13 +35,17 @@ so they run from any clone.
 | `officetest` | AUTOVENT export from the office workbook, read back through the real importer and calculated by EPPlus (427 checks) | VENTOFFICE, VENTROWS, VENTSHEET, VENTTEMPLATE |
 | `ventleveltest` | Rooms onto this model's storeys; `Floors`; apartments verified on this model's levels | VENTLEVELMAP, VENTAPARTMENTMAP |
 | `ventsettingstest` | Fresh/extract fallback, endcap reach, the WC/urinal name rule, the AUTOVENT settings file, the linked-models search | VENTSETTINGS, VENTSAVED, VENTLINKFILTER |
-| `levelrowtest` | The levels tree's ticks and picks | VENTLEVELROWS |
+| `levelrowtest` | AUTOVENT's ticks - a level's following its rooms, choices outliving a rebuild - and the search (hides only; what it finds a room by) | VENTLEVELROWS |
 | `ventfcutest` | Splitting a room's air between endcaps - conservation | VENTFCUCHECK |
 | `toggletest` | WPF's click on a third-state tick, through the real `OnClick` | (WPF only) |
+| `arrangeflowtest` | AUTOVENT's Levels and rooms: the airflows (the sheet's merges adopted unless across containers, an endcap's air read back as the sheet's, a group's value written once) and the real window off-screen - grouped cells, Sheet / Model, what Write to terminals hands over; the ticks (a box on picked rows, containers, a part-ticked level), the search, a closed level, Show in plan, every change handed to the main window at once | VENTFLOWS, VENTFCUCHECK, VENTARRANGE, VENTROOMSWINDOW, VENTLEVELROWS |
+| `fixturedialogtest` | AUTOVENT's Fixtures dialog, shown off-screen and worked through WPF: one row per model, picks in both lists (a tick, Space, Ctrl+A), the families search, what OK stores | VENTFIXTUREDIALOG, VENTSETTINGS, VENTLINKFILTER |
 | `esptest` | DUCT ESP friction, index runs, joints between models, settings file | ESPAIR, ESPNET, ESPSETTINGS |
 | `equiptest` | Where an equipment resize stops; line direction | EQUIPSTOP, EQUIPLINE |
 | `chwjointtest` | CHW pipe to fan coil: system match, connector choice, how a pipe is brought (55 of the 64 checks it once had) | QACHWALIGN |
 | `chwsizetest` | The built-in ASHRAE sizing table against the office workbook, and its round trip | CHWSIZESHEET |
+| `chwtreetest` | CHW VOLUME's model list: each placement under the open model, nested links under their placement, a model placed again a repeat, the parent placement by nearest origin; the search shows what it finds with every row above it | CHWTREE, VENTLINKFILTER |
+| `roomtagtest` | ROOM TAGS: a dependent reads its primary's tags and tags go there, a room missing in a plan and its dependents tagged once, a model placed twice is two rooms, a second run places nothing, sheet numbers as read, what is remembered; duplicates - one tag per room left in every plan on a sheet (a room tagged in two dependents' areas keeps both), pinned kept, one type or any; the real window off-screen - the links search (ticks stand while hidden), the check, plan ticks and the sheets search, what Tag missing and Remove duplicates hand over, the model read again. `roomtagtest preview <folder> [1.5]` renders it | TAGPLAN, TAGForm, VENTLINKFILTER |
 | `sheettest` | The FCU schedule reader against `data\FCU_Schedule.xlsx` | FCUSHEET |
 | `nwcsettingstest` | NWC BATCH settings round trip (18 of the 38 checks it once had) | NWCSETTINGS, WORKSETPICK |
 | `synctest` | AUTOSYNC reachability probes, timed, and its settings | SYNCNET, SYNCSETTINGS |
@@ -50,7 +54,7 @@ so they run from any clone.
 | `roomtest` | Making room for bigger CHW fittings: the shortfall, the leg / branch / tee routes, rings, equipment, caps - **mirror** of QACHWROOM, which walks Revit connectors and cannot be compiled in. Brought back in step 2026-10-06 | (mirror) |
 | `runtest` | CHW run grouping - **mirror** of QACHWRUNS | (mirror) |
 | `ducttest` | Duct spatial index and meeting ends - **mirror** of QADUCTS | (mirror) |
-| `icontest` | The eighteen ribbon icons decode out of the BUILT 2025 DLL - build the add-in first | (reads the DLL) |
+| `icontest` | The twenty-two ribbon icons decode out of the BUILT 2025 DLL - build the add-in first | (reads the DLL) |
 | `geomtest` | SPRINKLERS' layout: spacing and area per head within the hazard, every head inside and clear of walls and columns, a turned and negative-coordinate room laid out the same, minimum spacing, a column or a squeeze on a grid point (the head moved just off it, on its line), walls counted only on the room's own storey, an irregular room with angled and stepped walls (Live/Work Unit 205, traced from a screenshot), L-shaped, tiny and impossible rooms | SPRINKLERLAYOUT, SPRINKLERRULES - against stand-ins for the Revit types they name (`RevitStub.cs`) |
 
 ## Previews - run by hand, then LOOK at the PNGs

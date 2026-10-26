@@ -154,7 +154,7 @@ namespace ATKINSMEC
 
         public string GetName()
         {
-            return "ATKINSMEC sheet QA";
+            return "Atkins MEP Toolkit - sheet QA";
         }
 
         // ==================================================

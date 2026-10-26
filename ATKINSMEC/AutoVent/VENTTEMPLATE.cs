@@ -46,10 +46,21 @@ namespace ATKINSMEC
             public string Apartment { get; set; }
             public string ApartmentNumber { get; set; }
 
-            // MERGED with other rooms (VENTARRANGE.Merges): rooms sharing
-            // this id have their fresh air and extract cells merged into
-            // one total (VENTROWS.MergeAir). Empty for a room on its own.
+            // MERGED with other rooms: rooms sharing this id have their
+            // FRESH AIR cells merged into one total (VENTARRANGE.Merges,
+            // VENTROWS.MergeAir); rooms sharing ExtractMerge, their EXTRACT
+            // cells (VENTARRANGE.ExtractMerges) - one side each since
+            // 2026-10-22. Empty for a room on its own on that side.
             public string Merge { get; set; }
+            public string ExtractMerge { get; set; }
+
+            // UNTICKED in the levels list: an update leaves its row as it is
+            // and never adds it (VENTUPDATE); the other exports leave it out
+            public bool Keep { get; set; }
+
+            // It stands in an apartment - grouped under it or not. What
+            // its occupancy category is guessed by (VENTOCCUPANCY).
+            public bool InDwelling { get; set; }
         }
 
         // Rooms by number - numerically where both are numbers - then by

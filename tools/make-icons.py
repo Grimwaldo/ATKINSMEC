@@ -1,4 +1,4 @@
-"""Draws the ten ribbon icons for ATKINSMEC.
+"""Draws the eleven ribbon icons for ATKINSMEC.
 
 Run it from the repository root:
 
@@ -261,6 +261,22 @@ def ductesp():
     return img
 
 
+def roomtags():
+    """A room, and the tag that goes in it."""
+    img, d = canvas()
+
+    # The room: its walls, with a door left open so it reads as a plan
+    d.line([(150, 30), (30, 30), (30, 226), (226, 226), (226, 112)],
+           fill=BLUE, width=STROKE, joint="curve")
+
+    # The tag: an orange label, its hole knocked out
+    d.polygon([(64, 100), (152, 100), (196, 140), (152, 180), (64, 180)],
+              fill=ORANGE)
+    d.ellipse((146, 128, 170, 152), fill=WHITE)
+
+    return img
+
+
 ICONS = {
     "autovent": autovent,
     "chwvolume": chwvolume,
@@ -272,6 +288,7 @@ ICONS = {
     "nwcbatch": nwcbatch,
     "equipchanger": equipchanger,
     "ductesp": ductesp,
+    "roomtags": roomtags,
 }
 
 

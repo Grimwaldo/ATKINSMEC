@@ -20,5 +20,6 @@
     <Compile Include="..\..\ATKINSMEC\EspCalc\ESPLOG.cs" />
     <Compile Include="..\..\ATKINSMEC\EspCalc\ESPForm.cs" />
     <Compile Include="..\..\ATKINSMEC\Shared\FORMSIZE.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\LOGS.cs" />
   </ItemGroup>
 </Project>

@@ -42,13 +42,15 @@ it, or work on a detached copy.**
 Camtasia Recorder full screen at 1920x1080, cursor highlight on):
 
 1. Title card (prepared beforehand - see below).
-2. ATKINS > Mechanical > AUTOVENT opens the window over the model.
+2. Atkins MEP Toolkit > Mechanical > AUTOVENT opens the window over the model.
 3. **Linked models**: tick Snowdon Towers Sample Architectural; point out
    the second line (which of this model's levels it covers) and the
    Apartments tick beside each link (say what it is for; the sample has
    no IND model, so do not tick it).
-4. **Levels tree**: the counts against each level, open one, show its
-   rooms, untick a room, pick several (Ctrl/Shift), **Show in plan**.
+4. **Levels and rooms...** (the levels tree and Arrange rooms in one
+   window since 2026-10-19): the counts against each level, open one,
+   show its rooms, untick a room, pick several (Ctrl/Shift), **Show in
+   plan** - the window stays open beside Revit.
 5. **Export tab**: "A new workbook, from the office template" - export,
    then show the workbook in Excel for a few seconds (office layout, one
    blue row per level, room names/numbers/areas filled, formulas kept).
@@ -56,7 +58,8 @@ Camtasia Recorder full screen at 1920x1080, cursor highlight on):
 7. **Assign tab**: the fresh / extract system-type ticks and the endcap
    reach - what each is for.
 8. **Run** - the status line, then a terminal's Flow in Properties, and
-   `Desktop\ATKINSMEC_debug_log.txt` briefly.
+   `%AppData%\ATKINSMEC\ATKINSMEC_debug_log.txt` briefly (the Desktop
+   until 2026-10-16).
 9. Close and reopen AUTOVENT - "Set up as this model was last left".
 10. End card.
 
@@ -66,6 +69,733 @@ shots for Camtasia to import, and music composed from scratch as for the
 old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
+
+## SPRINKLERS: a one-head room's head in the middle of its main part - 2026-10-25
+
+User (plan, a store's head off-centre): "how to deal with sprinklers that
+need to be centered like this"; asked whether SPRINKLERS placed it (the
+heads in the screenshot line up across rooms, which the add-in never
+does) - "SPRINKLERS placed it". A one-cell room's grid point was the
+centre of the whole outline; a nook or recess pulls it off the store's
+middle. `SPRINKLERLAYOUT.MainPart` = middle of the largest rectangle
+inside the outline. geomtest: plain store (exact centre), store + nook
+(middle of the store, the nook its own head), door recess (one head, the
+store's middle), column (unchanged - checked with the change off: same 2
+heads), turned 30 degrees. Without the change the nook and recess checks
+fail. **Never run in Revit** - the real room's outline is assumed, not
+seen: if a head is still off, the room's boundary is something else.
+
+## AUTOVENT: Levels and rooms - Differences only, the sheet's columns, Columns... - 2026-10-25
+
+User asked what to improve, "should we implement the excel sheet columns
+and occupancy into it?"; recommended read-only (the workbook stays the
+calculator - an editable category would mean a second ASHRAE calculator
+or a hidden recalculation), and four things; "yes build all four":
+1. **Differences only** - rows needing attention (twice, airflows apart,
+   terminal on no FCU, no sheet row, area changed); tooltip says why.
+2. Sheet | Model under **"Merge and write as"**.
+3. **The sheet's columns, read only** - categories (blank = grey
+   suggestion), occupants, units, sheet area; the model's area amber when
+   it differs. VENTSHEET reads them (officetest: round trip of a real
+   export, blanks NaN).
+4. **Columns...** - VENTCOLUMNS, per person, remembered.
+arrangeflowtest 20 new checks, officetest 4; 9 mutations caught. Rendered
+1x, 1.5x, Differences only. Not yet seen in Revit.
+
+## AUTOVENT: Levels and rooms looks like a sheet - 2026-10-25
+
+User: "can you make the rooms and level window look more like excel
+view". Cells with gridlines, a grey gutter (drag handle / level arrow),
+grey two-row headings over EVERY column (Number, Name, Notes, Room m² m,
+Sheet / Model Fresh Extract), level group rows, compact rows; the notes
+moved out of the name into a Notes column. Headings aligned to the cells
+exactly (2 px in: border + the ListBox template's own 1). arrangeflowtest:
+helpers find parts by logical tree; 3 new checks (notes column, every cell
+gridded, headings over cells); 6 mutations caught. Rendered 1x, 1.5x,
+short, search. Not yet seen: a real job's long names at 1080p 150%.
+
+## AUTOVENT: the return-duct endcap rule gets the reach back - 2026-10-25
+
+User (MCC ROOM BP01.B1.179): "this room fresh air is showing 3660 in the
+levels and rooms window, why". The Model column: three endcaps on its two
+outside FCUs - 3946614 at 0.23 m from 3407825's return duct (its own),
+4127553 at 2.94 m from 3408412's, 4129748 at 8.48 m from 3407825's and
+9.5 m from any unit. The no-limit rule of 2026-10-24 took them. Every
+return-duct match in the log was 0-0.5 m but 1.16, 2.94 and 8.48 m; the
+EMCC ones 0.48 and 0.50 m. So `VENTFACING.Endcap` now needs the return
+duct within the endcap reach (1500 mm) as well as no further than any
+unit. ventfcutest: MCC cases added; mutations caught (one survivor - a
+return duct beating a nearer unit - got its test).
+
+## AUTOVENT: room area and height in Levels and rooms; "not enclosed" - 2026-10-24
+
+User: "show a column for the room area and height in the levels and
+rooms window, is there a solution for the "not enclosed" rooms ?". Two
+columns under "Room" (m², m) left of Sheet / Model, shown with no sheet
+too; the export's height rule (false ceiling, else the room's own) moved
+to `RVTLINKSELECTION` so the window and the sheet agree; tooltip says
+which. arrangeflowtest: 8 new checks, 5 mutations caught; rendered 1x and
+1.5x (ventpreview gives its rooms areas). Not enclosed rooms: Area 0 in
+the architect's model, so `ReadRooms` (Area > 0) never sees them and no
+terminal can be placed in one (`IsPointInRoom` has no volume) - the fix
+is the architect's (close the boundary, or a link of theirs set Room
+Bounding). Then "yes add the list of not enclosed rooms": Levels and
+rooms' **Not enclosed (N)...** button, a list (Model, Level, Number,
+Name, Why - not enclosed / redundant inside X) and Copy (tab-separated).
+`VENTUNENCLOSED` (Revit-free), `RVTLINKSELECTION.ReadUnenclosed` (Area 0
+with a location; GetRoomAtPoint for redundant), read with the rooms.
+arrangeflowtest: 9 new checks, 7 mutations caught - the first render
+showed only Why (fields do not bind), now tested. **Never run in Revit**:
+GetRoomAtPoint on a link document, 1 ft above the room's point.
+
+## AUTOVENT: a store's fresh air bellmouth given to a unit supplying nothing - 2026-10-24
+
+User (YANM3, STORE BP01.B1.019): "this store fresh air was not
+detected by the addin". Survey log: bellmouth 3711058 "feeds unit
+2204575 at 1488 mm - the room it stands in needs none of this air", and
+"FCU 2204575 supply system reaches no room in scope". Two faults: the
+workbook loaded is KIFAF's (132 rows, LEVEL 04A; "Rows found: 0 of 138")
+so the store had NO row, read as "needs none"; and nearness alone handed
+the air to a unit passing it to no room. `VENTFACING.Bellmouth` now takes
+`roomInSheet` (no row: not "needs none"; said `NotInSheet`). Then STORE
+BP01.B1.076 ("the addin didnt read this store fresh air"): bellmouth
+2673018 FACES unit 2032085 at 1220 mm, which also supplies no room in
+scope - so a unit whose supply system reaches no room in scope is no
+candidate at all (`VENTFACING.CanFeed`, beside "not on its own system"),
+faced, touched or near; the log names it ("supplies no room in scope -
+not fed"). ventfcutest; mutations caught. Tell the user: the workbook in
+YANM3 is another job's - nothing can be written until a YANM3 sheet is
+loaded.
+
+## AUTOVENT: a fresh air endcap by an outside FCU's return duct - 2026-10-24
+
+User (YANM3 plan, EMCC ROOM): "this example of EMCC room is not detected
+by the addin, instead of using endcap reach tolerance, we can detect the
+neareast freshair endcap to the return air duct connected to the FCU
+serving a room located outside of it". The survey log: endcap 3786944
+3473 mm from FCU 3626185 (EMCC BP01.B1.083), 3831390 3406 mm from
+3648379 (EMCC BP01.B1.077) - rejected by the 1500 mm reach, ~20 like
+them. Now: units outside every room they supply (by supply terminals)
+have their return ductwork read; a fresh endcap no further from it than
+from any unit binds to that unit with no reach (VENTFACING.Endcap /
+Outside, tested in ventfcutest, 7 mutations caught). The supply-duct
+trace moved ahead of the bellmouths so "outside" can use it. **Never run
+in Revit**: on the next Levels and rooms opening, the survey log should
+list `OUTSIDE FCU` lines (the EMCC units, with return ductwork pieces)
+and the EMCC endcaps "nearer the return duct of FCU ...". Watch for an
+endcap taken by the wrong unit's return duct - the log names the piece.
+
+## AUTOVENT: linked rooms below every level - the open model measured on its ducts - 2026-10-24
+
+User (Revit 2024, YANM3): "autovent doesnt detect the rooms from the
+linked model of the currently opened model". The survey log had it:
+"1 room(s) on selected levels ... 137 below this model's lowest level".
+The architect's model measured its own levels 3.9 m out (corrected); the
+open MEP model has no rooms or spaces, so its error counted as 0 and its
+levels stayed 3.9 m high - its raw level heights equal the architect's
+raw ones to the mm, level by level, so both share the same 3.9 m. Fix:
+`RVTLINKSELECTION.LevelError` measures a model with no rooms/spaces on
+its ducts, pipes, cable trays and conduits (start point Z less
+`InternalZ(ReferenceLevel)` + `RBS_START_OFFSET_PARAM`), up to 60, median.
+Every host-level user goes through it (AUTOVENT storeys, spans,
+SPRINKLERS). The debug / survey log now says "Out by X, measured on N of
+its ducts and pipes"; the apartments log too. **Never run in Revit** -
+check the survey log's new line on the next Levels and rooms opening: it
+should say about -3.900 m, and the rooms should be on their levels.
+
+## ROOM TAGS: Remove duplicates - 2026-10-24
+
+User: "add option in the addin to remove duplicate tags". A Duplicates
+column, a Remove duplicates button and an Any tag type box (off: a name
+tag and an area tag of one room are both kept). `TAGPLAN.Doubles`: per
+owner view and room (and type), keep as few tags as still leave every
+plan on a sheet that showed one showing one - by where each tag's head
+is against each plan's crop (`SeenIn`, read in `TAGREAD.Seen`) - oldest
+first on a tie; pinned and grouped tags stay; a tag in no sheet plan is
+left alone. `TAGWRITE.Remove`: one transaction, only `RoomTag`s, counted
+from the model. Tests: roomtagtest 104 checks; 12 mutations, 11 caught -
+the survivor (owner view out of the duplicate key) is covered by
+`SeenIn`, which only ever names plans of the tag's own owner. Rendered at
+1x and 1.5x; all 24 harnesses pass; installer rebuilt. **Never run in
+Revit.** To check first: a tag with a leader - its HEAD decides which
+plans show it.
+
+## ROOM TAGS: a new add-in, missing room tags on sheets - 2026-10-23
+
+User: "make a new addin to check the missing room tags in sheets and
+annotate them for selected links with search bar for links and make them
+annotate without duplication". Eleventh button, ROOM TAGS (`Tool11`,
+`RoomTags\`, icon `roomtags` - a room and an orange tag). Floor and
+ceiling plans on sheets; the rooms of the ticked links each shows (2023+
+the view's own linked-element collector, 2022 the level band), inside
+the crop; tagged = a tag of that placement's room in the plan's owner
+view (a dependent's = its primary's); Tag missing places one tag per room
+per owner view, in the primary, in one transaction, then reads again.
+Tests: `roomtagtest` (77 checks: the rules, settings, the real window
+off-screen), 14 mutations caught; rendered at 1x and 1.5x. Built 2022 -
+2027 and the AUTOVENT edition (RoomTags excluded). **Never run in
+Revit.** Open, to check on the first real job: does the 2023+ collector
+return linked rooms in MEP plans (if the Rooms category is off in the
+view it returns none - the note says so); is the tag where Revit's own
+"Tag all" would put it (the room's point, host XY); a ceiling plan
+wanted at all, or only floor plans.
+
+## AUTOVENT: a merge is one side's - FCU and Merge button fresh air only - 2026-10-22
+
+User (TA-04-04 screenshots): "the kitchen exhaust is serving only a
+kitchen with a slot diffuser attached to the ceiling but the addin
+showing the exhaust serving the kitchen and the foyer and the
+living/dining". Cause: a merge was one total for BOTH sides since
+2026-10-12, so the FCU's (fresh air) merge of foyer + kitchen + living
+put the kitchen slot's 65 l/s on the group. Asked; chose FRESH AIR ONLY
+for an FCU merge and for the Merge button; extract merged only where
+the sheet merges extract cells. Done everywhere merges are used:
+`VENTARRANGE` (Merges = fresh, new ExtractMerges, Bound/Together,
+Unmerge both, Merge(extract)), `VENTSAVED` (`xmerge`), `VENTFLOWS`
+(SheetMerges/GroupsOf by side, Adopt into each side), the window (two
+groupings, cells ↑ per side, notes "fresh air merged with" / "extract
+merged with", write per side, Model = no extract merges), the run
+(`freshOf` / `extractOf`, two tallies, every step per side), the export
+(`Room.ExtractMerge`, MergeAir per column). Tests: officetest 567,
+arrangeflowtest, ventleveltest, ventsettingstest; 7 mutations caught;
+all 23 pass. Rendered. Installer rebuilt and sent. **The run's per-side
+split has never run in Revit** - it is the airflow write itself: check
+the debug log's "Merged groups, fresh air / extract" lines on the first
+run. Open: a legacy save's `merge` lines (both sides before) now read as
+fresh air only; extract merges come back when the window derives the
+sheet's on opening.
+
+## AUTOVENT: each diffuser traced back along its ducts to its FCU - 2026-10-21
+
+User: the powder room is right now, "but in the dressing room in
+TA-04-10 is not properly merged with the master bedroom ... despite
+having diffuser connected to it with the FCU serving the master bedroom".
+The survey log (01:20) showed: FCU 3461206 (the bedroom's) - its ducts AND
+its Revit system reach the master bedroom only; the dressing 121.065
+holds one supply terminal, counted in the dressing, on no unit's system.
+And a regression from the first walk: FCU 3678148 (TA-04-04, user-
+confirmed foyer + kitchen + living) walked to the foyer only, its system
+naming the kitchen and living/dining - so walking OUT from connectors
+classed SupplyAir misses ducts on others. Now each supply terminal is
+traced BACK to whatever unit its ducts reach (`TraceDucts`, `IsSupply`),
+any connector; a terminal reaching none is marked "terminal on no FCU" in
+the window (id on hover) and logged with where its ducts end open. If the
+dressing still shows that, its flex duct / diffuser is not connected in
+Revit - the log names the element to look at. arrangeflowtest note
+check; all 23 pass; installer rebuilt and sent. **Never run in Revit** -
+read `ATKINSMEC_survey_log.txt` ("Supply terminals whose ducts reach no
+unit", FCU 3461206, FCU 3678148) after the user opens the window.
+
+## AUTOVENT: an FCU's rooms by its supply ducts, not its Revit system - 2026-10-21
+
+User (screenshot, TA-04-10 1BDR-B on Model): the powder room 121.069 shown
+merged with the kitchen 121.067 and living/dining 121.063, "but its
+actually not supplied from the FCU that serves the kitchen and the
+living/dining". Revit 2024 now has the 10-20 23:25 build (hash-checked).
+The last RUN's log (23:14, older build) had FCU 3702622's served rooms
+as the living/dining and kitchen only - the powder room one extract
+terminal - but the window's survey wrote no log, so what it saw is
+unknown. Two candidates: the FCU's Revit SYSTEM (what "served" meant)
+holds a terminal counted in the powder room; or the foyer 121.068 - NOT a
+room the add-in reads (1BDR-B's interior model gives 7 rooms, no foyer;
+probably not enclosed) - has the FCU's grille, and the "room in front of
+its face" rule puts it in the powder room. Changed: the window's FCU
+merges now take the rooms the unit's supply DUCTS reach
+(`DuctedRoomKeys`), the system only where the ducts reach no terminal;
+the survey's log is kept (`ATKINSMEC_survey_log.txt`) with every FCU
+whose ducts and system disagree, terminal ids included; a merge's hover
+says where it came from (FCU id / the sheet / by hand). The run's own
+endcap trace is unchanged. arrangeflowtest + hover checks; all 23 pass.
+**The duct walk has never run in Revit** - after the user installs,
+read `%AppData%\ATKINSMEC\ATKINSMEC_survey_log.txt` (search 3702622 and
+121.069): if the powder room is still there, it is the foyer grille and
+the face rule, and the fix is in which room a terminal is counted in.
+Installer rebuilt and sent; Revit 2024 must be closed to install.
+
+## AUTOVENT: the merges shown are always the button's, from opening - 2026-10-20 (late)
+
+User again: "when pressing on the model button, it should be showing the
+spaces from the model that are merged, when pressing on the sheet button
+it should be showing the spaces from the sheet that are merged".
+**Found: the user works in Revit 2024, whose add-in was still the
+2026-10-19 13:55 build** (before both merge fixes) - Revit 2024 was open
+through every build and the installer, so nothing could replace the DLL.
+Their KIFAF settings hold 13 merge groups from that build, no
+`mergeview` line. Also changed: on opening, the window works out the
+merges of the button that is down (`Derive`; the sheet on Sheet, the
+terminals on Model once read) - saved merges, hand merges included, no
+longer show until a press. `AdoptOnce` and the "taken from the sheet"
+count gone. arrangeflowtest: 4 mutations caught; all 23 pass. Installer
+rebuilt 23:26 and sent - **the user must close Revit 2024 before running
+it.** Never run in Revit.
+
+## AUTOVENT: the sheet's air read only; Sheet pressed = as per sheet; installer - 2026-10-20
+
+User: "the flowrate from the sheet should be read only, also the same
+merge issue still exists, when pressing on sheet the spaces from model
+showing merged". Set airflow... (and its double-click, `_set`) removed;
+nothing picked writes nothing, either view. The merge issue: merges
+saved as the window was left on Model before the ByModel flag existed
+are FCU groups with nothing saying so - the window opened on Sheet with
+them, and pressing Sheet with Sheet down did nothing. Now EVERY press
+works its merges out afresh - Sheet from the sheet (`FromSheet`), Model
+from the terminals - and a hand merge lasts until the next press. The
+kept-Sheet-merges of the day before (`SheetKept`, `sheetkept` /
+`sheetmerge` lines) removed as unused; `mergeview` kept. (The user had
+likely been testing in Revit 2024, which still had the build without
+the 10-19 fix - Revit 2024 was open at that build.) arrangeflowtest 3
+mutations caught; all 23 harnesses pass. **Installer rebuilt**
+(`installer\output\AtkinsMEPToolkit-Setup.exe` + `.zip`, 21.5 MB, all six
+versions, payload checked against bin\Release) and sent to the user.
+Not deployed by build-all this time (Revit open); the installer is the
+way it reaches Revit. Never run in Revit.
+
+## AUTOVENT: Sheet and Model each show their own merges - 2026-10-19
+
+User: "when pressing sheet it should show the merged rooms according to
+sheet and when pressing model it should show merged rooms according to
+model". Two faults: Model was the FCU groups PLUS every Sheet merge no
+FCU touched (`ByFcu(now, ...)`), and one merges list served both views,
+so a window closed on Model reopened on Sheet showing the FCUs' merges.
+Now Model = the FCUs' groups only, worked out afresh on every press;
+Sheet's merges wait in `Arrangement.SheetKept` while on Model; the view
+(`ByModel`) and the kept merges are saved (`mergeview` / `sheetkept` /
+`sheetmerge` lines - an older add-in skips them), and the window reopens
+on the view it was left on. Unchanged: the view showing decides the
+export and the airflows (the user's choice earlier the same day).
+arrangeflowtest 80 (5 mutations caught), ventsettingstest round trip
+(mutation caught); all 23 pass. Rendered. Deployed to 2022, 2023, 2025,
+2026, 2027, hash-checked; **2024 not** - Revit 2024 was open (it has the
+combined window without this fix). Never run in Revit.
+
+## AUTOVENT: "Levels to process" and Arrange rooms in one window - 2026-10-19
+
+User: "i think its better to combine 'levels to process' and arrange
+rooms window". Asked where; chose **its own window** (over the main
+window's card). `VENTARRANGEDIALOG` became `VENTROOMSWINDOW` (git mv):
+every level, opening to its rooms and containers in sheet order, a tick
+on every row (the main window's `LevelRow` / `RoomRow`, bound), the
+airflow columns, All / None / Show in plan beside the arrange buttons.
+**Modeless; every change at once, saved by the main window - no OK /
+Cancel; Reset level asks first.** Write to terminals leaves it open;
+the terminals are read again inline after the write (request 4), and
+when the ticked links change. Model + nothing picked now writes nothing
+(was: the one level shown - there is no "one level" any more; pick the
+level's heading). Double-click a room = Show in plan (it was Rename in
+Arrange rooms; F2 renames). Card 3 of the main window: a count, the
+sheet-level warning, the button; the main window now sizes to its
+content (`VENTFIT.Screen`, `SizeToContent`) - the tree's fixed body
+height went with the tree. Removed: the tree's own pick rules
+(`VENTLEVELROWS.Picks`, `IsPicked`) and their checks; `Row.Exported`.
+On-screen / report wording: "Levels and rooms" for "Arrange rooms" and
+"the levels list" (the write's report, the export report, the logs).
+arrangeflowtest 72 (ticks, picks, search, closed level, Show in plan,
+live changes added; 12 mutations all caught), levelrowtest (picks out,
+the search's words in, mutation-checked); all 23 harnesses pass.
+Rendered at 1x and 1.5x and looked at (window, search, short; the main
+window full and at 690). Built and deployed to all six, hash-checked
+(Revit closed). **Never run in Revit** - the modeless window, Show in
+plan from it, the inline re-read after a write.
+
+## CHW VOLUME: links as a tree, nested links, a search - 2026-10-19
+
+User: "the CHW volume addin should list the linked instances of main
+model below it and the linked instances (nested links) of linked models
+and add a search bar for the models". The list is now the open model,
+each link placement indented below it, each nested link below the
+placement it sits in (`CHWTREE.Order`). Revit gives a nested link's
+parent as a link TYPE, so when the parent model is placed twice the
+placement is picked by nearest origin (`CHWTREE.Nearest`). Until now
+the list was flat, one row per model (deduplicated by title); now it is
+one per placement, so a
+model placed twice (Tower A / Tower B) would be counted twice. A repeat
+is therefore offered **unticked** (grey) and the totals match the old
+ones until someone ticks one in. A model is measured once per run
+(`Again` reuses it).
+A search box (top right of the list) hides rows only, keeping every
+row above a match. Tick all / Untick all act on what shows.
+chwtreetest 15 checks, mutation-checked; all 23 harnesses pass.
+Built for all six. Deployed and hash-checked for 2022, 2023, 2025,
+2026, 2027; 2024 later the same day, with Levels and rooms (Revit 2024 had been open). **Never run in
+Revit**: nested links, the nearest-origin parent and the repeats need a
+real model with nested links. anchorsim's btnCalculate/grpResults
+overlap is on HEAD too, not from this change.
+
+## AUTOVENT: interior models named "ID" too; no red for placed-again rooms - 2026-10-19
+
+User: "can the container also detect models with 'ID' instead of 'IND'"
+- the keyword box takes several keywords, commas between, any one will
+do, each a word of the label (`VENTINTERIOR.Named`); default "IND, ID".
+No model in the settings file had a keyword of its own, so all follow
+it. Then, mid-change: "also do not the highlight the rooms of repeated
+link instances" - red now needs a DIFFERENT room id on the number.
+ventsettingstest +7, arrangeflowtest 53; mutation-checked. Deployed to
+all six (Revit closed), hash-checked.
+
+## AUTOVENT: the switch decides what is written - 2026-10-19
+
+User: "the switch between sheet and model buttons should decide which
+flowrates will be assigned to the air terminals". Asked: Model writes the
+sheet's values grouped by FCU, or the Model column values - chose the
+Model column values. Model now writes each group's terminal total (the
+FCU grouping, sheet merges left out of the run's grouping too); Sheet
+writes the sheet's as before. arrangeflowtest 52 (+5), mutation 5 of 5.
+Deployed to all but **2024 (open)**. Never run in Revit.
+
+## AUTOVENT: Arrange rooms - Sheet | Model switch, row colours - 2026-10-19
+
+User: "instead of merge by fcu button, we can have two buttons that switch
+between 'model' and 'sheet', and keep the columns of flowrates of model
+under header called 'model' and ... sheet under ... 'sheet'". Asked what
+the switch changes: "both option 1 and 2" (which merges apply AND which
+values are written), "also rows with flowrate differences between sheet
+and model should be highlighted in yellow, rooms which have same room
+numbers (duplicated room numbers) should be highlighted in red".
+
+Done as in CLAUDE.md (Arrange rooms). Duplicates are per LEVEL (a sheet
+row is matched by name + number + level). On KIFAF expect much red: both
+2BDR-A2s on a level come from one interior placement and repeat every
+room number. arrangeflowtest 47 checks; mutation 7 of 8 - the survivor a
+redundant guard (FCU notes on Model), removed. Rendered both views.
+
+## AUTOVENT: terminals put in the room one floor DOWN - 2026-10-19
+
+User: "the autovent still doesnt detect the foyer in TA-04-04 as merged".
+The debug log: FCU 3678148's endcap served 3589274:1826168 (LIVING/DINING,
+IND-001220 TIER 260, LEVEL 04A) and 3589212:1826169 / :1826170 - KITCHEN
+and FOYER of TIER 35, the same interior model on LEVEL 03, same plan
+origin. `RoomAt` kept the room with the highest `BaseZ` - in each LINK's
+coordinates, so every floor's placement tied, and the first read (LEVEL
+03) won. So Merge by FCU saw two of the FCU's rooms on LEVEL 03 and
+suggested nothing for TA-04-04 - and every run with stacked placements
+in scope put terminals in the floor below (unseen: the sheet's values are
+the same floor to floor; endcap shares and "2 FCU(s)" were not).
+
+Fixed: rooms compared by `HostFloor` (HostElevationOf); links placed by
+their TOTAL transform (were GetTransform - nested placements). Built and
+deployed to all six (Revit closed), hash-checked. **Never run in Revit**
+- reopen Arrange rooms on LEVEL 04A: TA-04-04's three rooms should say
+"one FCU with ...".
+
+## AUTOVENT: Merge by FCU - 2026-10-19
+
+User (screenshot of 2BDR-A2 TA-04-04, LEVEL 04A): "the FCU is serving the
+foyer, the kitchen and the living/dinning, but it doesnt detect the foyer
+as merged, why?" - AUTOVENT never inferred merges: only the sheet's
+merged cells and Arrange rooms' Merge. KIFAF 7 had AA43:AA44 / AM43:AM44
+(LIVING/DINING 121.125 + KITCHEN 121.126, the arrangement's one merge);
+FOYER 121.127 row 45 in neither. The debug log showed FCU 3678148
+supplying all three - and a SECOND "121.126 KITCHEN" (the mirror
+apartment's: both 2BDR-A2s on a level come from one interior placement,
+and the FCU's Revit system reaches it). "yes add the FCU merge detection".
+
+`VENTFLOWS.FcuGroups` (rules in CLAUDE.md), the survey's `Units`, the
+Arrange window's notes and **Merge by FCU** button - suggest, never
+automatic. arrangeflowtest 37 checks (+14); mutation: 8 of 10 caught at
+first - the two survivors were a tie check and a "two or more" check the
+majority rule already implies, both removed, and a 2-1-1 case added.
+**Never run in Revit**: whether KIFAF's TA-04-04 FCU is suggested depends
+on its fresh endcap being bound to it (the debug log's FCU trace).
+
+## AUTOVENT: airflows in Arrange rooms; Containers and Units - 2026-10-19
+
+User: "allow the addin the option to read and write the airflows of the
+rooms in 'arrange rooms' window, it should show the flowrates in a form
+of columns inside the window and detect which rooms that are merged".
+Asked: read the sheet AND the terminals side by side (chosen); write to
+the terminals (chosen); sheet merges shown and adopted (chosen).
+
+- `VENTFLOWS` (Revit-free): sheet merges, adoption, an endcap's air back
+  to its groups (`Attribute`, weighted by the run's `Share` - a run's own
+  values read back as the sheet's), group totals, `Overrides`.
+- `REVITROOMS` gained `Mode.Survey` (read, via `VENTREAD.Ask.Terminals`,
+  before the dialog opens) and `Mode.Write` (request 4: the picked groups
+  only). The run itself is unchanged: every new branch is guarded by the
+  mode. Survey and write use the window's own document; the run still
+  `Command.Doc`.
+- The dialog: four columns, Set airflow... (several rooms at once; blank
+  keeps; Back to the sheet), Write to terminals. Columns are text, not
+  boxes - boxes in rows fought the drag and the double-click rename.
+- `arrangeflowtest` 23 checks (new, in run-all), mutation-checked 9 of 9
+  that applied. Rendered at 1x and 1.5x.
+- **Never run in Revit**: the survey's numbers and the targeted write -
+  check a write in the debug log (`FROM ARRANGE ROOMS`, `WRITE ...`).
+  Edits are not kept: set, then write, in one sitting.
+
+Same day, user: rename "apartment" for offices too - "Container" for the
+architect's room, "Units" for the rooms inside, on screen and in the logs
+(67 strings, `rename_containers.py` in the scratchpad - gone with it).
+Settings keys, the rules file's `apartment` scope, code names and the
+apartments log's file name are unchanged. The dwelling behaviour of a
+container's rooms is unchanged (a per-link Residential tick was offered).
+
+## AUTOVENT: "equals" occupancy rules - 2026-10-19
+
+User: "if we do a rule 'equals to' should it be higher than 'contains'?"
+(answered yes: any equals beats every contains; between equals, scoped
+before any), then "do it". `Rule.Exact`; `Fits` = same tokens, same order;
+`RuleFor` ranks it with `ExactFirst`; the rules file's 8th field
+`equals` (the old override's slot - a number reads as contains);
+`WithBuiltIn` never gives built-in values to an equals rule; the dialog
+has a Match column (contains / equals) and the window is 90 wider
+(1234, min 1024 - fits a 1280-wide work area). officetest 565 (+10),
+mutation-checked 7 of 7. No built-in rule is "equals".
+
+## AUTOVENT: the apartment kitchen per unit, the override undone - 2026-10-19
+
+User: "undo the override in the autovent, we need to use alternative
+method for the kitchen exhaust", then, asked how many air changes, "check
+this formula and the excel sheet why is it showing zero for the
+kitchens", then "adjust the excel sheet so it can calculate residential
+kitchen apartment same as toilet private".
+
+Why 0: Table 6-4's "Residential kitchens- Apartments" row has no rate in
+any column (62.1 leaves dwellings to 62.2, note G), and the per-unit
+exhaust formula (AF) names only five categories - not it - so AG's
+per-area lookup of an empty cell gave 0 x area.
+
+- `VENTOCCUPANCY.KitchenCheck` (export, worksheet added, update): the
+  empty row gets 50/100 cfm, 25/50 L/s a unit (62.1's residential kitchen
+  rates, as "Other than Residences" has them); every OR(...) naming
+  "Toilets - private" in the room row's formulas names the kitchen too.
+  The kitchen rule gives 1 unit: 50 L/s, 25 for light use.
+- The override is gone: `Rule.Override`, the dialog column, AK/AL writing,
+  the 8th file field (no longer read; checked it is not read as units).
+- KIFAF 5 (a copy) through the real KitchenCheck + 1 unit: 9 kitchens at
+  50 L/s, the merged LIVING/DINING + KITCHEN pair 50; with the user's
+  KITCHEN rule's own "Light Use" (typed 2026-10-19 01:54) 25 L/s each.
+  **The user's rule says Light Use - so an export now gives 25, not 50.**
+- officetest 555 (+12 over the override's), mutation-checked 7 of 7.
+  The "worksheet added" test now allows exactly one change to the
+  workbook's own sheets: Table 6-4's empty kitchen row given its rates.
+
+The ACH "alternate approach" (AI/AJ) was offered and not taken.
+
+## AUTOVENT: saved occupancy rules get later built-in values - 2026-10-19
+
+KIFAF 5's ten apartment kitchens had 0 L/s exhaust: category
+"Residential kitchens- Apartments" (no rate in Table 6-4) and no
+override. The user's `autovent_occupancy.txt` was the built-in list from
+an older build - same 86 rules, but no kitchen/pantry 50 L/s, no units
+on the apartment toilets, no light use on other SHOWER - and a saved
+file replaces the built-in rules whole. Most likely saved from Revit
+2024, which ran an older build until 10-18 (open during deploys).
+
+`VENTOCCUPANCY.WithBuiltIn`, applied in `Load`: a saved rule matching a
+built-in one (scope, words by tokens, both categories) takes each BLANK
+Use / Units / Override from it; typed values stand; a rule with a changed
+category or scope, or one the built-in list has not, is left alone.
+officetest 544 (+10), mutation-checked 8 of 8 (scope was the survivor at
+first - test added). The user's real file read through it: kitchen and
+pantry 50 L/s, apartment toilets 1 unit, other SHOWER light + 1; their
+own Light Use on KITCHEN kept; the file not written.
+
+Same day, from the KIFAF sheets: bathrooms' No. of Units was 3 (WC +
+toilet roll holder + brush holder - the WC name rule ticks any family
+with "toilet" in it, and misses `WallHungWc` / `AdaFloorMountedWC`), then
+2 after the user unticked the holders, with two `Bath Set` families still
+ticked by hand. **Open**: tighten `LooksLikeWcOrUrinal` (holder, brush,
+roll, seat, cover...; a WC joined to other words); a per-room family
+breakdown in the export log would have settled the "2" without guessing.
+
+## AUTOVENT Fixtures dialog: models, several picked, a search - 2026-10-17
+
+User: "list the linked models themselves instead of listing all the
+instances of the linked models, also allow multi selection for the
+models and the fixtures, and add a search bar for the fixtures".
+
+- One row per model ("40 placements" beside it); a ticked model is
+  every placement, those placed later included at export
+  (`VENTFIXTURES.EveryPlacement`, explicit choices only). The default -
+  the room links - is unchanged, and OK with the room links' models
+  ticked still stores "follow the default". A choice saved by the old
+  dialog (one placement) opens as its model ticked.
+- Both lists: file-list picks; a box on a picked row ticks them all;
+  Space. The families: a search box (hides rows, ticks stand).
+- The "Read the fixture families" button is gone: the list re-reads from
+  what the window already holds on every model tick, and keeps each
+  family's tick. The long Table 6-4 hint was cut to one line.
+- `fixturedialogtest` 56 checks (new, in run-all), mutation-checked: 6
+  of 8 caught; the two survivors were both search guards, and together
+  they still survive - WPF itself drops a row its filter hides from
+  the selection - so the redundant one was removed.
+- **Never run in Revit**: `EveryPlacement` (link type of each placement)
+  is Revit-side and untested; the export log's fixture line says which
+  models were read.
+
+## Every log in %AppData%\ATKINSMEC, not on the Desktop - 2026-10-16
+
+User: "save all the debug files being exported on desktop to that path"
+(the folder holding `autovent_occupancy.txt`). `Shared\LOGS.cs`
+(`Folder`, `PathOf` - creates the folder); all seven go through it:
+`ATKINSMEC_` + `export`, `debug`, `apartments` (AUTOVENT), `equip`,
+`esp`, `nwc`, `chw` + `_log.txt`. File names unchanged. On screen: the
+airflow dialog's "Full details:" line, the EQUIPMENT CHANGER and NWC
+help, the CHW fix's message - all print the new folder. Old files on the
+Desktop are left alone. The new-workbook export still OFFERS the Desktop
+as where to save the workbook - that is the user's file, not a log.
+esppreview and nwcpreview compile `LOGS.cs` now. Deployed to all but
+**2024 (Revit 2024 open)**; installers not rebuilt.
+
+Same day: **FIRE LOBBY → Common Corridors** (was a blank rule). User:
+FIREMAN LOBBY got no category although LOBBY has a rule - the blank
+FIRE LOBBY rule was the more specific one and blank writes nothing. The
+user's own saved rules already had it; the default now does too.
+Installers rebuilt after it.
+
+## AUTOVENT-Setup-2026-10-13.exe - the version from before the 14th - 2026-10-15
+
+User: "rebuild the installer for autovent the older version 2 days ago".
+Nothing changed on the 13th, so that is commit 92e3206 (12 Oct) plus the
+rename made later that day. Built OUTSIDE the working tree: `git archive
+92e3206` into the scratchpad, then the current copies of only the
+packaging and rename-only files laid over it (ATKINSMEC.csproj,
+Directory.Build.props, AUTOVENT.addin, Shared\UI.cs, AutoVent\ExtEventHan
+/ REVITROOMS / VENTAPTLOG - those three differ by the rename alone -
+installer\exe\*, build-installer.ps1), and `build-installer.ps1 -AutoVent`.
+Result `installer\output\AUTOVENT-Setup-2026-10-13.exe`: "Fill the
+Imported worksheet", no update, no occupancy, no model ID column; same
+AddInId and file list as AUTOVENT-Setup.exe, so either replaces the other.
+
+## AUTOVENT on its own: AUTOVENT-Setup.exe - 2026-10-15
+
+User: "temporarily separate the autovent addin into separate installer
+file". `build-installer.ps1 -AutoVent` → `installer\output\AUTOVENT-Setup.exe`
+(19.9 MB, all six versions). Same source built with `-p:Edition=AutoVent`
+(see CLAUDE.md): own assembly `ATKINSMEC.AutoVent.dll` (1.48 MB vs 2.27),
+only AutoVent + Shared (QUIET.cs left out - it logs through NWC BATCH,
+AUTOVENT never calls it), `AUTOVENT_ONLY` in UI.cs, own AddInId
+677EC2E1-..., `AUTOVENT.addin` -> `AUTOVENT\ATKINSMEC.AutoVent.dll`.
+The installer exe is the same project (`Edition.cs`): own name, title,
+file list (AUTOVENT.files.txt) and settings files (autovent_*.txt only).
+Checked: every packaged DLL = its build (both installers), the edition DLL
+has no other tool's command, the suite build/deploy is unchanged (no
+AUTOVENT.addin in it). **Never installed or run** - the .addin pointing
+into a subfolder (dependencies loaded from there) is standard for Revit
+add-ins but untried here on 2025+ (.NET 8/10). To undo the separation:
+stop passing `-AutoVent`; nothing else depends on it.
+
+## AUTOVENT: five fixes from the review list - 2026-10-15
+
+User: "start with 1 ... use 50 l/s for the apartment kitchen, then 2,
+then 3, then 4, then 5". Asked: the kitchen's 50 L/s as the apartments
+category + override (chosen) or the other-than-residences category; the
+occupants 2 in the master bedroom + 1 per other bedroom (chosen).
+
+1. **Exhaust that came out 0** - rules carry nature of use, units and an
+   override (dialog: three more columns). Apartment kitchen 50 L/s,
+   residential toilets/showers light use + 1 unit. A public toilet with
+   no fixtures counted is listed as 0 L/s in the export log. Found on the
+   way: two "balancing" headings (Y and AL) - the first try wrote the 50
+   into the OUTSIDE air's alternate column; the test caught it.
+2. **Rooms sharing a name and number** - the airflow write matches rows
+   by model ID first (`VENTSHEET.Resolve`), one row per room; ambiguous
+   ones in the dialog. KIFAF's three pairs separate after one update
+   (which writes the IDs).
+3. **Bedrooms and occupants** per apartment (2 + 1 each). The W column's
+   62.2 formula (header 0.15A + 3.5(Nb+1), formula MAX(T:U)) is the
+   office's and was NOT changed - still open, for the office.
+4. **No saved results** - calculated on reading.
+5. **Bellmouth gap** - `UnitNeedsIt` before "its room's".
+
+KIFAF copy (probe): 2BDR apartment M=2, master N=2, bedroom N=1,
+ensuites 10 L/s, kitchen 50 L/s, no errors. officetest 533 (+13 this
+round), ventfcutest +4; mutation-checked (10 + 2, one crash made a clean
+fail). Deployed to all but **2024 (Revit 2024 open)**. **Never run in
+Revit**: 2 and 5 depend on the model (IDs as the links have them; which
+terminals stand where) - read `Rows found: ... by model ID` and
+`BELLMOUTH ... its room has its own terminal` in the debug log.
+
+## AUTOVENT: occupancy categories from room names - 2026-10-14
+
+User: "make the addin automatically detect Occupancy Category and assign
+it to the room for both fresh and exhaust". Asked and answered:
+apartments → **Dwelling Unit** (with the fix below); the rules
+**editable** (Occupancy... window, office-wide on this PC).
+
+- `VENTOCCUPANCY`: rules, matching, the sheet's lists, `Fill` (blank
+  cells only, list-checked, an update follows the sheet's own choices
+  for a name first), `DwellingCheck`. `VENTOCCUPANCYDIALOG`: the rules
+  grid, Add / Reset / remove, "Try a name". Export tab: "Occupancy
+  categories from room names" + Occupancy... above the fixtures line;
+  per-model switch saved. Done dialog adds "N occupancy categories filled
+  from room names - check them."; the export log lists name -> categories.
+- **Found on the way**: the office template's "Dwelling Unit" occupant
+  test (`IF(O=$H$470,"NA",...)`) points at the wrong row in every pattern
+  (Tower 2 $H$470 vs helper H427; one pointed at "Lecture Classroom"), and
+  the user's KIFAF sheet carries the same ($H$288 vs H250). Choosing
+  Dwelling Unit gave #VALUE!. Every export/update now points it at Table
+  6-1's own cell. The old officetest check that the $H$ kept its distance
+  (which preserved the bug) was replaced.
+- Also: the update now shifts its row templates' references below the
+  block by the resize, as VENTOFFICE always did.
+- On a COPY of KIFAF (probe, sheet's own rooms as the model): 76 outside
+  air + 40 exhaust categories filled, no errors on any room row once
+  calculated; a Dwelling Unit room gives R=NA, S=0, AA=Ra x A rounded.
+- officetest +30 (520), mutation-checked (6); ventsettingstest +1.
+  Rendered (autovent-occupancy*.png, export tab). Deck regenerated.
+  Deployed to all but **2025 (Revit 2025 open)**. **Never run in Revit.**
+- The defaults are engineering guesses (no office sheet had categories
+  filled to learn from): review them in Occupancy... before relying on
+  them. Not set: "Nature of use" (AD) - the sheet's own default applies.
+
+## AUTOVENT: "Update the imported worksheet" - 2026-10-14
+
+From the improvement list (item 2), plus the user: "it will add any new
+spaces added by the arch or ID to the excel sheet and do any updates to
+the spaces updated by the arch". The old "Fill the Imported worksheet"
+blanked every input in every room row and deleted unticked levels.
+
+`VENTUPDATE` (Revit-free) replaces `REVITEXPORT.Rewrite`:
+- **matching**: hidden `AUTOVENT model ID` column (all three exports
+  write it now) → number on the level → a name only one room has there.
+  A sheet from before the column: number/name the first time, exact
+  after.
+- matched rows keep everything typed (occupancy, notes, a value typed
+  over a formula); name, number, area, height, units from the model.
+- new rooms added (inputs blank, the sheet's own formulas); new levels
+  placed by the model's order, the sheet's own level order untouched.
+- **removed rooms kept, greyed + note** (user chose this over deleting);
+  the dialog adds one line: "N room(s) no longer in the model".
+- unticked levels copied exactly; unticked rooms' rows left as they are
+  and never added (`Room.Keep`, collected instead of dropped).
+- merged air rebuilt; a total typed over a merged cell put back.
+- Sub Totals re-pointed, the Total rebuilt from every Sub Total, and
+  the summary tables' room range grows with the block.
+
+Two user decisions (asked): removed spaces kept + marked; a hidden ID
+column is fine. Option renamed "Update the imported worksheet" (tooltip:
+"Adds new rooms and updates changed ones. What you typed stays.");
+confirm "Update worksheet "X" from N level(s)?". Deck slide 13 updated.
+officetest +37 (490), mutation-checked (9 mutations; one survived at
+first and exposed a lost typed total - fixed). All six build; deployed
+to 2022, 2023, 2026, 2027 - **2024 and 2025 locked by open Revit**.
+**Checked on a COPY of the user's `KIFAF (1).xlsx`** (worksheet
+"Ventilation", 128 rooms, LEVEL 04A, apartments) with a throwaway probe
+whose "model" was the sheet's own rooms: nothing changed but the hidden
+ID column (all 128 rows identical, 131 -> 131 rows, no #REF!). With one
+room removed and one added: the new row has the sheet's formulas, the
+removed one is greyed at the level's end, Sub Total `SUM(AA12:AA140)`,
+the summary SUMIFs `$AB$12:$AB$140`. **Never run in Revit** - the room
+collection (Keep, storey order) is Revit-side. Read
+`Desktop\ATKINSMEC_export_log.txt` after: it lists every room added,
+changed and greyed.
+
+## Renamed: the Atkins MEP Toolkit - 2026-10-12
+
+User asked for a name for the suite, then: "rename it to atkins mep
+toolkit". Done for everything a person sees - the ribbon tab (was
+"ATKINS"; the Mechanical panel stays), the `.addin` Name/Text/Description
+(the description listed three add-ins of ten), window titles, dialog
+captions, external event and updater names, log headers, the CHW sizing
+sheet's title line, the installer's window and messages, its file
+metadata and its output, now `AtkinsMEPToolkit-Setup.exe` / `.zip`; the
+installer README (which said five add-ins). **Kept as `ATKINSMEC` on
+purpose**: assembly, namespace, `.addin` and `ATKINSMEC.files.txt` file
+names, AddInId and VendorId, `%AppData%\ATKINSMEC\`, the Desktop log file
+names, `QAAVF`'s analysis style and schema (stored in models) - see
+CLAUDE.md. The tutorial video (`docs/AUTOVENT-tutorial.mp4`) still shows
+the old tab; only its script was changed.
 
 ## AUTOVENT: Merge rooms; every edit survives a close - 2026-10-12
 
@@ -598,7 +1328,8 @@ flagged amber.
 
 `esptest` 60 checks; window rendered at 1x and 1.5x; built for all six;
 **2025 NOT redeployed** (Revit 2025 open). **Never run in Revit** - the
-first real run's log (`Desktop\ATKINSMEC_esp_log.txt`) is the thing to
+first real run's log (`ATKINSMEC_esp_log.txt`, in `%AppData%\ATKINSMEC`
+since 2026-10-16) is the thing to
 read: joints made between models, near misses, and where each figure
 came from. The installer predates it.
 

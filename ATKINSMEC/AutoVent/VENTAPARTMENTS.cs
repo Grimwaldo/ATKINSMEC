@@ -37,8 +37,8 @@ namespace ATKINSMEC
     // the levels tree, the export, the airflow write and the fixture count
     // all build it the same way from the same setting.
     //
-    // EVERY BUILD WRITES ITSELF DOWN (VENTAPTLOG, Desktop\ATKINSMEC_
-    // apartments_log.txt): what each apartments model has on each level,
+    // EVERY BUILD WRITES ITSELF DOWN (VENTAPTLOG, %AppData%\ATKINSMEC\
+    // ATKINSMEC_apartments_log.txt): what each apartments model has on each level,
     // and what each interior room was found in - so a run that groups
     // nothing says why.
     //
@@ -93,14 +93,14 @@ namespace ATKINSMEC
                 }
                 else
                 {
-                    VENTAPTLOG.Say("Apartments model " + map.LabelOf(id) + " [" + id + "] is NOT LOADED - not read.");
+                    VENTAPTLOG.Say("Redundant rooms model " + map.LabelOf(id) + " [" + id + "] is NOT LOADED - not read.");
                 }
             }
 
             if (sources.Count == 0 || map.Storeys.Count == 0)
             {
                 VENTAPTLOG.Say(sources.Count == 0
-                    ? "No apartments model could be read - nothing to group."
+                    ? "No redundant rooms model could be read - nothing to group."
                     : "This model has no levels - nothing to group.");
                 return;
             }
@@ -131,7 +131,7 @@ namespace ATKINSMEC
                 // Not an interior model on any storey: not read at all
                 if (chosen
                         ? !VENTSETTINGS.InteriorPicks.Values.Any(set => set != null && set.Contains(linkId))
-                        : !VENTLINKFILTER.Matches(label, keyword))
+                        : !VENTINTERIOR.Named(label, keyword))
                 {
                     skipped.Add(label);
                     continue;
@@ -220,9 +220,9 @@ namespace ATKINSMEC
             }
 
             VENTAPTLOG.Head("Result");
-            VENTAPTLOG.Say(map.Holding.Count + " apartment(s) hold " + map.ByRoom.Count + " interior room(s).");
-            VENTAPTLOG.Say(map.OtherStorey + " interior room(s) stood inside an apartment on ANOTHER level - not grouped.");
-            VENTAPTLOG.Say(map.Outside + " interior room(s) stood in NO apartment - not grouped, and in no run.");
+            VENTAPTLOG.Say(map.Holding.Count + " redundant room(s) hold " + map.ByRoom.Count + " unit(s).");
+            VENTAPTLOG.Say(map.OtherStorey + " interior room(s) stood inside a redundant room on ANOTHER level - not grouped.");
+            VENTAPTLOG.Say(map.Outside + " interior room(s) stood in NO redundant room - not grouped, and in no run.");
 
             foreach (string line in map.Describe())
                 VENTAPTLOG.Say("   " + line);
@@ -231,8 +231,8 @@ namespace ATKINSMEC
 
             if (spread.Count > 0)
             {
-                VENTAPTLOG.Say(spread.Count + " apartment(s) took rooms from MORE THAN ONE interior placement - " +
-                               "an architect's room drawn across several apartments?");
+                VENTAPTLOG.Say(spread.Count + " redundant room(s) took units from MORE THAN ONE interior placement - " +
+                               "an architect's room drawn across several redundant rooms?");
 
                 foreach (string line in spread)
                     VENTAPTLOG.Say("   " + line);
@@ -295,7 +295,7 @@ namespace ATKINSMEC
 
                 string label = map.LabelOf(id);
 
-                if (!string.IsNullOrWhiteSpace(keyword) && VENTLINKFILTER.Matches(label, keyword))
+                if (!string.IsNullOrWhiteSpace(keyword) && VENTINTERIOR.Named(label, keyword))
                     continue;
 
                 Document linked = link.GetLinkDocument();
@@ -602,7 +602,7 @@ namespace ATKINSMEC
         {
             VENTAPTLOG.Head("Set-up");
 
-            VENTAPTLOG.Say("Apartments from: " + string.Join(", ",
+            VENTAPTLOG.Say("Redundant rooms from: " + string.Join(", ",
                 VENTSETTINGS.ApartmentLinkIds.OrderBy(i => i).Select(i => map.LabelOf(i) + " [" + i + "]")));
 
             VENTAPTLOG.Say("Interior models: keyword \"" + (keyword ?? string.Empty) + "\"" +
@@ -620,8 +620,11 @@ namespace ATKINSMEC
                 }
             }
 
+            string measuredOn;
+            double error = RVTLINKSELECTION.LevelError(doc, out measuredOn);
+
             VENTAPTLOG.Head("Levels of this model (internal height, corrected by " +
-                            VENTAPTLOG.M(RVTLINKSELECTION.LevelError(doc)) + " measured on its own rooms and spaces)");
+                            VENTAPTLOG.M(error) + " measured on " + measuredOn + ")");
 
             for (int i = 0; i < map.Storeys.Count; i++)
                 VENTAPTLOG.Say("   " + map.Storeys[i].Name + "   " + VENTAPTLOG.M(map.Storeys[i].Elevation));
@@ -631,7 +634,7 @@ namespace ATKINSMEC
         // with only corridors and stairs on it shows up as exactly that
         private static void LogSource(Map map, Source source)
         {
-            VENTAPTLOG.Head("Apartments model " + map.LabelOf(source.Id) + " [" + source.Id + "]");
+            VENTAPTLOG.Head("Redundant rooms model " + map.LabelOf(source.Id) + " [" + source.Id + "]");
             VENTAPTLOG.Say("Origin in this model " + Where(source.ToHost.Origin) + Nested(source.Link));
             VENTAPTLOG.Say("Its levels, measured on its own rooms, are out by " +
                            VENTAPTLOG.M(RVTLINKSELECTION.LevelError(source.Doc)) +
@@ -803,7 +806,7 @@ namespace ATKINSMEC
                     continue;
                 }
 
-                VENTAPTLOG.Say(head + t.Joined + " in an apartment, " + t.Elsewhere + " in one on another level, " +
+                VENTAPTLOG.Say(head + t.Joined + " in a redundant room, " + t.Elsewhere + " in one on another level, " +
                                t.Outside + " in none");
 
                 if (t.Apartments.Count > 0)

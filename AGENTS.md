@@ -6,7 +6,7 @@
 > reverted and should not be reinstated without asking.
 
 Six Revit add-ins in one project, one assembly, one ribbon panel
-(**ATKINS → Mechanical**). Built from a single source tree for **Revit
+(**Atkins MEP Toolkit → Mechanical**). Built from a single source tree for **Revit
 2022 through 2027**.
 
 | Button | Entry point | What it does |

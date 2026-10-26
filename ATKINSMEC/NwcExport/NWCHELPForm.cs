@@ -169,7 +169,7 @@ namespace ATKINSMEC
                 "rather than repairing them.");
             Body(
                 "SILENT IS NOT INVISIBLE. Every message answered is " +
-                "written to ATKINSMEC_nwc_log.txt on your Desktop, with " +
+                "written to ATKINSMEC_nwc_log.txt in " + LOGS.Folder + ", with " +
                 "its text and the button that was pressed, so a run that " +
                 "quietly skipped something can still be read afterwards. " +
                 "The log also holds every model, what it wrote and what " +

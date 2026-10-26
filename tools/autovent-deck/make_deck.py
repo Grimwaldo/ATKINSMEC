@@ -159,7 +159,7 @@ def build(shots):
 
     # 1 ------------------------------------------------------------ title
     s = new("AUTOVENT", "Introduction", dark=True)
-    s.text(0.7, 1.55, 6.0, 0.4, P("ATKINS  →  MECHANICAL   ·   REVIT 2022 – 2027",
+    s.text(0.7, 1.55, 6.0, 0.4, P("ATKINS MEP TOOLKIT  →  MECHANICAL   ·   REVIT 2022 – 2027",
                                   size=13, color=ON_DARK, font="major"))
     title(s, "AUTOVENT", color="bg1", y=1.95, size=60, x=0.7, w=6.0, h=1.2)
     s.text(0.7, 3.25, 5.7, 1.6, P("Ventilation airflows from the Excel schedule "
@@ -209,8 +209,8 @@ def build(shots):
     s = new("Before you start", "Introduction")
     title(s, "Before you start")
     cells = (
-        ("Install once", "Run ATKINSMEC-Setup.exe - no admin rights needed. "
-         "AUTOVENT appears on the ATKINS tab, Mechanical panel."),
+        ("Install once", "Run AtkinsMEPToolkit-Setup.exe - no admin rights needed. "
+         "AUTOVENT appears on the Atkins MEP Toolkit tab, Mechanical panel."),
         ("Open your MEP model", "With the architect's models linked and "
          "loaded: the rooms are read from them."),
         ("Terminals on the right systems", "Fresh air and extract terminals on "
@@ -473,9 +473,9 @@ def build(shots):
     s.pic(img, 0.6, 1.5, w, w / img.width * img.height,
           "The Export rooms back to Excel tab")
     for i, (head, body) in enumerate((
-            ("Fill the imported worksheet", "Replaces its level and room rows "
-             "with the model's rooms. Other columns keep their formulas; rows "
-             "copy the sheet's own formatting."),
+            ("Update the imported worksheet", "Adds new rooms and updates "
+             "changed ones; what you typed stays. Rooms no longer in the "
+             "model are greyed, never deleted."),
             ("A new workbook", "Built from the office ventilation calculation: "
              "its headings, formulas and ASHRAE tables. Typed inputs are left "
              "blank."),
@@ -1116,7 +1116,7 @@ def write_pptx(slides, path):
         'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         '<dc:title>AUTOVENT - a guide for Revit users</dc:title>'
-        '<dc:creator>ATKINSMEC</dc:creator>'
+        '<dc:creator>Atkins MEP Toolkit</dc:creator>'
         '<dcterms:created xsi:type="dcterms:W3CDTF">%s</dcterms:created>'
         '<dcterms:modified xsi:type="dcterms:W3CDTF">%s</dcterms:modified>'
         '</cp:coreProperties>' % (now, now))

@@ -1,4 +1,4 @@
-; ATKINSMEC - Inno Setup script
+; Atkins MEP Toolkit - Inno Setup script
 ;
 ; Optional. It produces a single Setup.exe instead of the zip, and needs
 ; Inno Setup 6 (free, jrsoftware.org/isdl.php) installed on the machine
@@ -14,9 +14,9 @@
 ; NOTE: this script has never been compiled - Inno Setup is not installed
 ; on the machine it was written on. The zip installer is the tested one.
 
-#define AppName "ATKINSMEC"
+#define AppName "Atkins MEP Toolkit"
 #define AppVersion "1.0.0"
-#define AppPublisher "ATKINS"
+#define AppPublisher "Atkins"
 
 [Setup]
 AppId={{8E5A2C41-6B3D-4F17-9A0E-2C7D5B914E63}
@@ -28,7 +28,7 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AppName} for Revit
 OutputDir=output
-OutputBaseFilename=ATKINSMEC-Setup
+OutputBaseFilename=AtkinsMEPToolkit-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -125,7 +125,7 @@ begin
 
     if DirExists(Settings) then
     begin
-      if MsgBox('Remove your ATKINSMEC settings as well?' + #13#10#13#10 +
+      if MsgBox('Remove your Atkins MEP Toolkit settings as well?' + #13#10#13#10 +
                 'That is the saved ACC model list and the duct ' +
                 'insulation rules, in' + #13#10 + Settings + #13#10#13#10 +
                 'Choose No to keep them for a later reinstall.',

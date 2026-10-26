@@ -59,6 +59,12 @@ namespace ATKINSMEC
             layout.SpaceEndCol = Shift(layout.SpaceEndCol, insertedAt);
             layout.FreshAirCol = Shift(layout.FreshAirCol, insertedAt);
             layout.ExhaustAirCol = Shift(layout.ExhaustAirCol, insertedAt);
+            layout.FreshCategoryCol = Shift(layout.FreshCategoryCol, insertedAt);
+            layout.ExhaustCategoryCol = Shift(layout.ExhaustCategoryCol, insertedAt);
+            layout.UseCol = Shift(layout.UseCol, insertedAt);
+            layout.OverrideCol = Shift(layout.OverrideCol, insertedAt);
+            layout.BalancingCol = Shift(layout.BalancingCol, insertedAt);
+            layout.OccupantsCol = Shift(layout.OccupantsCol, insertedAt);
 
             layout.RoomNumberCol = insertedAt;
         }
@@ -528,61 +534,66 @@ namespace ATKINSMEC
         // ==================================================
         //
         // ROOMS ONE FCU SERVES THROUGH ONE FRESH AIR CONNECTION, merged in
-        // Arrange rooms (user, 2026-10-12): their fresh air and extract
-        // cells - the two columns AUTOVENT reads back - are merged down over
-        // the group and hold the rooms' TOTAL. A live total: each room's
-        // own formula, added, so a change of occupancy still flows through;
-        // a typed number is added as it is. Only rooms on consecutive rows
-        // merge, and VENTARRANGE.Together keeps them so. The importer reads
-        // a merged cell back as one group (VENTSHEET.AirData).
+        // Levels and rooms (user, 2026-10-12): their FRESH AIR cells are
+        // merged down over the group and hold the rooms' TOTAL; rooms the
+        // sheet merged on the EXTRACT side, their extract cells (one side
+        // each since 2026-10-22 - an FCU merge is fresh air only). A live
+        // total: each room's own formula, added, so a change of occupancy
+        // still flows through; a typed number is added as it is. Only rooms
+        // on consecutive rows merge, and VENTARRANGE.Together keeps them
+        // so. The importer reads a merged cell back as one group
+        // (VENTSHEET.AirData).
         //
         // Run after the rows are written, over (sheet row, room) pairs.
-        // Returns how many groups were merged.
+        // Returns how many groups were merged, both sides.
         internal static int MergeAir(
             ExcelWorksheet ws,
             VENTSHEET.SheetLayout layout,
             IList<KeyValuePair<int, VENTTEMPLATE.Room>> rows)
         {
-            int groups = 0;
+            // Every group's sums worked out before any cell is emptied - one
+            // column's formula may read another's
+            var groups = new List<Tuple<int, int, int, string>>();
 
-            for (int i = 0; i < rows.Count;)
+            foreach (bool extract in new[] { false, true })
             {
-                VENTTEMPLATE.Room room = rows[i].Value;
+                int col = extract ? layout.ExhaustAirCol : layout.FreshAirCol;
 
-                if (room == null || string.IsNullOrEmpty(room.Merge))
-                {
-                    i++;
+                if (col <= 0)
                     continue;
-                }
 
-                int j = i;
+                Func<VENTTEMPLATE.Room, string> id = r => r == null ? null : extract ? r.ExtractMerge : r.Merge;
 
-                while (j + 1 < rows.Count &&
-                       rows[j + 1].Value != null &&
-                       rows[j + 1].Value.Merge == room.Merge &&
-                       rows[j + 1].Key == rows[j].Key + 1)
+                for (int i = 0; i < rows.Count;)
                 {
-                    j++;
+                    string group = id(rows[i].Value);
+
+                    if (string.IsNullOrEmpty(group))
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    int j = i;
+
+                    while (j + 1 < rows.Count &&
+                           id(rows[j + 1].Value) == group &&
+                           rows[j + 1].Key == rows[j].Key + 1)
+                    {
+                        j++;
+                    }
+
+                    if (j > i)
+                        groups.Add(Tuple.Create(rows[i].Key, rows[j].Key, col, Sum(ws, rows[i].Key, rows[j].Key, col)));
+
+                    i = j + 1;
                 }
-
-                if (j > i)
-                {
-                    int[] cols = new[] { layout.FreshAirCol, layout.ExhaustAirCol }.Where(c => c > 0).Distinct().ToArray();
-
-                    // Every column's sum worked out before any cell is
-                    // emptied - one column's formula may read another's
-                    string[] sums = cols.Select(c => Sum(ws, rows[i].Key, rows[j].Key, c)).ToArray();
-
-                    for (int c = 0; c < cols.Length; c++)
-                        Total(ws, rows[i].Key, rows[j].Key, cols[c], sums[c]);
-
-                    groups++;
-                }
-
-                i = j + 1;
             }
 
-            return groups;
+            foreach (Tuple<int, int, int, string> group in groups)
+                Total(ws, group.Item1, group.Item2, group.Item3, group.Item4);
+
+            return groups.Count;
         }
 
         // One column of a group added up: every row's own formula, or

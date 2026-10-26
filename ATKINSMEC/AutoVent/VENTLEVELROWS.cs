@@ -6,15 +6,16 @@ using System.Linq;
 
 namespace ATKINSMEC
 {
-    // The rows AUTOVENT's levels tree binds to: a level, and the linked
-    // rooms standing on it, each with a tick.
+    // AUTOVENT's ticks: a level, and the linked rooms standing on it, each
+    // with a tick - held by the window, shown and ticked in Levels and
+    // rooms (VENTROOMSWINDOW, which binds its boxes to these rows).
     //
     // In a file of their own and REVIT-FREE for two reasons. The tick
     // logic has real states - all, none, some, a person's choice
-    // outliving a rebuild - and scratchpad/levelrowtest exercises it with
-    // no model open. And scratchpad/ventpreview compiles this file, so a
-    // render of the window shows these rows behaving as they really do,
-    // not a stub's copy of them.
+    // outliving a rebuild - and tests/levelrowtest exercises it with no
+    // model open. And tests/ventpreview compiles this file, so a render
+    // of the window shows these rows behaving as they really do, not a
+    // stub's copy of them.
     public partial class VENTWindow
     {
         // A LEVEL IN THE TREE, AND ITS TICK FOLLOWS ITS ROOMS. Each room
@@ -55,10 +56,10 @@ namespace ATKINSMEC
 
             private bool _expanded;
 
-            // Bound two-way to the tree's IsExpanded. Set before a row is
+            // Whether Levels and rooms shows its rooms. Set before a row is
             // added (to keep a rebuilt list open where it was) AND by the
             // search (Search.Apply), which opens a level to show what it
-            // found - so the tree has to be told.
+            // found.
             public bool IsExpanded
             {
                 get { return _expanded; }
@@ -125,24 +126,6 @@ namespace ATKINSMEC
 
                 foreach (RoomRow room in ShownRooms)
                     room.IsOn = on;
-            }
-
-            private bool _picked;
-
-            // Picked in the tree (several can be - see Picks). Nothing to
-            // do with the tick: picking says what an ACTION applies to.
-            public bool IsPicked
-            {
-                get { return _picked; }
-                set
-                {
-                    if (_picked == value)
-                        return;
-
-                    _picked = value;
-
-                    Changed("IsPicked");
-                }
             }
 
             // Told of every room a PERSON ticked or unticked - directly,
@@ -297,194 +280,25 @@ namespace ATKINSMEC
         }
 
         // ==================================================
-        // PICKING SEVERAL, at the user's request
-        //
-        // WPF's TreeView picks one item at a time, so the tree keeps its
-        // own pick on the rows (IsPicked) and draws it itself. The rules
-        // are a file list's: a click picks one, Ctrl+click adds or takes
-        // away one, Shift+click picks everything from the last click to
-        // this one AS THE TREE SHOWS IT - levels and the rooms of open
-        // levels, top to bottom.
-        //
-        // What is picked is what the actions act on: ticking any picked
-        // row ticks them all, and Show in plan frames every picked room.
-        // A picked LEVEL stands for all its rooms there - its rooms
-        // SHOWING, while a search hides some (Search).
-        // ==================================================
-        public static class Picks
-        {
-            // Every row the tree shows, in the order it shows them - a row
-            // a search hides is not shown
-            public static List<object> Visible(IEnumerable<LevelRow> levels)
-            {
-                var rows = new List<object>();
-
-                foreach (LevelRow level in levels)
-                {
-                    if (!level.IsShown)
-                        continue;
-
-                    rows.Add(level);
-
-                    if (level.IsExpanded)
-                        rows.AddRange(level.Rooms.Where(r => r.IsShown));
-                }
-
-                return rows;
-            }
-
-            public static IEnumerable<object> All(IEnumerable<LevelRow> levels)
-            {
-                foreach (LevelRow level in levels)
-                {
-                    yield return level;
-
-                    foreach (RoomRow room in level.Rooms)
-                        yield return room;
-                }
-            }
-
-            public static bool IsPicked(object row)
-            {
-                var level = row as LevelRow;
-
-                if (level != null)
-                    return level.IsPicked;
-
-                var room = row as RoomRow;
-
-                return room != null && room.IsPicked;
-            }
-
-            public static void Set(object row, bool picked)
-            {
-                var level = row as LevelRow;
-
-                if (level != null)
-                    level.IsPicked = picked;
-
-                var room = row as RoomRow;
-
-                if (room != null)
-                    room.IsPicked = picked;
-            }
-
-            public static void Clear(IEnumerable<LevelRow> levels)
-            {
-                foreach (object row in All(levels))
-                    Set(row, false);
-            }
-
-            // A click: plain, with Ctrl, or with Shift. Returns the row the
-            // next Shift+click counts from.
-            public static object Click(
-                IList<LevelRow> levels, object anchor, object row,
-                bool ctrl, bool shift)
-            {
-                if (row == null)
-                    return anchor;
-
-                if (shift && anchor != null)
-                {
-                    List<object> shown = Visible(levels);
-
-                    int from = shown.IndexOf(anchor);
-                    int to = shown.IndexOf(row);
-
-                    // The last click's row has gone out of sight (its level
-                    // was closed): count from this one instead
-                    if (from < 0)
-                        from = to;
-
-                    if (!ctrl)
-                        Clear(levels);
-
-                    for (int i = Math.Min(from, to); i <= Math.Max(from, to); i++)
-                        Set(shown[i], true);
-
-                    // Shift keeps where the range started
-                    return anchor;
-                }
-
-                if (ctrl)
-                {
-                    Set(row, !IsPicked(row));
-                    return row;
-                }
-
-                Clear(levels);
-                Set(row, true);
-
-                return row;
-            }
-
-            // Ctrl+A: everything the tree shows
-            public static void PickShown(IList<LevelRow> levels)
-            {
-                Clear(levels);
-
-                foreach (object row in Visible(levels))
-                    Set(row, true);
-            }
-
-            // Ticking one picked row ticks every picked row the same way.
-            // Levels first: a level pushes onto all its rooms, and a room
-            // picked on its own then still gets the value asked for.
-            public static void Tick(IEnumerable<LevelRow> levels, bool on)
-            {
-                List<LevelRow> all = levels.ToList();
-
-                foreach (LevelRow level in all.Where(l => l.IsPicked))
-                    level.TickShown(on);
-
-                foreach (RoomRow room in all.SelectMany(l => l.Rooms).Where(r => r.IsPicked))
-                    room.IsOn = on;
-            }
-
-            // The rooms the picks stand for: every picked room, and every
-            // room SHOWING of a picked level, once each, in the tree's order
-            public static List<RoomRow> Rooms(IEnumerable<LevelRow> levels)
-            {
-                var rooms = new List<RoomRow>();
-
-                foreach (LevelRow level in levels)
-                {
-                    foreach (RoomRow room in level.Rooms)
-                    {
-                        if ((level.IsPicked && room.IsShown) || room.IsPicked)
-                            rooms.Add(room);
-                    }
-                }
-
-                return rooms;
-            }
-
-            public static int Count(IEnumerable<LevelRow> levels)
-            {
-                return All(levels).Count(IsPicked);
-            }
-        }
-
-        // ==================================================
-        // SEARCHING THE LEVELS LIST, at the user's request: "add search
-        // bar also into the rooms to process"
+        // SEARCHING THE LEVELS AND ROOMS, at the user's request: "add
+        // search bar also into the rooms to process"
         //
         // The links search's rule (VENTLINKFILTER: every word, any order,
-        // any case) over each room's LEVEL, number and name - the name as
-        // the list shows it, apartment and model included - so "level 03
-        // bedroom" finds the bedrooms of LEVEL 03, and "level 03" alone
-        // the whole level.
+        // any case) over each room's LEVEL and what else it is known by -
+        // its number and name, or the words Levels and rooms hands in
+        // (VENTARRANGE.Words: model, container, names before a rename) -
+        // so "level 03 bedroom" finds the bedrooms of LEVEL 03, and "level
+        // 03" alone the whole level.
         //
         // IT ONLY HIDES ROWS. Every room keeps its tick, the level's count
         // still counts them all, and every run does what the ticks say -
         // the links search's rule. What a PERSON does while it is on acts
         // on what is SHOWING: a level's tick, All and None (TickShown),
-        // a range or Ctrl+A (Picks.Visible), a picked level (Picks.Rooms,
-        // Picks.Tick) - so nothing hidden is changed by surprise.
+        // the rows picked - so nothing hidden is changed by surprise.
         // ==================================================
         public static class Search
         {
-            // Everything a search may find a room by
+            // What a search finds a room by, unless told otherwise
             public static string Words(LevelRow level, RoomRow room)
             {
                 return (level == null ? string.Empty : level.Name) + " " +
@@ -498,13 +312,23 @@ namespace ATKINSMEC
             // can be seen, and put back as it was once the search is
             // cleared: `openBefore` remembers, by level name, how each level
             // stood before - kept by the window, so it outlives the list
-            // being rebuilt in the middle of a search. A row the search
-            // hides is unpicked: what is picked is what the actions act on,
-            // and nobody can see a hidden pick.
-            public static int Apply(IEnumerable<LevelRow> levels, string query, IDictionary<string, bool> openBefore)
+            // being rebuilt in the middle of a search. `words`: what a room
+            // is found by (none: Words).
+            //
+            // `keep`: a FILTER as well - Levels and rooms' "Differences
+            // only" (user, 2026-10-25). A room shows when it matches the
+            // query AND passes; with no query the filter alone searches,
+            // opening the levels with something to show as a search does.
+            public static int Apply(
+                IEnumerable<LevelRow> levels, string query, IDictionary<string, bool> openBefore,
+                Func<LevelRow, RoomRow, string> words = null, Func<LevelRow, RoomRow, bool> keep = null)
             {
-                bool searching = !string.IsNullOrWhiteSpace(query);
+                bool typed = !string.IsNullOrWhiteSpace(query);
+                bool searching = typed || keep != null;
                 int found = 0;
+
+                if (words == null)
+                    words = Words;
 
                 foreach (LevelRow level in levels ?? Enumerable.Empty<LevelRow>())
                 {
@@ -512,19 +336,15 @@ namespace ATKINSMEC
 
                     foreach (RoomRow room in level.Rooms)
                     {
-                        room.IsShown = !searching || VENTLINKFILTER.Matches(Words(level, room), query);
+                        room.IsShown = (!typed || VENTLINKFILTER.Matches(words(level, room), query)) &&
+                                       (keep == null || keep(level, room));
 
                         if (room.IsShown)
                             shown++;
-                        else
-                            room.IsPicked = false;
                     }
 
                     level.IsShown = !searching || shown > 0 ||
-                                    (level.Rooms.Count == 0 && VENTLINKFILTER.Matches(level.Name ?? string.Empty, query));
-
-                    if (!level.IsShown)
-                        level.IsPicked = false;
+                                    (keep == null && level.Rooms.Count == 0 && VENTLINKFILTER.Matches(level.Name ?? string.Empty, query));
 
                     if (searching)
                     {
@@ -585,23 +405,6 @@ namespace ATKINSMEC
 
                     if (PropertyChanged != null)
                         PropertyChanged(this, new PropertyChangedEventArgs("IsShown"));
-                }
-            }
-
-            private bool _picked;
-
-            public bool IsPicked
-            {
-                get { return _picked; }
-                set
-                {
-                    if (_picked == value)
-                        return;
-
-                    _picked = value;
-
-                    if (PropertyChanged != null)
-                        PropertyChanged(this, new PropertyChangedEventArgs("IsPicked"));
                 }
             }
 

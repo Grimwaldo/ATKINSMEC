@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AUTOVENT"
-        Height="860" Width="1060"
+        SizeToContent="Height" Width="1060"
         MinHeight="480" MinWidth="920"
         WindowStartupLocation="CenterScreen"
         Background="#FFF4F6F8"
@@ -215,8 +215,8 @@
                           Style="{StaticResource TickRow}"
                           Margin="4,3,10,3"
                           VerticalAlignment="Top"
-                          ToolTip="This model's rooms are apartments. Interior rooms inside them are grouped under them.">
-                    <TextBlock Text="Apartments"
+                          ToolTip="This model's rooms are redundant rooms. The units inside them (rooms of interior models) are grouped under them.">
+                    <TextBlock Text="Redundant rooms"
                                FontSize="11.5"
                                Foreground="{StaticResource Muted}"/>
                 </CheckBox>
@@ -317,19 +317,17 @@
         </Border>
 
         <!-- ================= body ================= -->
-        <!-- Scrolls once the window is shorter than the rows need - a
-             1080p laptop at 150%. BodyGrid's height is SET (VENTFIT.Body):
-             left to the scroll viewer, the levels row's * would become
-             Auto and the tree would build every row. -->
+        <!-- Scrolls once the window is shorter than its content - a
+             1080p laptop at 150%. The window opens as tall as the content,
+             up to the screen (SizeToContent, VENTFIT.Screen). -->
         <ScrollViewer x:Name="BodyScroll"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
-                      Focusable="False"
-                      SizeChanged="BodyScroll_SizeChanged">
-        <Grid x:Name="BodyGrid" Margin="22,18,22,14" Height="680">
+                      Focusable="False">
+        <Grid x:Name="BodyGrid" Margin="22,18,22,14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*" MinHeight="190"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
@@ -488,12 +486,15 @@
                 </DockPanel>
             </Border>
 
-            <!-- 3. levels -->
+            <!-- 3. levels and rooms - ticked, ordered and merged in their
+                 own window (VENTROOMSWINDOW; user, 2026-10-19: "combine
+                 'levels to process' and arrange rooms window"). Here, what
+                 is ticked, and the levels that would process nothing. -->
             <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
                     Style="{StaticResource CardStyle}"
                     Margin="0,18,0,0">
-                <DockPanel>
-                    <DockPanel DockPanel.Dock="Top" LastChildFill="False">
+                <StackPanel>
+                    <DockPanel LastChildFill="True">
                         <Border DockPanel.Dock="Left" Style="{StaticResource StepNumber}">
                             <TextBlock Text="3" Foreground="White" FontSize="11"
                                        FontWeight="Bold"
@@ -501,233 +502,43 @@
                                        VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock DockPanel.Dock="Left"
-                                   Text="Levels to process"
+                                   Text="Levels and rooms"
                                    Style="{StaticResource CardHeading}"
                                    Margin="0,0,0,0"
                                    VerticalAlignment="Center"/>
 
-                        <!-- Narrows the tree as you type (VENTLEVELROWS.Search)
-                             - over each room's level, number and name. It
-                             only HIDES rows: their ticks still count. As wide
-                             as the column of buttons under it. -->
-                        <Grid DockPanel.Dock="Right" Width="260" VerticalAlignment="Center">
-                            <TextBox x:Name="TxtLevelSearch"
-                                     Padding="6,3"
-                                     VerticalContentAlignment="Center"
-                                     TextChanged="TxtLevelSearch_TextChanged"
-                                     KeyDown="TxtLevelSearch_KeyDown"
-                                     ToolTip="Room number, name or level. Esc clears it."/>
-                            <TextBlock x:Name="TxtLevelSearchHint"
-                                       Text="Search rooms"
-                                       Margin="9,0,0,0"
-                                       VerticalAlignment="Center"
-                                       Foreground="{StaticResource Muted}"
-                                       IsHitTestVisible="False"/>
-                        </Grid>
+                        <!-- What is ticked: "12 of 14 levels, 340 of 352
+                             rooms ticked." -->
+                        <TextBlock x:Name="TxtTicked"
+                                   Margin="18,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink}"
+                                   TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
 
-                    <!-- A DockPanel, not a StackPanel: a StackPanel hands
-                         its children unlimited height, so the scroll viewer
-                         grew to its whole text and the CARD clipped it,
-                         with no scroll bar to say there was more. Filling
-                         the rest of the card, it scrolls. -->
-                    <DockPanel DockPanel.Dock="Right"
-                               Width="260"
-                               Margin="18,10,0,0">
-                        <StackPanel DockPanel.Dock="Top"
-                                    Orientation="Horizontal">
-                            <Button x:Name="BtnAllLevels"
-                                    Style="{StaticResource FlatButton}"
-                                    Content="All"
-                                    MinWidth="56"
-                                    Click="BtnAllLevels_Click"/>
-                            <Button x:Name="BtnNoLevels"
-                                    Style="{StaticResource FlatButton}"
-                                    Content="None"
-                                    MinWidth="56"
-                                    Margin="6,0,0,0"
-                                    Click="BtnNoLevels_Click"/>
-
-                            <!-- Acts on the rows PICKED in the list, not
-                                 on the ticks; greyed until one is -->
-                            <Button x:Name="BtnShowRoom"
-                                    Style="{StaticResource FlatButton}"
-                                    Content="Show in plan"
-                                    Margin="6,0,0,0"
-                                    IsEnabled="False"
-                                    ToolTip="Open a plan and zoom to the picked rooms - a picked level counts as all its rooms. Ctrl+click or Shift+click to pick several. Double-clicking a room shows just that one."
-                                    Click="BtnShowRoom_Click"/>
-                        </StackPanel>
-
-                        <!-- The order the rooms are written in, and interior
-                             rooms taken out of their apartments -
-                             VENTARRANGEDIALOG. A row of its own: the one
-                             above is full at 100% -->
-                        <Button x:Name="BtnArrange"
-                                DockPanel.Dock="Top"
-                                HorizontalAlignment="Left"
+                    <DockPanel Margin="0,10,0,0" LastChildFill="True">
+                        <Button x:Name="BtnLevels"
+                                DockPanel.Dock="Left"
+                                VerticalAlignment="Top"
                                 Style="{StaticResource FlatButton}"
-                                Margin="0,6,0,0"
-                                Content="Arrange rooms..."
-                                ToolTip="Order, rename and ungroup rooms for the sheet"
-                                Click="BtnArrange_Click"/>
+                                Content="Levels and rooms..."
+                                ToolTip="Tick, order, rename and merge the rooms; their airflows"
+                                Click="BtnLevels_Click"/>
 
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      Margin="0,10,0,0">
-                            <StackPanel>
-                                <!-- First, and in the warning colour: these
-                                     are the levels that process nothing -->
-                                <TextBlock x:Name="TxtLevelsWarning"
-                                           Style="{StaticResource Hint}"
-                                           Foreground="{StaticResource Warn}"
-                                           Margin="0,0,0,6"
-                                           Visibility="Collapsed"/>
+                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                            <!-- First, and in the warning colour: these are
+                                 the levels that process nothing -->
+                            <TextBlock x:Name="TxtLevelsWarning"
+                                       Style="{StaticResource Hint}"
+                                       Foreground="{StaticResource Warn}"
+                                       Margin="0,0,0,4"
+                                       Visibility="Collapsed"/>
 
-                                <TextBlock x:Name="TxtLevelsInfo"
-                                           Style="{StaticResource Hint}"/>
-                            </StackPanel>
-                        </ScrollViewer>
+                            <TextBlock x:Name="TxtLevelsInfo"
+                                       Style="{StaticResource Hint}"/>
+                        </StackPanel>
                     </DockPanel>
-
-                    <!-- A TREE: each level ticks as before, and opens to
-                         the linked rooms that stand on it. The rooms are
-                         read in the same pass that counts them, so the
-                         list under a level is exactly what a run would
-                         process there. Levels start closed and the rooms
-                         are only built when opened (virtualised), so a
-                         job of thousands of rooms costs nothing until
-                         somebody looks. -->
-                    <TreeView x:Name="ListLevels"
-                              Margin="0,10,0,0"
-                              BorderBrush="{StaticResource Hairline}"
-                              BorderThickness="1"
-                              Background="#FFFCFDFE"
-                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                              VirtualizingPanel.IsVirtualizing="True"
-                              VirtualizingPanel.VirtualizationMode="Recycling"
-                              SelectedItemChanged="ListLevels_SelectedItemChanged"
-                              MouseDoubleClick="ListLevels_MouseDoubleClick"
-                              PreviewMouseLeftButtonDown="ListLevels_PreviewMouseLeftButtonDown"
-                              PreviewKeyDown="ListLevels_PreviewKeyDown">
-
-                        <TreeView.Resources>
-                            <!-- SEVERAL ROWS CAN BE PICKED, and a TreeView
-                                 only knows how to select one. So its own
-                                 highlight is switched off here and each row
-                                 draws its pick itself (PickRow, from the
-                                 row's IsPicked) - see VENTLEVELROWS.Picks -->
-                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF1F2933"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FF1F2933"/>
-
-                            <!-- A row the search hides (IsShown false) -->
-                            <BooleanToVisibilityConverter x:Key="ShownToVisibility"/>
-
-                            <!-- Background Transparent, not unset, so a
-                                 click anywhere on the row lands on it -->
-                            <Style x:Key="PickRow" TargetType="Border">
-                                <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="BorderBrush" Value="Transparent"/>
-                                <Setter Property="BorderThickness" Value="1"/>
-                                <Setter Property="CornerRadius" Value="3"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsPicked}" Value="True">
-                                        <Setter Property="Background" Value="#FFDCEAF6"/>
-                                        <Setter Property="BorderBrush" Value="#FFA9C8E3"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TreeView.Resources>
-
-                        <TreeView.ItemContainerStyle>
-                            <Style TargetType="TreeViewItem">
-                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                <Setter Property="Visibility" Value="{Binding IsShown, Converter={StaticResource ShownToVisibility}}"/>
-                            </Style>
-                        </TreeView.ItemContainerStyle>
-
-                        <TreeView.ItemTemplate>
-                            <HierarchicalDataTemplate ItemsSource="{Binding Rooms}">
-
-                                <!-- The level. Its tick FOLLOWS its rooms:
-                                     all, none, or the third state for some
-                                     - set by the code, never by a click,
-                                     since a click only ever means all or
-                                     none.
-
-                                     The BOX alone is the tick; the name
-                                     beside it PICKS the level, as a room's
-                                     does. It was the checkbox's Content
-                                     until rows could be picked, and then a
-                                     click on the name would have ticked
-                                     instead. A TextBlock either way, never
-                                     Content - an underscore in Content is
-                                     an access key (GR_GROUND FLOOR).
-
-                                     ONE-WAY, and LevelTick_Click sets the
-                                     row. WPF sends a click on the third
-                                     state to UNTICKED, which would untick
-                                     every room of a level somebody had
-                                     only partly ticked; from the third
-                                     state a click here ticks them all. -->
-                                <Border Style="{StaticResource PickRow}"
-                                        Padding="4,3"
-                                        Margin="0,1"
-                                        ToolTip="{Binding Tip}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <CheckBox IsChecked="{Binding Checked, Mode=OneWay}"
-                                                  IsThreeState="False"
-                                                  VerticalAlignment="Center"
-                                                  Click="LevelTick_Click"/>
-                                        <TextBlock Text="{Binding Label}"
-                                                   Margin="6,0,0,0"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{StaticResource Ink}"/>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- Rooms carry no IsExpanded; a plain
-                                     container style keeps the level's
-                                     binding off them -->
-                                <HierarchicalDataTemplate.ItemContainerStyle>
-                                    <Style TargetType="TreeViewItem">
-                                        <Setter Property="Visibility" Value="{Binding IsShown, Converter={StaticResource ShownToVisibility}}"/>
-                                    </Style>
-                                </HierarchicalDataTemplate.ItemContainerStyle>
-
-                                <HierarchicalDataTemplate.ItemTemplate>
-                                    <DataTemplate>
-                                        <!-- The BOX alone is the tick. The
-                                             number and name sit outside
-                                             it, so clicking a room to pick
-                                             it (for Show in plan) cannot
-                                             untick it by accident. -->
-                                        <Border Style="{StaticResource PickRow}"
-                                                Padding="2,1"
-                                                Margin="0,1"
-                                                ToolTip="{Binding Tip}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <CheckBox IsChecked="{Binding IsOn, Mode=TwoWay}"
-                                                      VerticalAlignment="Center"
-                                                      Click="RoomTick_Click"/>
-                                            <TextBlock Text="{Binding Number}"
-                                                       MinWidth="64"
-                                                       Margin="8,0,0,0"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{StaticResource Muted}"/>
-                                            <TextBlock Text="{Binding Name}"
-                                                       Margin="8,0,0,0"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{StaticResource Ink}"/>
-                                        </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </HierarchicalDataTemplate.ItemTemplate>
-                            </HierarchicalDataTemplate>
-                        </TreeView.ItemTemplate>
-                    </TreeView>
-                </DockPanel>
+                </StackPanel>
             </Border>
 
             <!-- 4. what to do -->
@@ -896,8 +707,9 @@
                                 <RadioButton x:Name="RdoIntoImported"
                                              GroupName="ExportWay"
                                              IsChecked="True"
-                                             Checked="ExportWay_Changed">
-                                    <TextBlock Text="Fill the Imported worksheet "/>
+                                             Checked="ExportWay_Changed"
+                                             ToolTip="Adds new rooms and updates changed ones. What you typed stays.">
+                                    <TextBlock Text="Update the imported worksheet"/>
                                 </RadioButton>
 
                                 <ComboBox x:Name="CboExportSheet"
@@ -952,7 +764,34 @@
                                  radio. (A paragraph explaining each way sat
                                  above it until the user asked for it to go.) -->
                             <Grid Grid.Column="2" Margin="22,0,0,0">
-                                <DockPanel VerticalAlignment="Bottom">
+                                <StackPanel VerticalAlignment="Bottom">
+
+                                <!-- Occupancy categories from room names
+                                     (VENTOCCUPANCY), into blank cells -->
+                                <DockPanel Margin="0,0,0,8">
+                                    <Button x:Name="BtnOccupancy"
+                                            DockPanel.Dock="Right"
+                                            Style="{StaticResource FlatButton}"
+                                            Padding="10,3"
+                                            Margin="8,0,0,0"
+                                            Content="Occupancy..."
+                                            ToolTip="Which room names get which categories"
+                                            Click="BtnOccupancy_Click"/>
+
+                                    <CheckBox x:Name="ChkOccupancy"
+                                              IsChecked="True"
+                                              VerticalAlignment="Center"
+                                              VerticalContentAlignment="Center"
+                                              ToolTip="Fresh air and exhaust categories, into blank cells only"
+                                              Click="ChkOccupancy_Click">
+                                        <TextBlock Text="Occupancy categories from room names"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource Ink}"
+                                                   FontSize="12"/>
+                                    </CheckBox>
+                                </DockPanel>
+
+                                <DockPanel>
                                     <Button x:Name="BtnFixtures"
                                             DockPanel.Dock="Right"
                                             Style="{StaticResource FlatButton}"
@@ -977,6 +816,7 @@
                                                    FontSize="12"/>
                                     </CheckBox>
                                 </DockPanel>
+                                </StackPanel>
                             </Grid>
                         </Grid>
                     </TabItem>

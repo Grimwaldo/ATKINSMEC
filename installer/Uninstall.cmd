@@ -1,5 +1,5 @@
 @echo off
-REM Removes ATKINSMEC from every Revit version it was installed into.
+REM Removes the Atkins MEP Toolkit from every Revit version it was installed into.
 REM Only files this installer wrote are deleted - other add-ins sharing
 REM the same folder are left alone.
 REM

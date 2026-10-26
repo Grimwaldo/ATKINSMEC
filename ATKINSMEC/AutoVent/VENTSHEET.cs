@@ -3,6 +3,7 @@ using OfficeOpenXml.Style;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace ATKINSMEC
@@ -170,6 +171,105 @@ namespace ATKINSMEC
             // connection. Null for a room on its own.
             public string FreshMerge { get; set; }
             public string ExhaustMerge { get; set; }
+
+            // The room's model ID, from the hidden column every export
+            // writes (VENTUPDATE.KeyHeading) - empty on a row without one
+            public string Id { get; set; }
+
+            // WHAT EXPLAINS ITS AIR, for Levels and rooms (user, 2026-10-25:
+            // the sheet's columns and occupancy in the window, read only):
+            // its two occupancy categories (Table 6-1, Table 6-4; "" blank),
+            // its occupants (N1) and units, its area - NaN where the sheet
+            // has none or no such column
+            public string FreshCategory { get; set; } = string.Empty;
+            public string ExhaustCategory { get; set; } = string.Empty;
+            public double Occupants { get; set; } = double.NaN;
+            public double Units { get; set; } = double.NaN;
+            public double AreaM2 { get; set; } = double.NaN;
+
+            // ...its "nature of use" ("" blank), and the worksheet row it was
+            // read from - where Levels and rooms' choices go in its copy of
+            // the workbook (VENTWHATIF)
+            public string Use { get; set; } = string.Empty;
+            public int Row { get; set; }
+        }
+
+        // EVERY room row as read, duplicates included - two apartments
+        // built from one interior model give two rooms of the same name,
+        // number and level, and LoadedData can hold only one of them
+        public static List<KeyValuePair<SpaceKey, AirData>> LoadedRows;
+
+        // WHICH ROW IS EACH ROOM'S (user, 2026-10-15: KIFAF's MASTER
+        // ENSUITE 121.141 and two others were in the sheet twice, and both
+        // rooms took one row's air). By the model ID first; else by name,
+        // number and level - each row to one room, never a row whose ID is
+        // another room's. Rooms the sheet still cannot tell apart (no IDs,
+        // several rooms on one name + number) are listed in `shared`.
+        public static Dictionary<string, AirData> Resolve(
+            IList<KeyValuePair<SpaceKey, AirData>> rows,
+            IList<KeyValuePair<string, SpaceKey>> rooms,
+            out List<string> shared)
+        {
+            var found = new Dictionary<string, AirData>(StringComparer.Ordinal);
+            shared = new List<string>();
+
+            rows = rows ?? new List<KeyValuePair<SpaceKey, AirData>>();
+            rooms = rooms ?? new List<KeyValuePair<string, SpaceKey>>();
+
+            var modelIds = new HashSet<string>(rooms.Select(r => r.Key ?? string.Empty), StringComparer.Ordinal);
+            var claimed = new HashSet<AirData>();
+
+            var byId = new Dictionary<string, AirData>(StringComparer.Ordinal);
+
+            foreach (KeyValuePair<SpaceKey, AirData> row in rows)
+            {
+                string id = (row.Value.Id ?? string.Empty).Trim();
+
+                if (id.Length > 0 && !byId.ContainsKey(id))
+                    byId[id] = row.Value;
+            }
+
+            foreach (KeyValuePair<string, SpaceKey> room in rooms)
+            {
+                AirData air;
+
+                if (room.Key != null && byId.TryGetValue(room.Key, out air))
+                {
+                    found[room.Key] = air;
+                    claimed.Add(air);
+                }
+            }
+
+            // The rest by name, number and level: an unclaimed row first, so
+            // two such rooms take two such rows
+            var byName = rooms.Where(r => r.Key != null && !found.ContainsKey(r.Key)).ToList();
+
+            foreach (KeyValuePair<string, SpaceKey> room in byName)
+            {
+                List<AirData> rowsOfName = rows
+                    .Where(r => r.Key.Equals(room.Value) &&
+                                !modelIds.Contains((r.Value.Id ?? string.Empty).Trim()))
+                    .Select(r => r.Value)
+                    .ToList();
+
+                if (rowsOfName.Count == 0)
+                    continue;
+
+                AirData air = rowsOfName.FirstOrDefault(a => !claimed.Contains(a)) ?? rowsOfName[0];
+
+                found[room.Key] = air;
+                claimed.Add(air);
+            }
+
+            // Two rooms or more found by one name + number with nothing to
+            // tell them apart: whichever row each took is a guess
+            foreach (var same in byName.Where(r => found.ContainsKey(r.Key)).GroupBy(r => r.Value))
+            {
+                if (same.Count() > 1)
+                    shared.AddRange(same.Select(r => r.Key));
+            }
+
+            return found;
         }
 
         public class SheetLayout
@@ -185,6 +285,22 @@ namespace ATKINSMEC
             public int HeightCol { get; set; }
             public int UnitsCol { get; set; }
             public int BedroomsCol { get; set; }
+
+            // "Occupancy Category as defined by ASHRAE Standard 62.1" -
+            // twice: under the outside air (Table 6-1, the office's O) and
+            // under the exhaust (Table 6-4, AC). See VENTOCCUPANCY.
+            public int FreshCategoryCol { get; set; }
+            public int ExhaustCategoryCol { get; set; }
+
+            // Beside the exhaust category: "Nature of use / operation"
+            // (which of Table 6-4's per-unit rates), "Over-ride ASHRAE
+            // Value?" and "Airflow for Balancing" (the override itself)
+            public int UseCol { get; set; }
+            public int OverrideCol { get; set; }
+            public int BalancingCol { get; set; }
+
+            // "No. of Occupants, N1 (from ID)" - not N2, the default count
+            public int OccupantsCol { get; set; }
 
             // THE LAST COLUMN OF THE SPACE BLOCK. The office's "Space"
             // heading spans F:H; an ordinary room merges its name across
@@ -262,10 +378,33 @@ namespace ATKINSMEC
 
                 int rowCount = xlWorksheet.Dimension.Rows;
 
+                // A workbook nobody has opened and saved in Excel since it
+                // was written - AUTOVENT's own export - holds formulas with
+                // no results: every room's air read as 0. Worked out here
+                // instead (user's list, 2026-10-15).
+                Calculated = false;
+
+                if (NoResults(xlWorksheet, layout, rowCount))
+                {
+                    try
+                    {
+                        package.Workbook.Calculate();
+                        Calculated = true;
+                    }
+                    catch
+                    {
+                        // read as it is, then - the 0s say what is wrong
+                    }
+                }
+
                 var dict = new Dictionary<SpaceKey, AirData>();
+                var rows = new List<KeyValuePair<SpaceKey, AirData>>();
                 string currentLevel = null;
 
                 bool levelsByColor = layout.LevelsByColor;
+
+                bool made;
+                int idCol = VENTUPDATE.KeyColumn(xlWorksheet, layout, false, out made);
 
                 for (int i = layout.FirstDataRow; i <= rowCount; i++)
                 {
@@ -315,16 +454,51 @@ namespace ATKINSMEC
                         FreshAir = ReadDouble(xlWorksheet, i, layout.FreshAirCol),
                         ExhaustAir = ReadDouble(xlWorksheet, i, layout.ExhaustAirCol),
                         FreshMerge = DownMerge(xlWorksheet, i, layout.FreshAirCol),
-                        ExhaustMerge = DownMerge(xlWorksheet, i, layout.ExhaustAirCol)
+                        ExhaustMerge = DownMerge(xlWorksheet, i, layout.ExhaustAirCol),
+                        Id = idCol > 0 ? xlWorksheet.Cells[i, idCol].Text.Trim() : string.Empty,
+                        FreshCategory = TextAt(xlWorksheet, i, layout.FreshCategoryCol),
+                        ExhaustCategory = TextAt(xlWorksheet, i, layout.ExhaustCategoryCol),
+                        Occupants = Optional(xlWorksheet, i, layout.OccupantsCol),
+                        Units = Optional(xlWorksheet, i, layout.UnitsCol),
+                        AreaM2 = Optional(xlWorksheet, i, layout.AreaCol),
+                        Use = TextAt(xlWorksheet, i, layout.UseCol),
+                        Row = i
                     };
 
                     dict[key] = value;
+                    rows.Add(new KeyValuePair<SpaceKey, AirData>(key, value));
                 }
 
                 LoadedData = dict;
+                LoadedRows = rows;
 
                 return dict;
             }
+        }
+
+        // The last read had to work the formulas out itself (NoResults)
+        public static bool Calculated;
+
+        // Formulas in the air columns and not one result saved with them
+        internal static bool NoResults(ExcelWorksheet ws, SheetLayout layout, int rowCount)
+        {
+            int formulas = 0;
+
+            for (int r = layout.FirstDataRow; r <= rowCount; r++)
+            {
+                foreach (int c in new[] { layout.FreshAirCol, layout.ExhaustAirCol })
+                {
+                    if (c <= 0 || string.IsNullOrEmpty(ws.Cells[r, c].Formula))
+                        continue;
+
+                    if (ws.Cells[r, c].Value != null)
+                        return false;
+
+                    formulas++;
+                }
+            }
+
+            return formulas > 0;
         }
 
         // The merge a cell is part of, when it runs down more than one row
@@ -537,6 +711,55 @@ namespace ATKINSMEC
 
             layout.BedroomsCol =
                 FindColumn(headers, BedroomsKeywords, NoPreference);
+
+            // The two occupancy categories: the one headed with the exhaust
+            // is Table 6-4's, the other Table 6-1's
+            for (int c = 1; c < headers.Length; c++)
+            {
+                string[] tokens = Tokenize(headers[c] ?? string.Empty);
+
+                if (!ContainsAll(tokens, new[] { "occupancy", "category" }))
+                    continue;
+
+                if (ContainsWord(tokens, "exhaust"))
+                {
+                    if (layout.ExhaustCategoryCol == 0)
+                        layout.ExhaustCategoryCol = c;
+                }
+                else if (layout.FreshCategoryCol == 0)
+                {
+                    layout.FreshCategoryCol = c;
+                }
+            }
+
+            // What the occupancy rules may also set (VENTOCCUPANCY), and the
+            // occupants an apartment's bedrooms give
+            for (int c = 1; c < headers.Length; c++)
+            {
+                string[] tokens = Tokenize(headers[c] ?? string.Empty);
+
+                if (layout.UseCol == 0 && ContainsAll(tokens, new[] { "nature", "use" }))
+                    layout.UseCol = c;
+
+                if (layout.OverrideCol == 0 &&
+                    (ContainsAll(tokens, new[] { "over", "ride" }) || ContainsWord(tokens, "override")))
+                    layout.OverrideCol = c;
+
+                // N1, typed from the interior design - not N2, ASHRAE's
+                if (layout.OccupantsCol == 0 && ContainsAll(tokens, new[] { "occupants", "n1" }))
+                    layout.OccupantsCol = c;
+            }
+
+            // The exhaust's "Airflow for Balancing", after its override - not
+            // the outside air's "Alternate approach ... based on Air
+            // balancing" (the office's Y), which also says balancing
+            int after = Math.Max(layout.OverrideCol, layout.ExhaustCategoryCol);
+
+            for (int c = after + 1; after > 0 && c < headers.Length && layout.BalancingCol == 0; c++)
+            {
+                if (ContainsWord(Tokenize(headers[c] ?? string.Empty), "balancing"))
+                    layout.BalancingCol = c;
+            }
 
             layout.SpaceNameCol =
                 FindColumn(headers, SpaceNameKeywords, NoPreference);
@@ -906,6 +1129,29 @@ namespace ATKINSMEC
             return IsSubTotalRow(name)
                 || n == "total"
                 || n == "grand total";
+        }
+
+        // A cell's text as shown, "" for no column
+        internal static string TextAt(ExcelWorksheet ws, int row, int col)
+        {
+            return col <= 0 ? string.Empty : (ws.Cells[row, col].Text ?? string.Empty).Trim();
+        }
+
+        // A cell's number, NaN where it is blank, not a number, or there is
+        // no such column - a blank is not a 0 here
+        internal static double Optional(ExcelWorksheet ws, int row, int col)
+        {
+            if (col <= 0)
+                return double.NaN;
+
+            object raw = ws.Cells[row, col].Value;
+
+            double value;
+
+            return raw != null && double.TryParse(Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture),
+                       System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value)
+                ? value
+                : double.NaN;
         }
 
         private static double ReadDouble(

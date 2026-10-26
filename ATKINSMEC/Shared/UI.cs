@@ -82,11 +82,13 @@ namespace ATKINSMEC
             private UIControlledApplication application;
             public Result OnShutdown(UIControlledApplication application)
             {
+#if !AUTOVENT_ONLY
                 DUCTINSULATIONUPDATER.Unregister();
 
                 // A timer left running while Revit tears itself down
                 // would raise an external event into a dead application
                 SYNCSERVICE.Shutdown();
+#endif
 
                 return Result.Succeeded;
             }
@@ -96,6 +98,7 @@ namespace ATKINSMEC
                 this.application = application;
              createpushbutton();
 
+#if !AUTOVENT_ONLY
             // Watches for new ducts and insulates them; does nothing
             // until the rules are switched on in the DUCT INSULATION window
             DUCTINSULATIONUPDATER.Register(application.ActiveAddInId);
@@ -106,9 +109,12 @@ namespace ATKINSMEC
             // for Revit to say it has finished starting.
             application.ControlledApplication.ApplicationInitialized
                 += RevitIsUp;
+#endif
 
             return Result.Succeeded;
         }
+
+#if !AUTOVENT_ONLY
 
             // Fires once, after Revit is up and before any model is
             // open. Unhooks itself: the question is asked per session.
@@ -151,10 +157,11 @@ namespace ATKINSMEC
                         "could not start: " + ex.Message);
                 }
             }
+#endif
 
             public void createpushbutton()
             {
-                string tabName = "ATKINS";
+                string tabName = "Atkins MEP Toolkit";
                 string panelname = "Mechanical";
                 string path = Assembly.GetExecutingAssembly().Location;
                 try
@@ -172,6 +179,15 @@ namespace ATKINSMEC
                     panel = application.CreateRibbonPanel(tabName, panelname);
                 }
 
+#if AUTOVENT_ONLY
+                // AUTOVENT ON ITS OWN (build-installer.ps1 -AutoVent), for the
+                // while it ships apart from the suite: this button only, and
+                // nothing else started. Its own button name, so a PC with the
+                // suite too gets two buttons rather than a refusal.
+                PushButtonData pushbuttondata = new PushButtonData("AutoVentOnly", "AUTOVENT ", path, "ATKINSMEC.Command");
+                Dress(pushbuttondata, "autovent");
+                panel.AddItem(pushbuttondata);
+#else
                 PushButtonData pushbuttondata = new PushButtonData("Tool1", "AUTOVENT ", path, "ATKINSMEC.Command");
                 Dress(pushbuttondata, "autovent");
                 PushButton pushbutton = panel.AddItem(pushbuttondata) as PushButton;
@@ -238,6 +254,12 @@ namespace ATKINSMEC
                 espbuttondata.AvailabilityClassName = "ATKINSMEC.ESPAvailability";
                 PushButton espbutton = panel.AddItem(espbuttondata) as PushButton;
 
+                PushButtonData tagbuttondata = new PushButtonData("Tool11", "ROOM TAGS", path, "ATKINSMEC.TAGCommand");
+                Dress(tagbuttondata, "roomtags");
+                tagbuttondata.ToolTip = "Finds the rooms of the ticked linked models shown with no room tag in the plans placed on sheets, and tags them - once per view, never twice. Removes duplicate room tags too.";
+                tagbuttondata.AvailabilityClassName = "ATKINSMEC.TAGAvailability";
+                PushButton tagbutton = panel.AddItem(tagbuttondata) as PushButton;
+#endif
             }
         }
     }

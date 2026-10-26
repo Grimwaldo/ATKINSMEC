@@ -24,8 +24,8 @@ namespace ventpreview
         {
             "ListLinks", "BtnRefreshLinks", "TxtLinksInfo",
             "BtnImport", "TxtSheetPath", "CboWorksheet", "TxtSheetInfo",
-            "ListLevels", "BtnAllLevels", "BtnNoLevels", "TxtLevelsInfo",
-            "TxtLevelsWarning", "BtnClose", "BtnShowRoom",
+            "BtnLevels", "TxtTicked", "TxtLevelsInfo",
+            "TxtLevelsWarning", "BtnClose",
             "TabActions", "BtnFreshTypes", "TxtFreshTypes", "BtnExtractTypes",
             "TxtExtractTypes", "TxtEndcapReach", "BtnRun",
             "RdoIntoImported", "CboExportSheet", "RdoNewWorkbook",
@@ -41,7 +41,6 @@ namespace ventpreview
             window.Levels(9, 4, 1, 5, 4, "MEZZANINE");
 
             window.ShowAssign();
-            window.PickRoom();
             Take(window, Path.Combine(folder, "tut_assign"));
 
             window.ShowExport();

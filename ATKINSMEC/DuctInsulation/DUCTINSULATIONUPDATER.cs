@@ -30,14 +30,14 @@ namespace ATKINSMEC
 
         public string GetUpdaterName()
         {
-            return "ATKINS duct insulation";
+            return "Atkins MEP Toolkit - duct insulation";
         }
 
         public string GetAdditionalInformation()
         {
             return "Insulates new ducts, duct fittings and duct accessories " +
                    "using the thickness set for their system type in the " +
-                   "ATKINS duct insulation window.";
+                   "DUCT INSULATION window (Atkins MEP Toolkit).";
         }
 
         public ChangePriority GetChangePriority()

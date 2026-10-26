@@ -4,7 +4,7 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // What the CHW resize actually did, written to the Desktop.
+    // What the CHW resize actually did, written to %AppData%\ATKINSMEC (LOGS).
     //
     // This exists because the resize has now been wrong twice in a real
     // model while every harness passed - the model knows things the
@@ -25,7 +25,7 @@ namespace ATKINSMEC
         {
             Lines.Length = 0;
 
-            Say("ATKINSMEC - chilled water resize");
+            Say("Atkins MEP Toolkit - chilled water resize");
             Say(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             Say(title);
             Say(string.Empty);
@@ -47,10 +47,7 @@ namespace ATKINSMEC
         {
             try
             {
-                string where = Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.DesktopDirectory),
-                    FileName);
+                string where = LOGS.PathOf(FileName);
 
                 File.WriteAllText(where, Lines.ToString());
             }
@@ -66,10 +63,7 @@ namespace ATKINSMEC
             {
                 try
                 {
-                    return Path.Combine(
-                        Environment.GetFolderPath(
-                            Environment.SpecialFolder.DesktopDirectory),
-                        FileName);
+                    return LOGS.PathOf(FileName);
                 }
                 catch
                 {

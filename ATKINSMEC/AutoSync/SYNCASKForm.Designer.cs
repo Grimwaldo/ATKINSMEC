@@ -132,7 +132,7 @@ namespace ATKINSMEC
             // a window somebody loses
             this.ShowInTaskbar = true;
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "ATKINSMEC AutoSync";
+            this.Text = "Atkins MEP Toolkit - AutoSync";
             this.TopMost = true;
             this.Load += new System.EventHandler(this.SYNCASKForm_Load);
             ((System.ComponentModel.ISupportInitialize)(this.numMinutes)).EndInit();

@@ -1,13 +1,14 @@
-# ATKINSMEC — installing
+# Atkins MEP Toolkit — installing
 
-Five Revit add-ins in one package: **AUTOVENT**, **CHW VOLUME**,
-**DUCT INSULATION**, **SPRINKLERS** and **ALIGN TERMINALS**. They appear
-together on the **ATKINS → Mechanical** ribbon panel.
+Ten Revit add-ins in one package: **AUTOVENT**, **CHW VOLUME**,
+**DUCT INSULATION**, **SPRINKLERS**, **ALIGN TERMINALS**, **AUTOSYNC**,
+**NWC BATCH**, **EQUIPMENT CHANGER**, **DUCT ESP** and **SHEET QA**. They
+appear together on the **Atkins MEP Toolkit → Mechanical** ribbon panel.
 
 ## Installing
 
 1. **Close Revit.**
-2. Run **`ATKINSMEC-Setup.exe`**.
+2. Run **`AtkinsMEPToolkit-Setup.exe`**.
 3. Tick the Revit versions you want and press **Install**.
 
 One file, nothing to unzip. **No administrator rights are needed.**
@@ -44,7 +45,9 @@ than one that stops and says so.
 
 ## Uninstalling
 
-Run `ATKINSMEC-Setup.exe` again and press **Uninstall**.
+Run `AtkinsMEPToolkit-Setup.exe` again and press **Uninstall**. It also
+removes an install made by an older `ATKINSMEC-Setup.exe` — the files on
+disk kept their names.
 
 Only files this installer wrote are removed. The add-ins folder is shared
 with other tools such as RevitLookup and the Add-In Manager, so the
@@ -55,11 +58,22 @@ It then asks whether to remove your settings as well: the saved ACC model
 list and the duct insulation rules, in `%AppData%\ATKINSMEC\`. Answer
 **No** to keep them for a later reinstall.
 
+## AUTOVENT on its own
+
+For the while AUTOVENT ships apart from the suite there is a second
+installer, **`AUTOVENT-Setup.exe`** - the AUTOVENT button only, nothing
+else. It installs `AUTOVENT.addin` and an `AUTOVENT\` folder beside it,
+keeps its own list of what it wrote (`AUTOVENT.files.txt`), and its
+Uninstall removes only that - and, if asked, only AUTOVENT's own saved
+settings. It shares no file with the full toolkit, so the two can be
+installed together; Revit then shows two AUTOVENT buttons, both using the
+same saved set-ups. Built with `build-installer.ps1 -AutoVent`.
+
 ## Rolling it out to a team
 
 ```
-ATKINSMEC-Setup.exe /silent
-ATKINSMEC-Setup.exe /silent /uninstall
+AtkinsMEPToolkit-Setup.exe /silent
+AtkinsMEPToolkit-Setup.exe /silent /uninstall
 ```
 
 No window, exit code 0 on success. It returns 2 if Revit is running and 3
@@ -68,7 +82,7 @@ difference.
 
 ## If IT blocks unsigned executables
 
-`ATKINSMEC-Setup.zip` holds exactly the same files as a plain script.
+`AtkinsMEPToolkit-Setup.zip` holds exactly the same files as a plain script.
 Unzip it and run `Install.cmd` — same result, no executable involved.
 `Uninstall.cmd` reverses it.
 
@@ -97,8 +111,8 @@ That builds all six Revit versions in Release, stages them into
 `installer\payload\`, packs them into `installer\exe\payload.zip`, and
 writes both
 
-- `installer\output\ATKINSMEC-Setup.exe` — one self-contained file
-- `installer\output\ATKINSMEC-Setup.zip` — the script version
+- `installer\output\AtkinsMEPToolkit-Setup.exe` — one self-contained file
+- `installer\output\AtkinsMEPToolkit-Setup.zip` — the script version
 
 `-SkipBuild` packs whatever is already in `bin\Release` instead.
 
@@ -120,6 +134,6 @@ Do not remove it.
 *Apps & features*. It needs [Inno Setup 6](https://jrsoftware.org/isdl.php)
 on the build machine, and `build-installer.ps1` picks it up if present.
 
-It is not needed for a single exe — `ATKINSMEC-Setup.exe` already is one
+It is not needed for a single exe — `AtkinsMEPToolkit-Setup.exe` already is one
 — and **it has never been compiled**, since Inno Setup is not installed
 on the machine it was written on.

@@ -19,7 +19,7 @@ namespace ATKINSMEC.Setup
 
         internal SetupForm()
         {
-            Text = "ATKINSMEC - Revit add-ins";
+            Text = Edition.Title;
             ClientSize = new Size(560, 470);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -147,7 +147,7 @@ namespace ATKINSMEC.Setup
                 "it is open, so this would appear to work and change " +
                 "nothing." + Environment.NewLine + Environment.NewLine +
                 "Close Revit and try again.",
-                "ATKINSMEC",
+                Edition.Name,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
 
@@ -161,7 +161,7 @@ namespace ATKINSMEC.Setup
             if (versions.Count == 0)
             {
                 MessageBox.Show(this, "Tick at least one Revit version.",
-                    "ATKINSMEC");
+                    Edition.Name);
 
                 return;
             }
@@ -183,7 +183,7 @@ namespace ATKINSMEC.Setup
                 }
 
                 Say("");
-                Say("Done. Start Revit and look for the ATKINS tab,");
+                Say("Done. Start Revit and look for the Atkins MEP Toolkit tab,");
                 Say("Mechanical panel.");
 
                 MessageBox.Show(
@@ -191,8 +191,8 @@ namespace ATKINSMEC.Setup
                     "Installed for " + versions.Count +
                     " Revit version(s)." + Environment.NewLine +
                     Environment.NewLine +
-                    "Start Revit and look for the ATKINS tab.",
-                    "ATKINSMEC",
+                    "Start Revit and look for the Atkins MEP Toolkit tab.",
+                    Edition.Name,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
@@ -201,7 +201,7 @@ namespace ATKINSMEC.Setup
                 Say("");
                 Say("FAILED: " + ex.Message);
 
-                MessageBox.Show(this, ex.Message, "ATKINSMEC",
+                MessageBox.Show(this, ex.Message, Edition.Name,
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -217,11 +217,11 @@ namespace ATKINSMEC.Setup
 
             DialogResult sure = MessageBox.Show(
                 this,
-                "Remove ATKINSMEC from every Revit version it was " +
+                "Remove " + Edition.Name + " from every Revit version it was " +
                 "installed into?" + Environment.NewLine +
                 Environment.NewLine +
                 "Other add-ins sharing the same folder are left alone.",
-                "ATKINSMEC",
+                Edition.Name,
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
 
@@ -264,7 +264,7 @@ namespace ATKINSMEC.Setup
                 Say("");
                 Say("FAILED: " + ex.Message);
 
-                MessageBox.Show(this, ex.Message, "ATKINSMEC",
+                MessageBox.Show(this, ex.Message, Edition.Name,
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -288,12 +288,11 @@ namespace ATKINSMEC.Setup
                 this,
                 "Remove your settings as well?" + Environment.NewLine +
                 Environment.NewLine +
-                "That is the saved ACC model list and the duct insulation " +
-                "rules, in" + Environment.NewLine +
+                "That is " + Edition.SettingsSaid + ", in" + Environment.NewLine +
                 Installer.SettingsFolder + Environment.NewLine +
                 Environment.NewLine +
                 "Choose No to keep them for a later reinstall.",
-                "ATKINSMEC",
+                Edition.Name,
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
 

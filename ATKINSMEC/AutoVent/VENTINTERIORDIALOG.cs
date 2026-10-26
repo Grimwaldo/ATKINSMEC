@@ -93,15 +93,15 @@ namespace ATKINSMEC
             });
 
             Add(grid, 1, Hint(
-                "Rooms of an interior (IND) model are written under the apartment they stand in. " +
-                "Every linked model whose name holds the keyword is listed under each level of THIS " +
+                "Rooms of an interior (IND) model are written as units under the redundant room they stand in. " +
+                "Every linked model whose name holds one of the keywords is listed under each level of THIS " +
                 "model where it has rooms - tick the ones to use on that level."));
 
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
 
             row.Children.Add(new TextBlock
             {
-                Text = "Keyword",
+                Text = "Keywords",
                 Foreground = Ink,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 10, 0)
@@ -113,7 +113,7 @@ namespace ATKINSMEC
                 Width = 200,
                 Padding = new Thickness(6, 3, 6, 3),
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "Every word must appear in the model's name, in any order and any case."
+                ToolTip = "Commas between keywords, e.g. IND, ID - each a word of the model's name."
             };
 
             _keyword.TextChanged += (s, e) => Fill();
@@ -306,7 +306,7 @@ namespace ATKINSMEC
 
             _found.Text = models + " model placement(s) found on " + levels + " level(s); " +
                           ticked + " of " + _shown.Count + " ticked. An unticked one is not searched on that " +
-                          "level - its rooms there are not grouped under an apartment.";
+                          "level - its rooms there are not grouped under a redundant room.";
         }
 
         // What the ticks say - kept as "follow the keyword" whenever they

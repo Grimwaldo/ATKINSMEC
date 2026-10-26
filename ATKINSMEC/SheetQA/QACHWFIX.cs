@@ -304,7 +304,7 @@ namespace ATKINSMEC
                 "AFTER ALL THAT, " + result.Vanished + " pipe(s) are gone " +
                 "and " + result.Squashed + " are too short for Revit to " +
                 "keep. That should not happen and it is worth telling " +
-                "whoever maintains this add-in: the log on your Desktop " +
+                "whoever maintains this add-in: " + QACHWLOG.Where + " " +
                 "says which. Ctrl+Z puts the whole lot back.");
         }
 

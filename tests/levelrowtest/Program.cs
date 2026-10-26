@@ -153,7 +153,6 @@ internal static class Program
         Check("the key is link and room, the one REVITROOMS files rooms by",
             VENTWindow.RoomRow.KeyOf(12345678901, 42) == "12345678901:42");
 
-        Picking();
         Searching();
 
         Console.WriteLine();
@@ -162,31 +161,6 @@ internal static class Program
             : _failed + " check(s) FAILED");
 
         return _failed == 0 ? 0 : 1;
-    }
-
-    // Three levels: A open with four rooms, B closed with two, C open
-    // with none. Shown in the tree: A, a1..a4, B, C.
-    private static List<VENTWindow.LevelRow> Tree()
-    {
-        var choices = new Dictionary<string, bool>();
-
-        var a = VENTWindow.LevelRow.Build("A", "", true, true, Rooms(1, 1, 2, 3, 4), choices);
-        var b = VENTWindow.LevelRow.Build("B", "", true, true, Rooms(1, 5, 6), choices);
-        var c = VENTWindow.LevelRow.Build("C", "", true, false, Rooms(1), choices);
-
-        a.IsExpanded = true;
-        c.IsExpanded = true;
-
-        return new List<VENTWindow.LevelRow> { a, b, c };
-    }
-
-    private static string Picked(List<VENTWindow.LevelRow> tree)
-    {
-        return string.Join(",", VENTWindow.Picks.All(tree)
-            .Where(VENTWindow.Picks.IsPicked)
-            .Select(r => r is VENTWindow.LevelRow
-                ? ((VENTWindow.LevelRow)r).Name
-                : ((VENTWindow.RoomRow)r).Number));
     }
 
     // ---- searching the levels list --------------------------------------
@@ -221,10 +195,21 @@ internal static class Program
         return new List<VENTWindow.LevelRow> { l03, l04, roof };
     }
 
+    // What Levels and rooms shows: each level showing, and the rooms
+    // showing of each open one
     private static string Showing(List<VENTWindow.LevelRow> tree)
     {
-        return string.Join(",", VENTWindow.Picks.Visible(tree).Select(r =>
-            r is VENTWindow.LevelRow ? ((VENTWindow.LevelRow)r).Name : ((VENTWindow.RoomRow)r).Number));
+        var rows = new List<string>();
+
+        foreach (VENTWindow.LevelRow level in tree.Where(l => l.IsShown))
+        {
+            rows.Add(level.Name);
+
+            if (level.IsExpanded)
+                rows.AddRange(level.Rooms.Where(r => r.IsShown).Select(r => r.Number));
+        }
+
+        return string.Join(",", rows);
     }
 
     private static void Searching()
@@ -239,9 +224,6 @@ internal static class Program
         var l04 = tree[1];
         var open = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
-        // A pick made before the search, on a row it will hide
-        l03.Rooms[0].IsPicked = true;
-
         int found = VENTWindow.Search.Apply(tree, "bedroom", open);
 
         Check("a search shows the rooms it finds, under their levels, and hides the rest",
@@ -252,9 +234,6 @@ internal static class Program
 
         Check("...a level showing what was found is OPENED - and how it stood is remembered",
             l03.IsExpanded && open.Count == 3 && open["LEVEL 03"] == false && open["LEVEL 04A"] == true);
-
-        Check("...and a pick on a row it hides is let go",
-            !l03.Rooms[0].IsPicked);
 
         Check("hidden is not unticked: every room still ticked, every count still whole",
             tree.SelectMany(l => l.Rooms).All(r => r.IsOn) && l03.Label == "LEVEL 03     4 room(s)" &&
@@ -295,25 +274,14 @@ internal static class Program
         foreach (VENTWindow.LevelRow level in tree.Where(l => l.IsShown))
             level.TickShown(true);
 
-        // ---- picking while the search is on
-        VENTWindow.Picks.PickShown(tree);
+        // ---- what a room is found by, when told (Levels and rooms hands in
+        // the container, the model and the names before a rename)
+        Func<VENTWindow.LevelRow, VENTWindow.RoomRow, string> words = (level, room) =>
+            level.Name + " " + room.Number + (room.RoomId == 3 ? " WALK-IN WARDROBE" : string.Empty);
 
-        Check("Ctrl+A picks the rows showing - nothing hidden",
-            !l03.Rooms[0].IsPicked && !l03.Rooms[2].IsPicked && l03.IsPicked && l03.Rooms[1].IsPicked);
-
-        VENTWindow.Picks.Clear(tree);
-        l03.IsPicked = true;
-
-        Check("a picked level stands for its rooms SHOWING - for Show in plan",
-            string.Join(",", VENTWindow.Picks.Rooms(tree).Select(r => r.Number)) == "121.056,121.105");
-
-        VENTWindow.Picks.Tick(tree, false);
-
-        Check("...and for ticking a picked row",
-            !l03.Rooms[1].IsOn && !l03.Rooms[3].IsOn && l03.Rooms[0].IsOn && l03.Rooms[2].IsOn);
-
-        VENTWindow.Picks.Tick(tree, true);
-        VENTWindow.Picks.Clear(tree);
+        Check("found by the words handed in, and not by the name it was not given",
+            VENTWindow.Search.Apply(tree, "wardrobe", open, words) == 1 && Showing(tree) == "LEVEL 03,121.057" &&
+            VENTWindow.Search.Apply(tree, "dressing", open, words) == 0);
 
         // ---- clearing it
         Check("cleared: everything shows again, and the levels it opened are put back as they were",
@@ -349,148 +317,5 @@ internal static class Program
     {
         level.TickShown(level.ClickMeans());
         return true;
-    }
-
-    private static void Picking()
-    {
-        Console.WriteLine();
-        Console.WriteLine("  picking several");
-        Console.WriteLine();
-
-        var tree = Tree();
-        var a = tree[0];
-        var b = tree[1];
-        var c = tree[2];
-
-        Check("the tree shows open levels' rooms and not closed ones'",
-            string.Join(",", VENTWindow.Picks.Visible(tree).Select(r =>
-                r is VENTWindow.LevelRow ? ((VENTWindow.LevelRow)r).Name
-                                         : ((VENTWindow.RoomRow)r).Number))
-            == "A,R1,R2,R3,R4,B,C");
-
-        // ---- a plain click ----------------------------------------------
-        object anchor = VENTWindow.Picks.Click(tree, null, a.Rooms[1], false, false);
-
-        Check("a click picks that one row",
-            Picked(tree) == "R2");
-
-        anchor = VENTWindow.Picks.Click(tree, anchor, a.Rooms[3], false, false);
-
-        Check("another click picks that one instead",
-            Picked(tree) == "R4" && anchor == a.Rooms[3]);
-
-        // ---- Ctrl ---------------------------------------------------------
-        anchor = VENTWindow.Picks.Click(tree, anchor, b, true, false);
-
-        Check("Ctrl+click adds a row, and a level can be picked beside a room",
-            Picked(tree) == "R4,B");
-
-        anchor = VENTWindow.Picks.Click(tree, anchor, a.Rooms[3], true, false);
-
-        Check("Ctrl+click on a picked row takes it away again",
-            Picked(tree) == "B");
-
-        // ---- Shift ----------------------------------------------------------
-        anchor = VENTWindow.Picks.Click(tree, null, a.Rooms[0], false, false);
-        anchor = VENTWindow.Picks.Click(tree, anchor, a.Rooms[2], false, true);
-
-        Check("Shift+click picks everything between, both ends included",
-            Picked(tree) == "R1,R2,R3");
-
-        Check("and keeps the row the range counts from",
-            anchor == a.Rooms[0]);
-
-        VENTWindow.Picks.Click(tree, anchor, a, false, true);
-
-        Check("a range can run upwards, onto the level above",
-            Picked(tree) == "A,R1");
-
-        VENTWindow.Picks.Click(tree, anchor, c, false, true);
-
-        Check("a range passes over a closed level's rooms, which are not shown",
-            Picked(tree) == "R1,R2,R3,R4,B,C");
-
-        anchor = VENTWindow.Picks.Click(tree, null, b, false, false);
-        VENTWindow.Picks.Click(tree, anchor, c, true, false);
-        VENTWindow.Picks.Click(tree, anchor, a.Rooms[3], true, true);
-
-        Check("Ctrl+Shift adds a range to what is already picked",
-            Picked(tree) == "R4,B,C");
-
-        // The anchor's level is closed, so it has gone out of sight
-        anchor = VENTWindow.Picks.Click(tree, null, a.Rooms[1], false, false);
-        a.IsExpanded = false;
-        VENTWindow.Picks.Click(tree, anchor, b, false, true);
-
-        Check("a range from a row that has been folded away starts at the click",
-            Picked(tree) == "B");
-
-        a.IsExpanded = true;
-
-        // ---- Ctrl+A ----------------------------------------------------------
-        VENTWindow.Picks.PickShown(tree);
-
-        Check("Ctrl+A picks every row showing, and not a closed level's rooms",
-            Picked(tree) == "A,R1,R2,R3,R4,B,C");
-
-        VENTWindow.Picks.Clear(tree);
-
-        Check("and clearing lets go of all of them",
-            VENTWindow.Picks.Count(tree) == 0);
-
-        // ---- what the picks stand for -----------------------------------------
-        anchor = VENTWindow.Picks.Click(tree, null, a.Rooms[2], false, false);
-        VENTWindow.Picks.Click(tree, anchor, b, true, false);
-
-        Check("a picked level stands for all its rooms, even closed",
-            string.Join(",", VENTWindow.Picks.Rooms(tree).Select(r => r.Number))
-            == "R3,R5,R6");
-
-        VENTWindow.Picks.Click(tree, anchor, a, true, false);
-
-        Check("a room picked on a picked level is counted once",
-            string.Join(",", VENTWindow.Picks.Rooms(tree).Select(r => r.Number))
-            == "R1,R2,R3,R4,R5,R6");
-
-        // ---- ticking ------------------------------------------------------------
-        tree = Tree();
-        a = tree[0];
-        b = tree[1];
-        c = tree[2];
-
-        anchor = VENTWindow.Picks.Click(tree, null, a.Rooms[0], false, false);
-        VENTWindow.Picks.Click(tree, anchor, a.Rooms[2], true, false);
-        VENTWindow.Picks.Click(tree, anchor, b, true, false);
-
-        VENTWindow.Picks.Tick(tree, false);
-
-        Check("unticking the picks unticks every picked room",
-            !a.Rooms[0].IsOn && !a.Rooms[2].IsOn);
-
-        Check("and leaves the rooms nobody picked alone",
-            a.Rooms[1].IsOn && a.Rooms[3].IsOn);
-
-        Check("and a picked level takes all its rooms with it",
-            b.Checked == false && b.Rooms.All(r => !r.IsOn));
-
-        Check("the partly-picked level shows the third state",
-            a.Checked == null);
-
-        // A level AND one of its own rooms picked: the room must end up
-        // as asked, whichever order they are done in
-        tree = Tree();
-        a = tree[0];
-
-        a.Rooms[1].IsOn = false;
-        anchor = VENTWindow.Picks.Click(tree, null, a, false, false);
-        VENTWindow.Picks.Click(tree, anchor, a.Rooms[1], true, false);
-
-        VENTWindow.Picks.Tick(tree, true);
-
-        Check("ticking a picked level and one of its picked rooms ticks them all",
-            a.Checked == true && a.Rooms.All(r => r.IsOn));
-
-        Check("picking alone ticks nothing",
-            tree[1].Rooms.All(r => r.IsOn) && tree[2].Checked == false);
     }
 }

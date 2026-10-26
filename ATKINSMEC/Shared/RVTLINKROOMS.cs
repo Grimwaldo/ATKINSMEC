@@ -38,6 +38,14 @@ namespace ATKINSMEC
             public string LinkLevel { get; set; }
             public double Floor { get; set; }
 
+            // As the export writes them (user, 2026-10-24: "show a column
+            // for the room area and height in the levels and rooms window"):
+            // m2, and m to the false ceiling over it - or the room's own
+            // height where there is none (HeightToCeiling false)
+            public double AreaM2 { get; set; }
+            public double HeightM { get; set; }
+            public bool HeightToCeiling { get; set; }
+
             // The apartment it stands in (VENTAPARTMENTS), or null
             public string ApartmentKey { get; set; }
             public string Apartment { get; set; }
@@ -148,6 +156,9 @@ namespace ATKINSMEC
                         LinkName = room.LinkName ?? string.Empty,
                         LinkLevel = room.LinkLevel ?? string.Empty,
                         Floor = room.Floor,
+                        AreaM2 = room.AreaM2,
+                        HeightM = room.HeightM,
+                        HeightToCeiling = room.HeightToCeiling,
                         ApartmentKey = apartment == null ? null : apartment.Key,
                         Apartment = apartment == null
                             ? null

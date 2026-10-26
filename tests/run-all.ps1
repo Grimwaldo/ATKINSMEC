@@ -15,9 +15,9 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Only)
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $tests = @(
-    'aligntest', 'chwjointtest', 'chwsizetest', 'ducttest', 'equiptest',
-    'esptest', 'fittingtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
-    'officetest', 'roomtest', 'runtest', 'sheettest', 'synctest',
+    'aligntest', 'arrangeflowtest', 'chwjointtest', 'chwtreetest', 'chwsizetest', 'ducttest', 'equiptest',
+    'esptest', 'fittingtest', 'fixturedialogtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
+    'officetest', 'roomtagtest', 'roomtest', 'runtest', 'sheettest', 'synctest',
     'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest', 'geomtest'
 )
 

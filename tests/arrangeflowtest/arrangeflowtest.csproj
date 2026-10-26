@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>arrangeflowtest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFLOWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFCUCHECK.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTARRANGE.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTROOMSWINDOW.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTUNENCLOSED.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTCOLUMNS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLEVELROWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIT.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
+  </ItemGroup>
+
+</Project>

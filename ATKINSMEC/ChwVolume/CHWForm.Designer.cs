@@ -53,6 +53,8 @@ namespace ATKINSMEC
             this.colTotal = new System.Windows.Forms.ColumnHeader();
             this.lblTotal = new System.Windows.Forms.Label();
             this.btnCalculate = new System.Windows.Forms.Button();
+            this.lblSearch = new System.Windows.Forms.Label();
+            this.txtSearch = new System.Windows.Forms.TextBox();
             this.btnHelp = new System.Windows.Forms.Button();
             this.btnExport = new System.Windows.Forms.Button();
             this.btnClose = new System.Windows.Forms.Button();
@@ -410,6 +412,26 @@ namespace ATKINSMEC
             this.btnCalculate.UseVisualStyleBackColor = true;
             this.btnCalculate.Click += new System.EventHandler(this.btnCalculate_Click);
             //
+            // lblSearch
+            //
+            this.lblSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblSearch.Location = new System.Drawing.Point(520, 337);
+            this.lblSearch.Name = "lblSearch";
+            this.lblSearch.Size = new System.Drawing.Size(84, 18);
+            this.lblSearch.TabIndex = 6;
+            this.lblSearch.Text = "Search models";
+            this.lblSearch.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            //
+            // txtSearch
+            //
+            this.txtSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtSearch.Location = new System.Drawing.Point(608, 335);
+            this.txtSearch.Name = "txtSearch";
+            this.txtSearch.Size = new System.Drawing.Size(280, 20);
+            this.txtSearch.TabIndex = 7;
+            this.txtSearch.TextChanged += new System.EventHandler(this.txtSearch_TextChanged);
+            this.txtSearch.KeyDown += new System.Windows.Forms.KeyEventHandler(this.txtSearch_KeyDown);
+            //
             // btnHelp
             //
             this.btnHelp.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
@@ -453,6 +475,8 @@ namespace ATKINSMEC
             this.Controls.Add(this.btnExport);
             this.Controls.Add(this.btnHelp);
             this.Controls.Add(this.btnCalculate);
+            this.Controls.Add(this.lblSearch);
+            this.Controls.Add(this.txtSearch);
             this.Controls.Add(this.grpResults);
             this.Controls.Add(this.tabModels);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
@@ -510,6 +534,8 @@ namespace ATKINSMEC
         private System.Windows.Forms.ColumnHeader colTotal;
         private System.Windows.Forms.Label lblTotal;
         private System.Windows.Forms.Button btnCalculate;
+        private System.Windows.Forms.Label lblSearch;
+        private System.Windows.Forms.TextBox txtSearch;
         private System.Windows.Forms.Button btnHelp;
         private System.Windows.Forms.Button btnExport;
         private System.Windows.Forms.Button btnClose;

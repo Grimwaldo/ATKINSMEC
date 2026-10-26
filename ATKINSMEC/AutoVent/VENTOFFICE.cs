@@ -84,6 +84,10 @@ namespace ATKINSMEC
 
             // Which of Patterns to copy; null means the first one found
             public string Pattern { get; set; }
+
+            // Occupancy categories from room names (VENTOCCUPANCY); null:
+            // none filled
+            public IList<VENTOCCUPANCY.Rule> Occupancy { get; set; }
         }
 
         public class Result
@@ -104,6 +108,15 @@ namespace ATKINSMEC
 
             // How many merged groups' air was written as one total
             public int Merged { get; set; }
+
+            // The occupancy categories filled from room names
+            public VENTOCCUPANCY.Filled Occupancy { get; set; } = new VENTOCCUPANCY.Filled();
+
+            // Formulas whose "Dwelling Unit" test was pointed at Table 6-1
+            public int DwellingFixed { get; set; }
+
+            // The apartment kitchen made per unit: rates and formulas changed
+            public VENTOCCUPANCY.Kitchen Kitchen { get; set; } = new VENTOCCUPANCY.Kitchen();
 
             public List<string> Brought { get; } = new List<string>();
             public List<string> Notes { get; } = new List<string>();
@@ -525,6 +538,13 @@ namespace ATKINSMEC
                 }
             }
 
+            // The office's "Dwelling Unit" test points at the wrong row in
+            // its own workbook - at Table 6-1's cell instead (VENTOCCUPANCY)
+            result.DwellingFixed = VENTOCCUPANCY.DwellingCheck(ws.Workbook, room.FormulasR1C1);
+
+            // And its apartment kitchen, calculated as the private toilet is
+            result.Kitchen = VENTOCCUPANCY.KitchenCheck(ws.Workbook, room.FormulasR1C1);
+
             // ---- 7. Clear the block --------------------------------
             foreach (string merged in ws.MergedCells.ToList())
             {
@@ -613,6 +633,18 @@ namespace ATKINSMEC
 
             // ---- 8c. Rooms merged in Arrange rooms: one air total -------
             result.Merged = VENTROWS.MergeAir(ws, layout, roomRows);
+
+            // ---- 8d. Each room's model ID, hidden - an update finds it by it
+            VENTUPDATE.WriteKeys(ws, layout, roomRows);
+
+            // ---- 8e. Occupancy categories from the rooms' names --------
+            if (job.Occupancy != null)
+            {
+                result.Occupancy = VENTOCCUPANCY.Fill(ws, layout, roomRows, job.Occupancy, null);
+
+                // ...and each apartment's bedrooms and occupants
+                VENTOCCUPANCY.Dwellings(ws, layout, roomRows, result.Occupancy);
+            }
 
             // ---- 9. The Total, and the SUMIFs under it --------------
             TotalOfSubTotals(ws, newTotal, lastCol, subRows);
@@ -994,7 +1026,8 @@ namespace ATKINSMEC
         // deleted row is #REF!. So a Total cell that adds up other rows
         // becomes the sum of that column's Sub Totals - all of them. One
         // that only looks along its own row (a ratio) is left alone.
-        private static void TotalOfSubTotals(
+        // Also VENTUPDATE's, after an update has added levels.
+        internal static void TotalOfSubTotals(
             ExcelWorksheet ws, int row, int lastCol, List<int> subRows)
         {
             if (subRows.Count == 0)
@@ -1645,7 +1678,7 @@ namespace ATKINSMEC
                 sb.AppendLine("    brought in for the formulas: " + string.Join(", ", r.Brought));
 
             if (r.Merged > 0)
-                sb.AppendLine("    " + r.Merged + " merged group(s): fresh air and extract as one total");
+                sb.AppendLine("    " + r.Merged + " merged group(s): their fresh air, or extract, as one total");
 
             foreach (string note in r.Notes)
             {

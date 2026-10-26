@@ -74,8 +74,6 @@ namespace ATKINSMEC
             }
 
             ListLinks.ItemsSource = _links;
-            ListLevels.ItemsSource = _levels;
-
 
             TxtEndcapReach.Text =
                 VENTSETTINGS.EndcapReachMm.ToString("0");
@@ -119,6 +117,11 @@ namespace ATKINSMEC
         private readonly Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>> _roomsOf =
             new Dictionary<long, List<RVTLINKSELECTION.LinkedRoom>>();
 
+        // ...and each link's rooms with no area, read with them (Levels and
+        // rooms lists them - VENTUNENCLOSED)
+        private readonly Dictionary<long, List<VENTUNENCLOSED.Room>> _unenclosedOf =
+            new Dictionary<long, List<VENTUNENCLOSED.Room>>();
+
         // The apartments map, and the Apartments ticks it was built for
         private VENTAPARTMENTS.Map _map;
         private string _mapFor;
@@ -127,6 +130,14 @@ namespace ATKINSMEC
         // opened; the dialog opens once they arrive
         private Dictionary<long, Dictionary<string, int>> _fixturesOf;
         private bool _openFixtures;
+
+        // What the terminals carried when last read, by room key, and the
+        // units - for Levels and rooms' Model columns (VENTFLOWS) - and the
+        // ticked links they were read over
+        private Dictionary<string, VENTFLOWS.Air> _carrying;
+        private List<VENTFLOWS.Unit> _units;
+        private Dictionary<string, List<long>> _unreached;
+        private string _surveyedFor;
 
         private bool _reading;
 
@@ -144,6 +155,9 @@ namespace ATKINSMEC
 
             foreach (KeyValuePair<long, List<RVTLINKSELECTION.LinkedRoom>> rooms in answer.Rooms)
                 _roomsOf[rooms.Key] = rooms.Value;
+
+            foreach (KeyValuePair<long, List<VENTUNENCLOSED.Room>> rooms in answer.Unenclosed)
+                _unenclosedOf[rooms.Key] = rooms.Value;
 
             if (answer.Apartments != null)
             {
@@ -180,6 +194,16 @@ namespace ATKINSMEC
                 _openInteriors = false;
 
                 Dispatcher.BeginInvoke(new Action(OpenInteriors));
+            }
+
+            if (answer.Terminals != null)
+            {
+                _carrying = answer.Terminals;
+                _units = answer.Units;
+                _unreached = answer.Unreached;
+
+                if (_roomsWindow != null)
+                    _roomsWindow.Terminals(_carrying, _units, _unreached);
             }
         }
 
@@ -319,6 +343,8 @@ namespace ATKINSMEC
 
             VENTSETTINGS.CountFixtures = saved == null || saved.CountFixtures;
 
+            VENTSETTINGS.Occupancy = saved == null || saved.Occupancy;
+
             VENTSETTINGS.FixtureFamilies.Clear();
 
             if (saved != null)
@@ -358,7 +384,69 @@ namespace ATKINSMEC
 
                 foreach (List<string> group in saved.Merges)
                     VENTARRANGE.Current.Merges.Add(new List<string>(group));
+
+                foreach (List<string> group in saved.ExtractMerges)
+                    VENTARRANGE.Current.ExtractMerges.Add(new List<string>(group));
+
+                VENTARRANGE.Current.ByModel = saved.MergesByModel;
+
+                foreach (VENTSAVED.RoomPick pick in saved.RoomOccupancy)
+                {
+                    VENTARRANGE.RoomOccupancy room = OccupancyOf(pick);
+
+                    if (!room.IsEmpty)
+                        VENTARRANGE.Current.Occupancy[pick.Key] = room;
+                }
             }
+        }
+
+        // A room's occupancy as saved, and as it is saved - numbers as
+        // invariant text, "" blank
+        private static VENTARRANGE.RoomOccupancy OccupancyOf(VENTSAVED.RoomPick pick)
+        {
+            Func<string, double?> number = text =>
+            {
+                if (text == null)
+                    return null;
+
+                double value;
+
+                if (text.Trim().Length == 0)
+                    return double.NaN;
+
+                return double.TryParse(text, System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out value)
+                    ? value
+                    : (double?)null;
+            };
+
+            return new VENTARRANGE.RoomOccupancy
+            {
+                FreshCategory = pick.Fresh,
+                ExhaustCategory = pick.Exhaust,
+                Use = pick.Use,
+                Occupants = number(pick.Occupants),
+                Units = number(pick.Units)
+            };
+        }
+
+        private static VENTSAVED.RoomPick PickOf(string key, VENTARRANGE.RoomOccupancy room)
+        {
+            Func<double?, string> number = value => !value.HasValue
+                ? null
+                : double.IsNaN(value.Value)
+                    ? string.Empty
+                    : value.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+            return new VENTSAVED.RoomPick
+            {
+                Key = key,
+                Fresh = room.FreshCategory,
+                Exhaust = room.ExhaustCategory,
+                Use = room.Use,
+                Occupants = number(room.Occupants),
+                Units = number(room.Units)
+            };
         }
 
         private static VENTSAVED.LinkRef Ref(Tick link)
@@ -382,6 +470,7 @@ namespace ATKINSMEC
                     ? VENTSETTINGS.BellmouthChoice(VENTSETTINGS.BellmouthNames)
                     : VENTSETTINGS.BellmouthChoice(TxtBellmouthNames.Text),
                 CountFixtures = VENTSETTINGS.CountFixtures,
+                Occupancy = VENTSETTINGS.Occupancy,
                 FixtureFamilies = VENTSETTINGS.FixtureFamilies
                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                     .ToList()
@@ -422,6 +511,14 @@ namespace ATKINSMEC
                 .ToList();
 
             now.Merges = VENTARRANGE.Current.Merges.Select(g => g.ToList()).ToList();
+            now.ExtractMerges = VENTARRANGE.Current.ExtractMerges.Select(g => g.ToList()).ToList();
+            now.MergesByModel = VENTARRANGE.Current.ByModel;
+
+            now.RoomOccupancy = VENTARRANGE.Current.Occupancy
+                .Where(o => o.Value != null && !o.Value.IsEmpty)
+                .OrderBy(o => o.Key, StringComparer.Ordinal)
+                .Select(o => PickOf(o.Key, o.Value))
+                .ToList();
 
             // Every room ticked or unticked by hand - a room of a link not
             // loaded now included, so it is as it was when the link is back
@@ -703,8 +800,8 @@ namespace ATKINSMEC
                         tip += Environment.NewLine + Environment.NewLine +
                                "Rooms found " + _paired + "." + Environment.NewLine +
                                (IsOn
-                                   ? "Ticked, so all its rooms are read; those inside an apartment go under it."
-                                   : "Not ticked, so only those rooms are read - each under its apartment.");
+                                   ? "Ticked, so all its rooms are read; those inside a redundant room go under it as units."
+                                   : "Not ticked, so only those rooms are read - each a unit under its redundant room.");
                     }
 
                     return tip;
@@ -775,6 +872,7 @@ namespace ATKINSMEC
             _first = null;
 
             ChkFixtures.IsChecked = VENTSETTINGS.CountFixtures;
+            ChkOccupancy.IsChecked = VENTSETTINGS.Occupancy;
             ShowFixtures();
 
             // Saving starts only now that the window holds the whole
@@ -787,15 +885,6 @@ namespace ATKINSMEC
                        (string.IsNullOrEmpty(_saved.When) ? "." : " (" + _saved.When + ").") +
                        sheetNote, false);
             }
-
-            // The body to the window, once its rows have their real heights
-            Dispatcher.BeginInvoke(new Action(() => VENTFIT.Body(BodyScroll, BodyGrid)),
-                                   System.Windows.Threading.DispatcherPriority.Loaded);
-        }
-
-        private void BodyScroll_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            VENTFIT.Body(BodyScroll, BodyGrid);
         }
 
         // ==================================================
@@ -804,15 +893,32 @@ namespace ATKINSMEC
 
         private void ShowFixtures()
         {
+            // Models, not placements: forty placements of one model are one
+            int models = VENTFIXTUREDIALOG.ModelCount(FixtureSourceList(), VENTSETTINGS.FixtureSources);
+
             TxtFixtures.Text = VENTEXPORTNOTE.Fixtures(
                 VENTSETTINGS.CountFixtures,
                 VENTSETTINGS.FixtureFamilies.Count,
-                VENTSETTINGS.FixtureSources.Count);
+                models);
 
             ChkFixtures.ToolTip = VENTEXPORTNOTE.FixturesTip(
                 VENTSETTINGS.CountFixtures,
                 VENTSETTINGS.FixtureFamilies.Count,
-                VENTSETTINGS.FixtureSources.Count);
+                models);
+        }
+
+        // Every placement the fixtures can come from; 0 is this model
+        private List<VENTFIXTUREDIALOG.Source> FixtureSourceList()
+        {
+            var sources = new List<VENTFIXTUREDIALOG.Source>
+            {
+                new VENTFIXTUREDIALOG.Source { Id = 0, Label = "This model" }
+            };
+
+            foreach (Tick link in _links)
+                sources.Add(new VENTFIXTUREDIALOG.Source { Id = link.Id, Label = link.Label });
+
+            return sources;
         }
 
         private void ChkFixtures_Click(object sender, RoutedEventArgs e)
@@ -820,6 +926,43 @@ namespace ATKINSMEC
             VENTSETTINGS.CountFixtures = ChkFixtures.IsChecked == true;
             ShowFixtures();
             SaveSettings();
+        }
+
+        // ==================================================
+        // Occupancy categories from room names (VENTOCCUPANCY)
+        // ==================================================
+
+        private void ChkOccupancy_Click(object sender, RoutedEventArgs e)
+        {
+            VENTSETTINGS.Occupancy = ChkOccupancy.IsChecked == true;
+            SaveSettings();
+        }
+
+        // The rules - the office's, on this PC. Nothing to read from the
+        // model, so the dialog opens straight away.
+        private void BtnOccupancy_Click(object sender, RoutedEventArgs e)
+        {
+            List<string> fresh, exhaust, uses;
+            VENTOCCUPANCY.TemplateChoices(out fresh, out exhaust, out uses);
+
+            var dialog = new VENTOCCUPANCYDIALOG(VENTOCCUPANCY.Load(), fresh, exhaust, uses) { Owner = this };
+
+            if (dialog.ShowDialog() != true || dialog.Result == null)
+                return;
+
+            if (dialog.BackToDefaults)
+            {
+                VENTOCCUPANCY.Forget();
+                Status("Occupancy rules: the built-in ones.", false);
+            }
+            else if (VENTOCCUPANCY.Save(dialog.Result))
+            {
+                Status(dialog.Result.Count + " occupancy rule(s) saved.", false);
+            }
+            else
+            {
+                Status("The occupancy rules could not be saved to " + VENTOCCUPANCY.DefaultPath + ".", false);
+            }
         }
 
         // The Fixtures... dialog: which models, which families
@@ -843,16 +986,8 @@ namespace ATKINSMEC
 
         private void OpenFixtures()
         {
-            var sources = new List<VENTFIXTUREDIALOG.Source>
-            {
-                new VENTFIXTUREDIALOG.Source { Id = 0, Label = "This model" }
-            };
-
-            foreach (Tick link in _links)
-                sources.Add(new VENTFIXTUREDIALOG.Source { Id = link.Id, Label = link.Label });
-
             var dialog = new VENTFIXTUREDIALOG(
-                sources,
+                FixtureSourceList(),
                 TickedLinks(),
                 ids => VENTSETTINGS.FamiliesFrom(_fixturesOf, ids))
             {
@@ -976,7 +1111,7 @@ namespace ATKINSMEC
             TxtLinksInfo.Text = links.Count == 0
                 ? "No loaded Revit links found in this project."
                 : links.Count + " loaded link(s). Tick the architectural " +
-                  "model(s) to read rooms from; Apartments on one whose rooms are apartments.";
+                  "model(s) to read rooms from; Redundant rooms on one whose rooms hold units.";
 
             _linksSaid = TxtLinksInfo.Text;
 
@@ -1073,16 +1208,17 @@ namespace ATKINSMEC
                 RefreshLevels();
 
             Status(VENTSETTINGS.ApartmentLinkIds.Count == 0
-                       ? "No apartments: every room is a row of its own."
-                       : "Rooms of interior models standing inside the apartments, on the same level of " +
-                         "this model, are listed and exported under their apartment.",
+                       ? "No redundant rooms: every room is a row of its own."
+                       : "Rooms of interior models standing inside the redundant rooms, on the same level of " +
+                         "this model, are listed and exported as units under their redundant room.",
                    false);
 
             SaveSettings();
         }
 
         // ==================================================
-        // Arranging the rooms for the sheet (VENTARRANGE)
+        // Levels and rooms: ticked, arranged for the sheet (VENTROOMSWINDOW,
+        // VENTARRANGE)
         // ==================================================
 
         // A room's tooltip line when it was taken out of its apartment
@@ -1092,16 +1228,15 @@ namespace ATKINSMEC
 
             return home == null || !VENTARRANGE.Current.Ungrouped.Contains(key)
                 ? string.Empty
-                : Environment.NewLine + "Stands in apartment " + (home.Number + " " + home.Name).Trim() +
-                  ", but ungrouped in Arrange rooms... - a row of its own in the sheet.";
+                : Environment.NewLine + "Stands in redundant room " + (home.Number + " " + home.Name).Trim() +
+                  ", but ungrouped in Levels and rooms - a row of its own in the sheet.";
         }
 
-        // Every level's rows as the dialog shows them, worked out with the
-        // arrangement it is trying - the SAME RoomsOn the levels list uses
-        // (arithmetic over what has been read), so the dialog, the list and
-        // the sheet cannot disagree. All levels in one go: the dialog's
-        // search counts the matches on the others.
-        private Dictionary<string, List<VENTARRANGE.Row>> ArrangeRows(VENTARRANGE.Arrangement arrangement, ISet<string> unticked)
+        // Every level's rows as Levels and rooms shows them, worked out with
+        // the arrangement given - the SAME RoomsOn the levels and the runs
+        // use (arithmetic over what has been read), so the window, the
+        // ticks and the sheet cannot disagree
+        private Dictionary<string, List<VENTARRANGE.Row>> ArrangeRows(VENTARRANGE.Arrangement arrangement)
         {
             VENTAPARTMENTS.Map map = VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
 
@@ -1125,14 +1260,16 @@ namespace ATKINSMEC
                         ModelName = r.ModelName ?? string.Empty,
                         Number = r.Number ?? string.Empty,
                         LinkName = manyLinks ? r.LinkName ?? string.Empty : string.Empty,
+                        AreaM2 = r.AreaM2,
+                        HeightM = r.HeightM,
+                        HeightToCeiling = r.HeightToCeiling,
                         ApartmentKey = r.ApartmentKey,
                         Apartment = r.Apartment,
                         ModelApartment = r.ModelApartment,
                         ApartmentNumber = r.ApartmentNumber,
                         HomeKey = home == null ? null : home.Key,
                         Home = home == null ? null : arrangement.NameOf(home.Key, home.Name),
-                        HomeNumber = home == null ? null : home.Number,
-                        Exported = !unticked.Contains(r.Key)
+                        HomeNumber = home == null ? null : home.Number
                     };
                 }).ToList();
             }
@@ -1140,49 +1277,334 @@ namespace ATKINSMEC
             return all;
         }
 
-        private void BtnArrange_Click(object sender, RoutedEventArgs e)
+        // The rooms with no area of the models whose rooms Levels and rooms
+        // shows: the ticked links, and the interior placements the
+        // containers were found to hold
+        private List<VENTUNENCLOSED.Room> NotEnclosedShown()
         {
-            if (_reading)
+            var links = new HashSet<long>(TickedLinks());
+
+            if (VENTSETTINGS.ApartmentLinkIds.Count > 0 && _map != null)
+                links.UnionWith(_map.FoundIn);
+
+            return VENTUNENCLOSED.InOrder(links
+                .Where(_unenclosedOf.ContainsKey)
+                .SelectMany(l => _unenclosedOf[l]));
+        }
+
+        // THE WINDOW, open while this one is - or brought forward. Every
+        // change in it is this window's at once: an arrangement saved and
+        // the levels rebuilt (Arranged), a tick counted (Ticked); what
+        // reaches Revit goes through this window's external event.
+        private VENTROOMSWINDOW _roomsWindow;
+
+        private void BtnLevels_Click(object sender, RoutedEventArgs e)
+        {
+            if (_roomsWindow != null)
             {
-                Status("Still reading the linked models - Arrange rooms... once they are in.", false);
+                if (_roomsWindow.WindowState == WindowState.Minimized)
+                    _roomsWindow.WindowState = WindowState.Normal;
+
+                _roomsWindow.Activate();
                 return;
             }
 
-            // The levels that have rooms, in this model's order - the
-            // levels list, as it stands
-            List<string> levels = _levels.Where(l => l.Rooms.Count > 0).Select(l => l.Name).ToList();
-
-            if (levels.Count == 0)
+            _roomsWindow = new VENTROOMSWINDOW(
+                () => _levels,
+                ArrangeRows,
+                VENTARRANGE.Current,
+                SheetFlows(ArrangeRows(VENTARRANGE.Current)),
+                _carrying,
+                _units,
+                FormulasFor(ArrangeRows(VENTARRANGE.Current)))
             {
-                Status("No level has rooms to arrange - tick a linked model first.", false);
-                return;
-            }
-
-            // Open on the level of the first row picked in the list, if any
-            LevelRow pickedLevel = _levels.FirstOrDefault(l => l.IsPicked || l.Rooms.Any(r => r.IsPicked));
-
-            var unticked = new HashSet<string>(
-                _levels.SelectMany(l => l.Rooms).Where(r => !r.IsOn).Select(r => r.Key),
-                StringComparer.Ordinal);
-
-            var dialog = new VENTARRANGEDIALOG(
-                levels,
-                pickedLevel == null ? null : pickedLevel.Name,
-                arrangement => ArrangeRows(arrangement, unticked),
-                VENTARRANGE.Current)
-            {
-                Owner = this
+                Owner = this,
+                Arranged = () =>
+                {
+                    SaveSettings();
+                    RefreshLevels();
+                },
+                Ticked = ShowTicks,
+                ShowInPlan = ShowRooms,
+                Write = WriteFromArrange,
+                Unreached = _unreached,
+                NotEnclosed = NotEnclosedShown
             };
 
-            if (dialog.ShowDialog() != true || dialog.Result == null)
+            _roomsWindow.Closed += (s, a) =>
+            {
+                _roomsWindow = null;
+
+                // The workbook's copy goes with the window
+                CloseWhatIf();
+            };
+
+            _roomsWindow.Show();
+
+            // What the terminals carry NOW - the window shows the sheet's
+            // air until it arrives
+            SurveyTerminals();
+        }
+
+        // WHAT THE TERMINALS CARRY, read for Levels and rooms' Model
+        // columns: the run's own walk over the ticked links, every level
+        // (VENTREAD, REVITROOMS Mode.Survey). Read when the window opens,
+        // when the ticked links change while it is open, and after a write.
+        private void SurveyTerminals()
+        {
+            List<long> linkIds = TickedLinks();
+
+            _surveyedFor = string.Join(",", linkIds.OrderBy(i => i));
+
+            if (linkIds.Count == 0 || Command.extEventHan == null)
+            {
+                _carrying = null;
+                _units = null;
+                _unreached = null;
+
+                if (_roomsWindow != null)
+                    _roomsWindow.Terminals(null, null);
+
                 return;
+            }
 
-            VENTARRANGE.Current = dialog.Result;
+            RVTLINKSELECTION.SelectedLinkIds = linkIds;
+            ReadSystemTypes();
 
-            SaveSettings();
-            RefreshLevels();
+            if (_roomsWindow != null)
+                _roomsWindow.ReadingTerminals();
 
-            Status("Arrangement saved.", false);
+            Ask(new VENTREAD.Ask { Terminals = true });
+        }
+
+        // EACH ROOM'S ROW IN THE IMPORTED SHEET, as the airflow run finds it
+        // (VENTSHEET.Resolve: the model ID, else name + number + level) -
+        // and the merged cells it is in. Null with no sheet imported.
+        private static Dictionary<string, VENTFLOWS.Sheet> SheetFlows(Dictionary<string, List<VENTARRANGE.Row>> rows)
+        {
+            Dictionary<string, VENTSHEET.AirData> airOf = SheetRowsOf(rows);
+
+            if (airOf == null)
+                return null;
+
+            var sheet = new Dictionary<string, VENTFLOWS.Sheet>(StringComparer.Ordinal);
+
+            // Each room's name and whether it stands in a container, for the
+            // occupancy rules (a container's rooms are dwellings to them)
+            var rowOf = rows.Values.SelectMany(r => r).GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+            Func<string, bool> inDwelling = key =>
+            {
+                VENTARRANGE.Row r;
+                return rowOf.TryGetValue(key, out r) && !string.IsNullOrEmpty(r.HomeKey);
+            };
+
+            // A blank category's suggestion, as an export would fill it: what
+            // the sheet gave rooms of that name, else the rule's
+            List<VENTOCCUPANCY.Rule> rules = VENTSETTINGS.Occupancy ? VENTOCCUPANCY.Load() : null;
+
+            VENTOCCUPANCY.Learned learned = rules == null
+                ? null
+                : VENTOCCUPANCY.Learned.From(airOf.Where(a => rowOf.ContainsKey(a.Key)).Select(a =>
+                    Tuple.Create(rowOf[a.Key].Name, inDwelling(a.Key), a.Value.FreshCategory, a.Value.ExhaustCategory)));
+
+            foreach (KeyValuePair<string, VENTSHEET.AirData> air in airOf)
+            {
+                var row = new VENTFLOWS.Sheet
+                {
+                    Air = new VENTFLOWS.Air { Fresh = air.Value.FreshAir, Extract = air.Value.ExhaustAir },
+                    FreshCategory = air.Value.FreshCategory ?? string.Empty,
+                    ExhaustCategory = air.Value.ExhaustCategory ?? string.Empty,
+                    Occupants = air.Value.Occupants,
+                    Units = air.Value.Units,
+                    AreaM2 = air.Value.AreaM2,
+                    Use = air.Value.Use ?? string.Empty
+                };
+
+                if (air.Value.FreshMerge != null)
+                    row.Merges.Add("fresh " + air.Value.FreshMerge);
+
+                if (air.Value.ExhaustMerge != null)
+                    row.Merges.Add("extract " + air.Value.ExhaustMerge);
+
+                VENTARRANGE.Row room;
+
+                if (rules != null && rowOf.TryGetValue(air.Key, out room))
+                {
+                    VENTOCCUPANCY.Rule rule = VENTOCCUPANCY.RuleFor(room.Name, inDwelling(air.Key), rules);
+                    string said = VENTOCCUPANCY.Learned.Key(room.Name, inDwelling(air.Key));
+                    string fromSheet;
+
+                    if (row.FreshCategory.Length == 0)
+                        row.FreshSuggested = learned.Fresh.TryGetValue(said, out fromSheet) ? fromSheet : rule == null ? null : NullIfBlank(rule.Fresh);
+
+                    if (row.ExhaustCategory.Length == 0)
+                        row.ExhaustSuggested = learned.Exhaust.TryGetValue(said, out fromSheet) ? fromSheet : rule == null ? null : NullIfBlank(rule.Exhaust);
+
+                    // What the rule adds to its own exhaust category
+                    if (rule != null)
+                    {
+                        row.RuleExhaust = NullIfBlank(rule.Exhaust);
+                        row.RuleUse = NullIfBlank(rule.Use);
+                        row.RuleUnits = rule.Units;
+                    }
+                }
+
+                sheet[air.Key] = row;
+            }
+
+            return sheet;
+        }
+
+        // Each room's row in the sheet - the model ID, else name + number +
+        // level (VENTSHEET.Resolve) - by room key; null with no sheet
+        private static Dictionary<string, VENTSHEET.AirData> SheetRowsOf(Dictionary<string, List<VENTARRANGE.Row>> rows)
+        {
+            if (VENTSHEET.LoadedRows == null || rows == null)
+                return null;
+
+            var keys = new List<KeyValuePair<string, VENTSHEET.SpaceKey>>();
+
+            foreach (KeyValuePair<string, List<VENTARRANGE.Row>> level in rows)
+            {
+                foreach (VENTARRANGE.Row row in level.Value)
+                {
+                    keys.Add(new KeyValuePair<string, VENTSHEET.SpaceKey>(row.Key, new VENTSHEET.SpaceKey
+                    {
+                        SpaceName = row.Name,
+                        RoomNumber = row.Number,
+                        Level = level.Key
+                    }));
+                }
+            }
+
+            List<string> shared;
+
+            return VENTSHEET.Resolve(VENTSHEET.LoadedRows, keys, out shared);
+        }
+
+        // THE SHEET'S OWN FORMULAS for Levels and rooms' new values (user,
+        // 2026-10-26): a copy of the imported workbook in memory
+        // (VENTWHATIF), opened with the window and again for another sheet
+        // read; closed with the window. Never saved.
+        private VENTWHATIF _whatIf;
+        private object _whatIfFor;
+
+        private VENTFLOWS.Formulas FormulasFor(Dictionary<string, List<VENTARRANGE.Row>> rows)
+        {
+            Dictionary<string, VENTSHEET.AirData> airOf = SheetRowsOf(rows);
+
+            if (airOf == null || string.IsNullOrEmpty(VENTSHEET.sheetpath) || string.IsNullOrEmpty(VENTSHEET.sheetname))
+            {
+                CloseWhatIf();
+                return null;
+            }
+
+            // The rows read last: a sheet read again is opened again
+            if (_whatIf == null || !ReferenceEquals(_whatIfFor, VENTSHEET.LoadedRows))
+            {
+                CloseWhatIf();
+
+                string trouble;
+
+                _whatIf = VENTWHATIF.Open(VENTSHEET.sheetpath, VENTSHEET.sheetname, out trouble);
+                _whatIfFor = VENTSHEET.LoadedRows;
+
+                if (_whatIf == null)
+                {
+                    Status("New values cannot be worked out - " + trouble, false);
+                    return null;
+                }
+            }
+
+            VENTWHATIF whatIf = _whatIf;
+
+            var rowOf = airOf.Where(a => a.Value.Row > 0).ToDictionary(a => a.Key, a => a.Value.Row, StringComparer.Ordinal);
+
+            int sample = rowOf.Count == 0 ? whatIf.Layout.FirstDataRow : rowOf.Values.Min();
+
+            return new VENTFLOWS.Formulas
+            {
+                Columns = whatIf.Columns,
+                FreshChoices = whatIf.FreshChoices(sample),
+                ExhaustChoices = whatIf.ExhaustChoices(sample),
+                UseChoices = whatIf.UseChoices(sample),
+                Calculate = chosen =>
+                {
+                    // Two rooms on one row (a guess, VENTSHEET.Resolve): the
+                    // first one's choice
+                    var byRow = new Dictionary<int, VENTARRANGE.RoomOccupancy>();
+
+                    foreach (KeyValuePair<string, VENTARRANGE.RoomOccupancy> room in chosen ?? new Dictionary<string, VENTARRANGE.RoomOccupancy>())
+                    {
+                        int row;
+
+                        if (room.Value != null && rowOf.TryGetValue(room.Key, out row) && !byRow.ContainsKey(row))
+                            byRow[row] = room.Value;
+                    }
+
+                    Dictionary<int, VENTFLOWS.Calc> calc = whatIf.Apply(byRow);
+
+                    var result = new Dictionary<string, VENTFLOWS.Calc>(StringComparer.Ordinal);
+
+                    foreach (KeyValuePair<string, int> room in rowOf)
+                    {
+                        VENTFLOWS.Calc one;
+
+                        if (calc.TryGetValue(room.Value, out one))
+                            result[room.Key] = one;
+                    }
+
+                    return result;
+                }
+            };
+        }
+
+        private void CloseWhatIf()
+        {
+            if (_whatIf != null)
+                _whatIf.Dispose();
+
+            _whatIf = null;
+            _whatIfFor = null;
+        }
+
+        private static string NullIfBlank(string text)
+        {
+            return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        }
+
+        // Levels and rooms' Write to terminals: those rooms only, through the
+        // external event (REVITROOMS, Mode.Write), as the run's own walk -
+        // which reads the terminals again after it, for the Model columns
+        private void WriteFromArrange(
+            Dictionary<string, VENTFLOWS.Air> writes, HashSet<string> fresh, HashSet<string> extract, bool model)
+        {
+            List<long> linkIds = TickedLinks();
+
+            if (linkIds.Count == 0 || Command.extEventHan == null)
+            {
+                Told("Tick at least one linked architectural model.", MessageBoxImage.Information);
+                return;
+            }
+
+            RVTLINKSELECTION.SelectedLinkIds = linkIds;
+            ReadSystemTypes();
+
+            Command.extEventHan.WriteOverrides = writes;
+            Command.extEventHan.WriteFresh = fresh;
+            Command.extEventHan.WriteExtract = extract;
+
+            // The Model's write: grouped as the window showed it, the
+            // sheet's merged cells left out
+            Command.extEventHan.WriteSheetMerges = !model;
+
+            int rooms = new HashSet<string>(fresh.Concat(extract)).Count;
+
+            Status("Writing the airflows of " + rooms + " room(s)...", true);
+
+            Command.extEventHan.Request = 4;
+            Command.ExtEvent.Raise();
         }
 
         // ==================================================
@@ -1273,10 +1695,10 @@ namespace ATKINSMEC
                 return;
 
             Status(VENTSETTINGS.ApartmentLinkIds.Count == 0
-                       ? "Interior models set. They are searched once a link is ticked Apartments."
+                       ? "Interior models set. They are searched once a link is ticked Redundant rooms."
                        : VENTSETTINGS.InteriorChosen
-                           ? "Interior models set level by level - the apartments are found again."
-                           : "Interior models follow the keyword - the apartments are found again.",
+                           ? "Interior models set level by level - the redundant rooms are found again."
+                           : "Interior models follow the keyword - the redundant rooms are found again.",
                    false);
 
             // A new keyword or a changed tick builds the apartments map
@@ -1302,7 +1724,7 @@ namespace ATKINSMEC
                     // apartments model's name is long and in the tooltip
                     foreach (KeyValuePair<long, SortedSet<int>> pair in pairs)
                     {
-                        said.Add("in apartments on " + VENTLEVELMAP.Floors(pair.Value, map.Storeys) +
+                        said.Add("in redundant rooms on " + VENTLEVELMAP.Floors(pair.Value, map.Storeys) +
                                  "  -  " + map.LabelOf(pair.Key));
                     }
                 }
@@ -1319,8 +1741,8 @@ namespace ATKINSMEC
                 map == null ? 0 : map.Outside);
 
             TxtApartments.ToolTip = map == null || !map.On
-                ? "Tick Apartments on an architect's model whose rooms are apartments. The interior " +
-                  "models' rooms inside them are found on the same level of this model - the interior " +
+                ? "Tick Redundant rooms on an architect's model whose rooms are redundant rooms. Its units, the interior " +
+                  "models' rooms inside them, are found on the same level of this model - the interior " +
                   "models are named by a keyword, or ticked level by level (Interior models...)."
                 : VENTLEVELNOTE.ApartmentsTip(
                     map.Label, map.Describe(), map.OtherStorey, map.Outside,
@@ -1617,28 +2039,14 @@ namespace ATKINSMEC
                 return;
             }
 
-            // The levels somebody had opened stay open when the list is
-            // rebuilt - ticking a link should not fold the tree away - and
-            // what they had picked stays picked
+            // The levels somebody had opened in Levels and rooms stay open
+            // when the list is rebuilt - ticking a link should not fold them
+            // away
             var open = new HashSet<string>(
                 _levels.Where(l => l.IsExpanded).Select(l => l.Name),
                 StringComparer.OrdinalIgnoreCase);
 
-            var pickedLevels = new HashSet<string>(
-                _levels.Where(l => l.IsPicked).Select(l => l.Name),
-                StringComparer.OrdinalIgnoreCase);
-
-            var pickedRooms = new HashSet<string>(
-                _levels.SelectMany(l => l.Rooms)
-                       .Where(r => r.IsPicked)
-                       .Select(r => r.Key));
-
             _levels.Clear();
-
-            // The rows it pointed at are gone
-            _pickAnchor = null;
-
-            ShowButton();
 
             List<long> linkIds = TickedLinks();
 
@@ -1659,6 +2067,7 @@ namespace ATKINSMEC
                 ShowLevelNote(string.Empty,
                     VENTLEVELNOTE.Summary(0, 0, 0, 0, 0, 0));
 
+                Rebuilt();
                 return;
             }
 
@@ -1670,7 +2079,7 @@ namespace ATKINSMEC
                 VENTSETTINGS.ApartmentLinkIds.Count > 0 ? _map : null;
 
             // In the order the sheet will have them, rooms taken out of
-            // their apartments as rows of their own (Arrange rooms...)
+            // their apartments as rows of their own (Levels and rooms)
             Dictionary<string, List<RVTLINKSELECTION.LinkedRoom>> roomsOn =
                 RVTLINKSELECTION.RoomsOn(linkIds, _roomsOf, apartments, storeys, VENTARRANGE.Current);
 
@@ -1750,7 +2159,7 @@ namespace ATKINSMEC
                                       : ", on " + room.LinkLevel + " there.") +
                                   (string.IsNullOrEmpty(room.ApartmentKey)
                                       ? TakenOutTip(apartments, room.Key)
-                                      : Environment.NewLine + "Inside apartment " +
+                                      : Environment.NewLine + "Unit of redundant room " +
                                         (room.ApartmentNumber + " " + room.Apartment).Trim() +
                                         " - written under it in the sheet.") +
                                   Environment.NewLine +
@@ -1758,7 +2167,7 @@ namespace ATKINSMEC
                                   " by this model's levels; " + name + " is at " +
                                   Metres(storey.Shown) + "." +
                                   Environment.NewLine +
-                                  "Unticked, it is left out of the export and the airflows." +
+                                  "Unticked, the airflows skip it and an export leaves its row as it is." +
                                   Environment.NewLine +
                                   "Double-click to show it in its plan."
                         });
@@ -1800,11 +2209,6 @@ namespace ATKINSMEC
                               : " up to 300 mm below " + next.Name +
                                 " (" + Metres(next.Shown) + ").");
 
-                row.IsPicked = pickedLevels.Contains(name);
-
-                foreach (RoomRow room in row.Rooms)
-                    room.IsPicked = pickedRooms.Contains(room.Key);
-
                 _levels.Add(row);
 
                 if (inSheet)
@@ -1832,66 +2236,34 @@ namespace ATKINSMEC
                     storeys.Count, withRooms, linkIds.Count,
                     sheetLevels.Count, matched, sheetOnly.Count));
 
-            // A rebuilt list keeps the search typed over it
-            Search.Apply(_levels, LevelQuery, _openBeforeSearch);
-
-            ShowButton();
+            Rebuilt();
         }
 
-        // ==================================================
-        // Searching the levels list (VENTLEVELROWS.Search)
-        // ==================================================
-
-        // How each level stood before the search opened it, by name - put
-        // back when the search is cleared, and kept here so it outlives the
-        // list being rebuilt in the middle of a search
-        private readonly Dictionary<string, bool> _openBeforeSearch =
-            new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-
-        private string LevelQuery
+        // THE LEVELS REBUILT: what is ticked said on the card, and Levels and
+        // rooms shown again on them - its terminals read again if the links
+        // they were read over have changed
+        private void Rebuilt()
         {
-            get { return TxtLevelSearch == null ? string.Empty : TxtLevelSearch.Text ?? string.Empty; }
-        }
+            ShowTicks();
 
-        private void TxtLevelSearch_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            // Raised while the XAML is still being parsed - the controls
-            // declared after the box are not there yet (the radio trap)
-            if (TxtLevelSearchHint == null || ListLevels == null)
+            if (_roomsWindow == null)
                 return;
 
-            // Visibility in full: Autodesk.Revit.DB has one too
-            TxtLevelSearchHint.Visibility = string.IsNullOrEmpty(TxtLevelSearch.Text)
-                ? System.Windows.Visibility.Visible
-                : System.Windows.Visibility.Collapsed;
+            Dictionary<string, List<VENTARRANGE.Row>> rows = ArrangeRows(VENTARRANGE.Current);
 
-            string query = LevelQuery.Trim();
+            _roomsWindow.Refill(SheetFlows(rows), FormulasFor(rows));
 
-            int found = Search.Apply(_levels, LevelQuery, _openBeforeSearch);
-
-            ShowButton();
-
-            if (query.Length == 0)
-            {
-                Status("Ready.", false);
-                return;
-            }
-
-            int levels = _levels.Count(l => l.IsShown);
-
-            Status(found == 0
-                       ? "No room matches \"" + query + "\"."
-                       : found + " room(s) on " + levels + " level(s) match.",
-                   false);
+            if (_surveyedFor != string.Join(",", TickedLinks().OrderBy(i => i)))
+                SurveyTerminals();
         }
 
-        private void TxtLevelSearch_KeyDown(object sender, KeyEventArgs e)
+        // "12 of 14 levels, 340 of 352 rooms ticked." on the card
+        private void ShowTicks()
         {
-            if (e.Key == Key.Escape && TxtLevelSearch.Text.Length > 0)
-            {
-                TxtLevelSearch.Clear();
-                e.Handled = true;
-            }
+            TxtTicked.Text = VENTLEVELNOTE.Ticked(
+                _levels.Count(l => l.Checked != false), _levels.Count,
+                _levels.Sum(l => l.TickedRooms), _levels.Sum(l => l.Rooms.Count),
+                TickedLinks().Count);
         }
 
         // Feet to "+4.500 m"
@@ -1922,7 +2294,11 @@ namespace ATKINSMEC
         // drawn or a level added since the window opened.
         private void BtnRefreshLinks_Click(object sender, RoutedEventArgs e)
         {
+            // The terminals too, if Levels and rooms is open
+            _surveyedFor = null;
+
             _roomsOf.Clear();
+            _unenclosedOf.Clear();
             _map = null;
             _mapFor = null;
             _fixturesOf = null;
@@ -1934,283 +2310,9 @@ namespace ATKINSMEC
             Ask(new VENTREAD.Ask { Links = true });
         }
 
-        // A level's click ticks every room under it, and so do these -
-        // every room SHOWING, while a search hides some (TickShown); with
-        // no search on that is every room, as it always was
-        private void BtnAllLevels_Click(object sender, RoutedEventArgs e)
-        {
-            foreach (LevelRow level in _levels.Where(l => l.IsShown))
-                level.TickShown(true);
-        }
-
-        private void BtnNoLevels_Click(object sender, RoutedEventArgs e)
-        {
-            foreach (LevelRow level in _levels.Where(l => l.IsShown))
-                level.TickShown(false);
-        }
-
         // ==================================================
-        // Picking rows, and showing rooms in their plan
+        // Showing rooms in their plan - asked by Levels and rooms
         // ==================================================
-        //
-        // SEVERAL ROWS CAN BE PICKED, at the user's request, the way a
-        // file list picks them: a click picks one, Ctrl+click adds or
-        // takes one away, Shift+click picks a range, Ctrl+A picks every
-        // row showing. The rules are VENTLEVELROWS.Picks, Revit-free and
-        // tested; these handlers only turn clicks and keys into calls.
-        //
-        // What is picked is what the ACTIONS act on - ticking any picked
-        // row ticks them all, and Show in plan frames every picked room.
-        // The ticks themselves still decide what a run does.
-
-        // Where the next Shift+click counts from
-        private object _pickAnchor;
-
-        // The row an element is in (a room finds its OWN row before its
-        // level's), and whether the click was on a button of some kind
-        // on the way up: a tick, the arrow that opens a level, or the
-        // scroll bar - all of which do their own thing
-        private static TreeViewItem RowOf(DependencyObject at, out bool onButton)
-        {
-            onButton = false;
-
-            while (at != null && !(at is TreeViewItem))
-            {
-                if (at is ToggleButton || at is ScrollBar)
-                    onButton = true;
-
-                at = at is Visual || at is System.Windows.Media.Media3D.Visual3D
-                    ? VisualTreeHelper.GetParent(at)
-                    : LogicalTreeHelper.GetParent(at);
-            }
-
-            return at as TreeViewItem;
-        }
-
-        // PREVIEW, so the picks are settled before the TreeView selects
-        // the row itself. Not handled: the tree still takes focus and
-        // moves its own (invisible) selection, which the arrow keys
-        // then carry on from.
-        private void ListLevels_PreviewMouseLeftButtonDown(
-            object sender, MouseButtonEventArgs e)
-        {
-            // The second click of a double-click: the first one picked
-            if (e.ClickCount > 1)
-                return;
-
-            bool onButton;
-
-            TreeViewItem item = RowOf(e.OriginalSource as DependencyObject, out onButton);
-
-            if (onButton)
-                return;
-
-            bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-
-            if (item == null)
-            {
-                // The empty space under the rows lets go of everything
-                if (!ctrl && !shift)
-                {
-                    Picks.Clear(_levels);
-                    _pickAnchor = null;
-                    PicksChanged();
-                }
-
-                return;
-            }
-
-            _pickAnchor = Picks.Click(_levels, _pickAnchor, item.DataContext, ctrl, shift);
-
-            PicksChanged();
-        }
-
-        // The TreeView's own selection. After a click it only follows
-        // what the handler above has already picked; a KEY moving it
-        // (the arrows) is a pick of its own - Shift with it, a range.
-        private void ListLevels_SelectedItemChanged(
-            object sender, RoutedPropertyChangedEventArgs<object> e)
-        {
-            if (e.NewValue == null ||
-                !ListLevels.IsKeyboardFocusWithin ||
-                Mouse.LeftButton == MouseButtonState.Pressed)
-            {
-                return;
-            }
-
-            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-
-            _pickAnchor = Picks.Click(_levels, _pickAnchor, e.NewValue, false, shift);
-
-            PicksChanged();
-        }
-
-        private void ListLevels_PreviewKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-            {
-                Picks.PickShown(_levels);
-                PicksChanged();
-
-                e.Handled = true;
-                return;
-            }
-
-            // Space ticks the row the keyboard is on - and every picked
-            // row with it, if that one is picked. A focused tick box
-            // toggles itself, and its Click handler does the rest.
-            if (e.Key != Key.Space ||
-                Keyboard.Modifiers != ModifierKeys.None ||
-                e.OriginalSource is ToggleButton)
-            {
-                return;
-            }
-
-            object row = ListLevels.SelectedItem;
-
-            var level = row as LevelRow;
-            var room = row as RoomRow;
-
-            if (level == null && room == null)
-                return;
-
-            bool on = level != null
-                ? level.ClickMeans()
-                : !room.IsOn;
-
-            if (Picks.IsPicked(row))
-            {
-                Picks.Tick(_levels, on);
-            }
-            else if (level != null)
-            {
-                level.TickShown(on);
-            }
-            else
-            {
-                room.IsOn = on;
-            }
-
-            e.Handled = true;
-        }
-
-        // Ticking a PICKED row ticks every picked row the same way; an
-        // unpicked row's box ticks that row alone, as it always did.
-        //
-        // The level's box is bound ONE-WAY, so the row still holds what
-        // it was before the click and this decides what the click means:
-        // ticked goes to unticked, and unticked OR PART-TICKED goes to
-        // ticked. WPF's own toggle sends the third state to unticked -
-        // tested, not assumed - which would throw away every room of a
-        // level somebody had only partly ticked.
-        private void LevelTick_Click(object sender, RoutedEventArgs e)
-        {
-            var box = sender as FrameworkElement;
-            var level = box == null ? null : box.DataContext as LevelRow;
-
-            if (level == null)
-                return;
-
-            // While a search hides some of its rooms, the click is about the
-            // rooms showing (ClickMeans, TickShown); otherwise exactly as above
-            bool on = level.ClickMeans();
-
-            if (level.IsPicked)
-                Picks.Tick(_levels, on);
-            else
-                level.TickShown(on);
-        }
-
-        // A room's box has no third state, so WPF's toggle is the right
-        // answer and the two-way binding has already set the row
-        private void RoomTick_Click(object sender, RoutedEventArgs e)
-        {
-            var box = sender as FrameworkElement;
-            var room = box == null ? null : box.DataContext as RoomRow;
-
-            if (room != null && room.IsPicked)
-                Picks.Tick(_levels, room.IsOn);
-        }
-
-        private void ShowButton()
-        {
-            BtnShowRoom.IsEnabled = Picks.Rooms(_levels).Count > 0;
-        }
-
-        // The button, and a line saying what the picks will do
-        private void PicksChanged()
-        {
-            ShowButton();
-
-            List<RoomRow> rooms = Picks.Rooms(_levels);
-
-            int rows = Picks.Count(_levels);
-
-            if (rows > 1)
-            {
-                Status(rows + " rows picked - " + rooms.Count + " room(s). " +
-                       "Tick any of them to tick them all, or press Show in plan.",
-                       false);
-            }
-            else if (rooms.Count == 1)
-            {
-                Status("Double-click the room, or press Show in plan, to " +
-                       "see it in a plan of " + rooms[0].Level + ".", false);
-            }
-            else if (rooms.Count > 1)
-            {
-                Status("Show in plan frames all " + rooms.Count + " rooms of " +
-                       rooms[0].Level + ". Ctrl+click or Shift+click to pick more.",
-                       false);
-            }
-        }
-
-        // Only a double-click ON A ROOM shows it, and only that room. The
-        // same gesture on a level opens or closes it, as a tree always
-        // does, and on empty space it must not show whatever happened to
-        // be picked last.
-        private void ListLevels_MouseDoubleClick(
-            object sender, MouseButtonEventArgs e)
-        {
-            bool onButton;
-
-            TreeViewItem item = RowOf(e.OriginalSource as DependencyObject, out onButton);
-
-            if (item == null || onButton)
-                return;
-
-            var room = item.DataContext as RoomRow;
-
-            if (room == null)
-                return;
-
-            e.Handled = true;
-
-            ShowRooms(new List<RoomRow> { room }, 0);
-        }
-
-        // ONE PLAN SHOWS ONE LEVEL. Picks spread over several levels show
-        // the level most of them are on (the first in the list, on a
-        // tie), and the answer says how many were left out rather than
-        // quietly framing some of what was asked for.
-        private void BtnShowRoom_Click(object sender, RoutedEventArgs e)
-        {
-            List<RoomRow> rooms = Picks.Rooms(_levels);
-
-            if (rooms.Count == 0)
-                return;
-
-            // GroupBy keeps the tree's order and OrderByDescending is
-            // stable, so a tie goes to the level higher in the list
-            List<RoomRow> most = rooms
-                .GroupBy(r => r.Level, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(g => g.Count())
-                .First()
-                .ToList();
-
-            ShowRooms(most, rooms.Count - most.Count);
-        }
 
         // Changing the view and zooming are API calls, so they go through
         // the external event like everything else that touches Revit -
@@ -2233,10 +2335,14 @@ namespace ATKINSMEC
         }
 
         // ExtEventHan's answer, on Revit's thread - which is this
-        // window's thread, so it can be put straight on screen
+        // window's thread, so it can be put straight on screen - here and
+        // in Levels and rooms, which asked
         public void Shown(string what)
         {
             Status(what, false);
+
+            if (_roomsWindow != null)
+                _roomsWindow.Said(what);
         }
 
         private HashSet<string> TickedLevels()
@@ -2638,7 +2744,7 @@ namespace ATKINSMEC
                     break;
 
                 default:
-                    question = "Replace the rooms in worksheet \"" + target + "\" with " +
+                    question = "Update worksheet \"" + target + "\" from " +
                                levels.Count + " level(s)?";
                     break;
             }
@@ -2650,7 +2756,9 @@ namespace ATKINSMEC
             if (left.Count > 0)
             {
                 question += Environment.NewLine + Environment.NewLine +
-                            left.Count + " unticked room(s) will be left out.";
+                            left.Count + (way == REVITEXPORT.Way.IntoImported
+                                ? " unticked room(s) will be left as they are."
+                                : " unticked room(s) will be left out.");
             }
 
             MessageBoxResult go = MessageBox.Show(
@@ -2709,6 +2817,8 @@ namespace ATKINSMEC
             // The reach box and anything not yet saved by a change -
             // a closed window is the last chance
             SaveSettings();
+
+            CloseWhatIf();
 
             base.OnClosed(e);
 

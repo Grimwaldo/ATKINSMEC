@@ -565,7 +565,7 @@ namespace ATKINSMEC
                     package.Workbook.Worksheets.Add("CHW Pipe Sizing");
 
                 sheet.Cells[1, 1].Value =
-                    "ATKINSMEC - chilled water pipe sizing. Edit the " +
+                    "Atkins MEP Toolkit - chilled water pipe sizing. Edit the " +
                     "numbers below and import this file back into " +
                     "SHEET QA. Keep the headings on row 2.";
 

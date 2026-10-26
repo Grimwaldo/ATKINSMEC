@@ -25,7 +25,7 @@ internal static class Program
             var box = new CheckBox { IsThreeState = false };
             box.SetBinding(CheckBox.IsCheckedProperty, new Binding("Checked") { Source = row, Mode = BindingMode.OneWay });
 
-            // what LevelTick_Click does
+            // what a level's box does in Levels and rooms (VENTROOMSWINDOW.LevelClicked)
             box.Click += (s, e) => { row.Checked = row.Checked != true; };
 
             string before = S(box.IsChecked);

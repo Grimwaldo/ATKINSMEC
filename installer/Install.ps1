@@ -1,5 +1,5 @@
 <#
-    ATKINSMEC installer.
+    Atkins MEP Toolkit installer.
 
     Copies the add-in into the per-user Revit add-ins folder, for every
     Revit version found. That folder lives under %AppData%, so this needs
@@ -153,7 +153,7 @@ function Remove-Version($version, [switch]$KeepFolder) {
 
 try {
     Write-Line ''
-    Write-Line '  ATKINSMEC - Revit add-ins for ATKINS' 'White'
+    Write-Line '  Atkins MEP Toolkit - Revit add-ins' 'White'
     Write-Line '  AUTOVENT | CHW VOLUME | DUCT INSULATION | SPRINKLERS' 'DarkGray'
     Write-Line ''
 
@@ -205,7 +205,7 @@ try {
         }
 
         Write-Line "  Installed for $touched Revit version(s)." 'Green'
-        Write-Line '  Start Revit and look for the ATKINS tab, Mechanical panel.' 'White'
+        Write-Line '  Start Revit and look for the Atkins MEP Toolkit tab, Mechanical panel.' 'White'
     }
 
     Write-Line ''

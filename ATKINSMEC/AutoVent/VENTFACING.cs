@@ -55,7 +55,8 @@ namespace ATKINSMEC
         // four rooms got no fresh air: bellmouths drawn BESIDE their FCU's
         // plenum, pointing past it, were taken for terminals of the
         // ensuite or kitchen they stood in. So the mouth is now one test
-        // of several, tried in this order:
+        // of several, tried in this order - among the units it CAN feed
+        // (CanFeed: not on its own duct system, supplying a room in scope):
         //
         //   faces a unit within the reach          -> feeds it
         //   within `Touching` of a unit's casing   -> feeds it
@@ -63,13 +64,27 @@ namespace ATKINSMEC
         //   mouth points down into the room        -> its room   (case 1)
         //   stands in no room in scope             -> feeds the nearest
         //   the nearest unit supplies its room     -> feeds it   (same air)
-        //   its room needs none of this air        -> feeds it   (case 4)
+        //   its room's ROW gives none of this air  -> feeds it   (case 4)
+        //   its room has its own terminal for this
+        //   air, and a room the unit supplies has
+        //   none, nor an endcap on the unit        -> feeds it
         //   otherwise                              -> its room
         //
-        // The last two use the SHEET: a bellmouth over an ensuite that
+        // YANM3's STOREs (user, 2026-10-24: "this store fresh air was not
+        // detected", BP01.B1.019 then BP01.B1.076): a fresh air bellmouth
+        // went to a unit 1.49 m away as "its room needs none" - the store had
+        // no row at all, the workbook being another job's - and another to
+        // the unit it faces 1.22 m away; both units supply no room in scope,
+        // so both stores' air went nowhere. A room with no row is not known
+        // to need none, and a unit passing air to no room is fed nothing,
+        // faced, touched or near.
+        //
+        // The last three use the SHEET: a bellmouth over an ensuite that
         // needs no fresh air, beside an FCU, is that FCU's fresh air; one
         // in a corridor that needs fresh air, beside an FCU that does not
-        // supply the corridor, is the corridor's.
+        // supply the corridor, is the corridor's - unless the corridor has
+        // a grille of its own and the FCU's living room has nothing
+        // bringing it any (the gap the user's list named, 2026-10-15).
         public enum Reason
         {
             Faces,
@@ -79,7 +94,17 @@ namespace ATKINSMEC
             InNoRoom,
             UnitServesItsRoom,
             ItsRoomNeedsNone,
-            ItsRoomNeedsAir
+            UnitNeedsIt,
+            ItsRoomNeedsAir,
+            NotInSheet
+        }
+
+        // A UNIT A BELLMOUTH MAY FEED: not on the bellmouth's own duct
+        // system (an AHU's intake runs into it), and supplying a room in
+        // scope - air handed to a unit that passes it to no room is lost
+        public static bool CanFeed(bool onItsOwnSystem, bool suppliesRoomInScope)
+        {
+            return !onItsOwnSystem && suppliesRoomInScope;
         }
 
         // A mouth pointing more than ~45 degrees down discharges into the
@@ -94,7 +119,10 @@ namespace ATKINSMEC
             bool inRoom,
             bool unitServesItsRoom,
             double itsRoomAir,
-            out Reason why)
+            out Reason why,
+            bool roomHasOwn = false,
+            bool unitStarved = false,
+            bool roomInSheet = true)
         {
             if (faces)
             {
@@ -132,13 +160,21 @@ namespace ATKINSMEC
                 return Role.Feeds;
             }
 
-            if (itsRoomAir <= 0)
+            if (roomInSheet && itsRoomAir <= 0)
             {
                 why = Reason.ItsRoomNeedsNone;
                 return Role.Feeds;
             }
 
-            why = Reason.ItsRoomNeedsAir;
+            // Both need this air: its room has a terminal of its own for
+            // it, the unit's room has nothing - so this is the unit's
+            if (roomHasOwn && unitStarved)
+            {
+                why = Reason.UnitNeedsIt;
+                return Role.Feeds;
+            }
+
+            why = roomInSheet ? Reason.ItsRoomNeedsAir : Reason.NotInSheet;
             return Role.InRoom;
         }
 
@@ -153,6 +189,8 @@ namespace ATKINSMEC
                 case Reason.InNoRoom: return "stands in no room in scope";
                 case Reason.UnitServesItsRoom: return "the unit supplies the room it stands in";
                 case Reason.ItsRoomNeedsNone: return "the room it stands in needs none of this air";
+                case Reason.UnitNeedsIt: return "its room has its own terminal for this air, and a room the unit supplies has none";
+                case Reason.NotInSheet: return "the room it stands in has no row in the sheet";
                 default: return "the room it stands in needs this air and the unit does not supply it";
             }
         }
@@ -160,6 +198,56 @@ namespace ATKINSMEC
         // How close to a unit's casing counts as beside it, whichever
         // way the mouth points (metres; REVITROOMS converts)
         public const double TouchingM = 0.3;
+
+        // ==================================================
+        // Endcaps: the nearest unit, or a unit's RETURN DUCT
+        // ==================================================
+        //
+        // User, 2026-10-24 (YANM3, an EMCC room): "instead of using endcap
+        // reach tolerance, we can detect the nearest freshair endcap to
+        // the return air duct connected to the FCU serving a room located
+        // outside of it". The room's FCUs hang in the corridor outside it;
+        // the fresh air endcap is let into the ceiling by the return duct
+        // coming back from the room, 3.4 m from the unit itself - beyond
+        // the reach, and the room had no fresh air.
+        //
+        // THE REACH STILL HOLDS - TO THE RETURN DUCT (2026-10-25: "this
+        // room fresh air is showing 3660"). With no limit at all, MCC ROOM
+        // BP01.B1.179's two units took endcaps 2.9 m and 8.5 m from their
+        // return ducts as well as their own at 0.2 m. Every true match on
+        // YANM3 was within 1.2 m of its return duct (the EMCC rooms' at
+        // 0.48 and 0.50 m), so the reach is measured to the duct instead
+        // of the unit.
+
+        public enum EndcapBy
+        {
+            None,       // nothing near enough
+            Reach,      // the nearest unit, within the reach - as always
+            ReturnDuct  // within the reach of a unit's return duct, no further than any unit
+        }
+
+        // `toUnit`: to the nearest unit's connectors; `toReturn`: to the
+        // nearest return ductwork of a unit standing outside the rooms it
+        // supplies (Outside). double.MaxValue = none. The return duct wins
+        // when it is within the reach and no further than any unit; a unit
+        // nearer still keeps the reach, so an endcap just beyond its own
+        // unit is not handed to a return duct across the floor.
+        public static EndcapBy Endcap(double toUnit, double toReturn, double reach)
+        {
+            if (toReturn <= reach && toReturn <= toUnit)
+                return EndcapBy.ReturnDuct;
+
+            return toUnit < double.MaxValue && toUnit <= reach ? EndcapBy.Reach : EndcapBy.None;
+        }
+
+        // A unit that supplies rooms and stands in none of them: its return
+        // air comes back to it along a duct, and its fresh air with it.
+        // `standingIn` null: in no room in scope.
+        public static bool Outside(string standingIn, ICollection<string> supplies)
+        {
+            return supplies != null && supplies.Count > 0 &&
+                   (standingIn == null || !supplies.Contains(standingIn));
+        }
 
         // A box, as Revit's bounding box gives it
         public class Box

@@ -16,7 +16,8 @@ namespace ATKINSMEC.Setup
     // the uninstall reads that list rather than clearing the folder.
     internal static class Installer
     {
-        internal const string Manifest = "ATKINSMEC.files.txt";
+        // ATKINSMEC.files.txt, or AUTOVENT.files.txt for AUTOVENT on its own
+        internal const string Manifest = Edition.Manifest;
 
         internal static string AddinsFolder(string version)
         {
@@ -174,15 +175,46 @@ namespace ATKINSMEC.Setup
             }
         }
 
+        // The settings this product owns: the whole folder for the suite,
+        // AUTOVENT's own files for AUTOVENT on its own
         internal static bool SettingsExist
         {
-            get { return Directory.Exists(SettingsFolder); }
+            get
+            {
+                if (Edition.Settings == null)
+                    return Directory.Exists(SettingsFolder);
+
+                foreach (string name in Edition.Settings)
+                {
+                    if (File.Exists(Path.Combine(SettingsFolder, name)))
+                        return true;
+                }
+
+                return false;
+            }
         }
 
         internal static void RemoveSettings()
         {
-            if (Directory.Exists(SettingsFolder))
+            if (!Directory.Exists(SettingsFolder))
+                return;
+
+            if (Edition.Settings == null)
+            {
                 Directory.Delete(SettingsFolder, true);
+                return;
+            }
+
+            foreach (string name in Edition.Settings)
+            {
+                string path = Path.Combine(SettingsFolder, name);
+
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+
+            if (Directory.GetFileSystemEntries(SettingsFolder).Length == 0)
+                Directory.Delete(SettingsFolder);
         }
     }
 }

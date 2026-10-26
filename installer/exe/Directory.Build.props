@@ -1,0 +1,13 @@
+<Project>
+
+  <!--
+    The suite's installer and AUTOVENT's (-p:Edition=AutoVent) are one
+    project built two ways: each its own intermediates, so neither picks
+    up the other's half-built state. Set here because it must be before
+    the SDK's props (MSB3539).
+  -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath Condition="'$(Edition)' == 'AutoVent'">obj\AutoVent\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>

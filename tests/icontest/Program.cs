@@ -35,7 +35,7 @@ internal static class Program
     {
         "autovent", "chwvolume", "ductinsulation", "sprinklers",
         "alignterminals", "sheetqa", "autosync", "nwcbatch",
-        "equipchanger"
+        "equipchanger", "ductesp", "roomtags"
     };
 
     // Exactly what UI.Icon does, word for word

@@ -418,6 +418,62 @@ internal static class Program
         Check("...and nearly all of it within reach (" + (rl.Coverage * 100).ToString("0.0") + "%)",
             rl.Coverage >= 0.97);
 
+        // ---- one head, in the middle of the room's main part ---------------
+        // User, 2026-10-25: a store's one head well off its middle, placed by
+        // SPRINKLERS - its outline takes in a nook, and the centre of the
+        // whole outline is pulled towards it
+        XYZ OnlyHead(SPRINKLERLAYOUT.Result r) => r.Points.Count > 0 ? r.Points[0] : new XYZ(double.NaN, double.NaN, 0);
+
+        bool Near(XYZ p, double xMetres, double yMetres, double withinMetres) =>
+            Math.Abs(p.X - M(xMetres)) <= M(withinMetres) && Math.Abs(p.Y - M(yMetres)) <= M(withinMetres);
+
+        List<UV> plain = Ring(0, 0, 2.2, 0, 2.2, 2.8, 0, 2.8);
+        SPRINKLERLAYOUT.Result centred = SPRINKLERLAYOUT.Layout(Shape(plain), light);
+
+        Check("a plain store: its one head at its exact centre",
+            centred.Points.Count == 1 && Near(OnlyHead(centred), 1.1, 1.4, 1e-6));
+
+        // The store 2.2 x 2.8 m, a nook 1.2 x 1.2 m off its top left
+        List<UV> nook = Ring(0, 0, 2.2, 0, 2.2, 2.8, -1.2, 2.8, -1.2, 1.6, 0, 1.6);
+        SPRINKLERLAYOUT.Result inStore = SPRINKLERLAYOUT.Layout(Shape(nook), light);
+
+        Check("a store with a nook: its head in the middle of the store, not pulled towards the nook - " +
+              $"({OnlyHead(inStore).X * 0.3048:0.00}, {OnlyHead(inStore).Y * 0.3048:0.00}) m",
+            Near(OnlyHead(inStore), 1.1, 1.4, 0.04) && Sound(Shape(nook), inStore));
+
+        Check("...the nook beyond its reach gets a head of its own (" + inStore.Points.Count + " heads, " +
+              (inStore.Coverage * 100).ToString("0.0") + "% within reach)",
+            inStore.Points.Count == 2 && inStore.Added == 1 && inStore.Coverage >= 0.97 &&
+            inStore.Points[1].X < 0);
+
+        // A door recess 0.9 x 0.3 m under a 2.4 x 3 m store: one head covers
+        // it all, and it stays in the middle of the store
+        List<UV> recess = Ring(0, 0, 0.8, 0, 0.8, -0.3, 1.7, -0.3, 1.7, 0, 2.4, 0, 2.4, 3, 0, 3);
+        SPRINKLERLAYOUT.Result withRecess = SPRINKLERLAYOUT.Layout(Shape(recess), light);
+
+        Check("a store with a door recess: one head, in the middle of the store, not dragged to the door - " +
+              $"({OnlyHead(withRecess).X * 0.3048:0.00}, {OnlyHead(withRecess).Y * 0.3048:0.00}) m",
+            withRecess.Points.Count == 1 && Near(OnlyHead(withRecess), 1.2, 1.5, 0.04) && Sound(Shape(recess), withRecess));
+
+        // A column in the middle of a one-head store: just off it, as before
+        List<UV> post = Ring(1.05, 1.35, 1.35, 1.35, 1.35, 1.65, 1.05, 1.65);
+        SPRINKLERLAYOUT.Result offPost = SPRINKLERLAYOUT.Layout(Shape(Ring(0, 0, 2.4, 0, 2.4, 3, 0, 3), post), light);
+
+        // (The far corner it then leaves beyond reach gets a second head from
+        // the gap filling - as it did before this change, checked both ways)
+        Check("a column in the middle of a one-head store: its head just off it, sound, as before",
+            offPost.Points.Count >= 1 && offPost.Relocated == 1 && Near(OnlyHead(offPost), 1.2, 1.5, 0.35) &&
+            Sound(Shape(Ring(0, 0, 2.4, 0, 2.4, 3, 0, 3), post), offPost));
+
+        // The same in a store turned 30 degrees: in its own middle still
+        List<UV> turnedNook = Turned(nook, 30);
+        SPRINKLERLAYOUT.Result turnedStore = SPRINKLERLAYOUT.Layout(Shape(turnedNook), light);
+        UV middle = Turned(new List<UV> { new UV(M(1.1), M(1.4)) }, 30)[0];
+
+        Check("...turned 30 degrees, in the store's own middle still",
+            turnedStore.Points.Count >= 1 &&
+            Math.Abs(OnlyHead(turnedStore).X - middle.U) <= M(0.05) && Math.Abs(OnlyHead(turnedStore).Y - middle.V) <= M(0.05));
+
         // ---- small and impossible ------------------------------------------
         SPRINKLERLAYOUT.Result small = SPRINKLERLAYOUT.Layout(Shape(Ring(0, 0, 1.2, 0, 1.2, 1.5, 0, 1.5)), light);
 

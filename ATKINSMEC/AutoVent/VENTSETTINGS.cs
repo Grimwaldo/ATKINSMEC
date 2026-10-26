@@ -244,6 +244,11 @@ namespace ATKINSMEC
 
         public static bool CountFixtures = true;
 
+        // OCCUPANCY CATEGORIES FROM ROOM NAMES into the sheet's blank
+        // category cells (VENTOCCUPANCY) - per model, on by default. The
+        // rules themselves are the office's, kept on this PC.
+        public static bool Occupancy = true;
+
         // ==================================================
         // Apartments
         // ==================================================
@@ -269,7 +274,9 @@ namespace ATKINSMEC
         // keyword, picked level by level in the Interior models dialog.
         // Not chosen = every placement matching the keyword, on every level
         // it has rooms - which an empty keyword makes every placement.
-        public const string DefaultInteriorKeyword = "IND";
+        // Several keywords, commas between (VENTINTERIOR.Named); "ID" added
+        // to the default 2026-10-19 at the user's request.
+        public const string DefaultInteriorKeyword = "IND, ID";
 
         public static string InteriorKeyword = DefaultInteriorKeyword;
 

@@ -61,6 +61,19 @@ namespace ATKINSMEC
                    (sheetOnly == 0 ? " - all of it." : ".");
         }
 
+        // What is ticked, beside the card's heading - the levels and rooms
+        // themselves are in Levels and rooms (VENTROOMSWINDOW)
+        public static string Ticked(int levelsOn, int levels, int roomsOn, int rooms, int links)
+        {
+            if (levels <= 0)
+                return string.Empty;
+
+            if (links == 0 || rooms == 0)
+                return levelsOn + " of " + levels + " level(s) ticked.";
+
+            return levelsOn + " of " + levels + " level(s), " + roomsOn + " of " + rooms + " room(s) ticked.";
+        }
+
         // The line beside Refresh on the links card: what the Apartments
         // ticks found. Short - it shares a row with a button in half the
         // window; the tooltip has the pairings in full.
@@ -76,13 +89,13 @@ namespace ATKINSMEC
             if (rooms <= 0)
             {
                 return outside > 0
-                    ? "Apartments: " + outside + " interior room(s), none inside an apartment - hover."
+                    ? "Redundant rooms: " + outside + " interior room(s), none inside a redundant room - hover."
                     : otherStorey > 0
-                        ? "Apartments: rooms inside only on other levels - hover."
-                        : "Apartments: no interior rooms found inside them.";
+                        ? "Redundant rooms: units only on other levels - hover."
+                        : "Redundant rooms: no units found inside them.";
             }
 
-            return apartments + " apartment(s) hold " + rooms + " room(s), from " +
+            return apartments + " redundant room(s) hold " + rooms + " unit(s), from " +
                    placements + " placement(s)" +
                    (otherStorey > 0 ? ", " + otherStorey + " skipped" : string.Empty) +
                    (outside > 0 ? ", " + outside + " in none" : string.Empty) + ".";
@@ -96,7 +109,7 @@ namespace ATKINSMEC
             string sources, IList<string> pairings, int otherStorey,
             int outside, string outsideOn, IList<string> spread, string log)
         {
-            var text = new StringBuilder("Apartments from " + sources + ".");
+            var text = new StringBuilder("Redundant rooms from " + sources + ".");
 
             if (pairings == null || pairings.Count == 0)
             {
@@ -113,30 +126,30 @@ namespace ATKINSMEC
             if (otherStorey > 0)
             {
                 text.Append("\n").Append(otherStorey)
-                    .Append(" room(s) stood inside an apartment but on ANOTHER level of this model, ")
-                    .Append("and were not put under it - a placement on the wrong floor, or a double-height apartment.");
+                    .Append(" room(s) stood inside a redundant room but on ANOTHER level of this model, ")
+                    .Append("and were not put under it - a placement on the wrong floor, or a double-height redundant room.");
             }
 
             if (outside > 0)
             {
                 text.Append("\n").Append(outside)
-                    .Append(" room(s) of the interior models stood in NO apartment")
+                    .Append(" room(s) of the interior models stood in NO redundant room")
                     .Append(string.IsNullOrEmpty(outsideOn) ? string.Empty : " (" + outsideOn + ")")
-                    .Append(" and are in no run. Either the apartments are drawn in another architect's model - ")
-                    .Append("tick Apartments on it - or the two models do not line up there.");
+                    .Append(" and are in no run. Either the redundant rooms are drawn in another architect's model - ")
+                    .Append("tick Redundant rooms on it - or the two models do not line up there.");
             }
 
             if (spread != null && spread.Count > 0)
             {
                 text.Append("\nCHECK - took rooms from more than one interior placement, so probably drawn across ")
-                    .Append("several apartments:");
+                    .Append("several redundant rooms:");
 
                 foreach (string line in spread)
                     text.Append("\n    ").Append(line);
             }
 
             text.Append("\nThe interior models are the placements the keyword names, or those ticked level by ")
-                .Append("level (Interior models...); one not ticked on the links list gives only the rooms inside apartments.");
+                .Append("level (Interior models...); one not ticked on the links list gives only its units.");
 
             if (!string.IsNullOrEmpty(log) &&
                 (outside > 0 || otherStorey > 0 || pairings == null || pairings.Count == 0 || (spread != null && spread.Count > 0)))

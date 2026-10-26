@@ -14,6 +14,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="Stub.cs" />
     <Compile Include="..\..\ATKINSMEC\Shared\FORMSIZE.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\LOGS.cs" />
     <Compile Include="..\..\ATKINSMEC\NwcExport\NWCForm.Designer.cs" />
     <Compile Include="..\..\ATKINSMEC\NwcExport\NWCHELPForm.Designer.cs" />
     <Compile Include="..\..\ATKINSMEC\NwcExport\NWCHELPForm.cs" />

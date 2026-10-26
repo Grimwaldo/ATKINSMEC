@@ -1,4 +1,4 @@
-# ATKINSMEC — Revit MEP add-in suite
+# ATKINSMEC — the Atkins MEP Toolkit, a Revit MEP add-in suite
 
 > **Starting a session: read `WORKPLAN.md` first** — current state, what
 > has never run in a real model, open questions, things deliberately
@@ -9,8 +9,17 @@
 > in git: `git show 465c133:CLAUDE.md`. Read it there before reworking
 > anything this file only summarises.
 
-Ten Revit add-ins, one assembly, one ribbon panel (**ATKINS →
-Mechanical**), built from one source tree for **Revit 2022–2027**.
+Eleven Revit add-ins, one assembly, one ribbon panel (**Atkins MEP Toolkit
+→ Mechanical**), built from one source tree for **Revit 2022–2027**.
+
+**"Atkins MEP Toolkit" is the name people SEE** (user, 2026-10-12): the
+ribbon tab, the `.addin` Name/Text, window titles, dialog captions, log
+headers, the installer and its output (`AtkinsMEPToolkit-Setup.exe/.zip`).
+**`ATKINSMEC` stays wherever something is stored or looked up**: the
+assembly, namespace and `.addin`/`files.txt` file names (an old install
+upgrades and uninstalls in place), `%AppData%\ATKINSMEC\` (everyone's
+saved settings), the log file names, and what lives inside
+models — `QAAVF`'s style name and schema. Never rename those.
 
 | Button | Entry point | What it does |
 |---|---|---|
@@ -23,6 +32,7 @@ Mechanical**), built from one source tree for **Revit 2022–2027**.
 | NWC BATCH | `NWCCommand.cs` | Navisworks .nwc from a list of models (disk or ACC). |
 | EQUIPMENT CHANGER | `EQUIPCommand.cs` | Changes equipment/terminal type and resizes the ductwork on it up to the first reducer/tap/tee/terminal. |
 | DUCT ESP | `ESPCommand.cs` | External static pressure across this model and linked models. |
+| ROOM TAGS | `TAGCommand.cs` | Rooms of ticked linked models shown untagged in plans on sheets; tags them, never twice. |
 | SHEET QA | `QACommand.cs` | Six QA pages: flowrate tags, grids, duct disconnections, FCU flows, CHW sizes, CHW disconnections. Most can fix what they find. |
 
 ---
@@ -45,10 +55,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-installer.ps1    # ins
 - `-ExecutionPolicy Bypass` is required: no policy is set on this machine.
 - Visual Studio builds and deploys **2022 only**, Debug; `build-all.ps1`
   deploys Release — whichever ran last is what Revit loads.
+- **AUTOVENT on its own** (temporary, user 2026-10-15):
+  `build-installer.ps1 -AutoVent` → `installer\output\AUTOVENT-Setup.exe`.
+  Same source, `-p:Edition=AutoVent`: assembly `ATKINSMEC.AutoVent`,
+  only `AutoVent\` + `Shared\` (minus `QUIET.cs`), `AUTOVENT_ONLY` in
+  `UI.cs` (one button "AutoVentOnly", no updater, no AutoSync), own
+  `AUTOVENT.addin` + AddInId, own obj/bin (`obj\AutoVent-<ver>`,
+  `bin\Release\AutoVent\<ver>`), never deployed by a build. Installs
+  `AUTOVENT.addin` + `AUTOVENT\*`, its own `AUTOVENT.files.txt`; uninstall
+  removes only `autovent_*.txt` settings. Beside the suite: no shared
+  file, two AUTOVENT buttons, one settings file.
 - Installer: `installer/exe/` (net48 WinForms, one embedded zip). Keep
   `app.manifest` (`asInvoker`, or Windows raises UAC for a file called
   "setup"). Uninstall reads `ATKINSMEC.files.txt` — never clear the
-  shared add-ins folder. Output ~20.5 MB, no admin rights needed.
+  shared add-ins folder. Output `installer\output\AtkinsMEPToolkit-Setup.exe`
+  (+ `.zip`), ~21 MB, no admin rights needed.
 - **Git**: `main`, no remote, `core.autocrlf false` (files are a mix of
   LF and CRLF — keep each as it is). A post-commit hook
   (`tools/git-hooks`, `core.hooksPath`) pushes to `backup-onedrive`
@@ -83,7 +104,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-installer.ps1    # ins
 
 One folder per add-in under `ATKINSMEC\` (`AutoVent`, `ChwVolume`,
 `DuctInsulation`, `Sprinklers`, `AlignTerminals`, `SheetQA`, `AutoSync`,
-`NwcExport`, `EquipChanger`, `EspCalc`) plus `Shared\`. **The namespace
+`NwcExport`, `EquipChanger`, `EspCalc`, `RoomTags`) plus `Shared\`. **The namespace
 is flat (`ATKINSMEC`) everywhere** — folders are for finding, not
 scoping. The SDK globs `**\*.cs`.
 
@@ -102,7 +123,8 @@ icon returns null, never throws.
 **Shared**: `UI.cs` (ribbon, updater registration), `REVITCOMPAT`,
 `FORMSIZE` (WinForms minimum size), `RVTLINKSELECTION` (+ Revit-free
 `RVTLINKROOMS`: `LinkedRoom`, `RoomKey`, `RoomsOn`), `SAMEDOC`,
-`QUIET`, `WORKSETPICK`. `SpaceKey.cs` is dead code.
+`QUIET`, `WORKSETPICK`, `LOGS` (where every log goes). `SpaceKey.cs`
+is dead code.
 
 ---
 
@@ -115,9 +137,10 @@ Modeless **WPF** window (`VENTWindow.xaml`; the only WPF window —
 Revit-free (and tested): `VENTLEVELMAP`, `VENTSETTINGS`, `VENTSAVED`,
 `VENTFCUCHECK`, `VENTOFFICE`, `VENTROWS`, `VENTTEMPLATE`, `VENTLEVELROWS`,
 `VENTLEVELNOTE`, `VENTEXPORTNOTE`, `VENTLINKFILTER`, `VENTINTERIOR`,
-`VENTAPARTMENTMAP`, `VENTARRANGE`, `VENTFIT`, the dialogs
-(`VENTFIXTUREDIALOG`, `VENTINTERIORDIALOG`, `VENTARRANGEDIALOG`,
-`VENTSYSTEMDIALOG`).
+`VENTAPARTMENTMAP`, `VENTARRANGE`, `VENTFIT`, `VENTUPDATE`,
+`VENTOCCUPANCY`, the dialogs (`VENTFIXTUREDIALOG`, `VENTINTERIORDIALOG`,
+`VENTSYSTEMDIALOG`, `VENTOCCUPANCYDIALOG`) and the Levels and rooms window
+(`VENTROOMSWINDOW`).
 
 **Keep its on-screen wording short** — the user: *"do not overexplain
 things in the autovent addin"*. One-line hints, a few words in tooltips,
@@ -142,11 +165,12 @@ plain status lines.
   parse (guard nulls); an underscore in `Content` is an access key (put a
   `TextBlock` inside); a `ScrollViewer` inside a `StackPanel` never
   scrolls; render at **1.5x as well as 1x** before calling a layout done.
-- **Fits a 1080p laptop at 150%** (`VENTFIT`): opens no bigger than the
-  work area, MinHeight 480, the body scrolls below what its rows need
-  and then gives the levels list 300. **`BodyGrid`'s height is SET** —
-  left to the scroll viewer, the levels row's `*` becomes Auto and the
-  tree loses its virtualisation.
+- **Fits a 1080p laptop at 150%** (`VENTFIT.Screen`): the main window
+  opens as tall as its content (`SizeToContent`) up to the work area,
+  then keeps that height and lets the cap go (`ContentRendered`), so a
+  bigger screen can still drag it taller; the body scrolls below it.
+  MinHeight 480. (`BodyGrid`'s height was SET for the levels tree's
+  virtualisation; the tree went to Levels and rooms, 2026-10-19.)
 - `tests/ventpreview` renders the real XAML with a Revit-free stub. **The
   stub needs every handler the XAML names** (VS's designer adds handlers
   on a double-click).
@@ -179,6 +203,20 @@ plain status lines.
   separately; the pre-tick IS the fallback rule.
 - Endcap reach (default 1500 mm; ≤0 → default). Too large finds the
   wrong FCU.
+- **A fresh air endcap by a RETURN DUCT** (user, 2026-10-24, YANM3's
+  EMCC rooms: the FCUs hang in the corridor, the endcap is by the return
+  duct from the room, 3.4 m from the unit). A unit standing outside every
+  room it supplies (`VENTFACING.Outside`; supplies = its SUPPLY
+  terminals' rooms, by ducts or system - never endcaps, so an AHU is not
+  one) has its return ductwork read (`ReturnSide`: what each connector
+  leads to that reaches no supply or fresh air terminal). An endcap
+  WITHIN THE REACH OF that ductwork and no further from it than from any
+  unit goes to it (`VENTFACING.Endcap`); a unit nearer keeps the reach.
+  No limit at first - then MCC ROOM BP01.B1.179 read 3660 l/s (2026-10-25):
+  its units took endcaps 2.9 m and 8.5 m off their return ducts. Every
+  true match on YANM3 was within 1.2 m of the duct (EMCC's 0.48 / 0.50 m). Extract endcaps: reach only. One rule
+  (`EndcapUnit`) for the endcap loop and the bellmouths' "unit has an
+  endcap". Logged: `OUTSIDE FCU ...`, `nearer the return duct of FCU`.
 - **Endcaps and bellmouths, by family name** (two boxes, comma-separated,
   matched like the links search). An **endcap** (`EndcapNames`, default
   and empty = `Endcap`) is always traced to the nearest unit. A
@@ -186,13 +224,27 @@ plain status lines.
   decided by `VENTFACING.Bellmouth`, in order: faces a unit within the
   reach (a ray from the duct connector, away from the duct, sign checked
   against the body, into the box grown 150 mm) → within 300 mm of a
-  unit's casing → no unit in reach = its room → mouth pointing down =
-  its room → in no room in scope, the nearest unit supplying its room, or
-  its room needing none of that air (the SHEET) = feeds the nearest unit
-  → otherwise its room. **Facing alone found 8 of 32 on the first real
+  unit's casing → no unit in reach = its room → mouth pointing
+  down = its room → in no room in scope, the nearest unit supplying its
+  room, or its room's ROW giving none of that air (the SHEET; **no row is
+  not "none"**, 2026-10-24) = feeds the nearest unit
+  → its room has its OWN terminal for that air (no bellmouth/endcap) AND a
+  room the unit supplies needs it with nothing bringing it (no terminal,
+  no endcap on the unit) = feeds the unit (`UnitNeedsIt`, 2026-10-15) →
+  otherwise its room. **Facing alone found 8 of 32 on the first real
   job** (kifaf, 2026-10-11) and left four rooms with no fresh air. A
-  unit on the bellmouth's own duct system is never fed. Every decision
-  and its reason is in the debug log (`BELLMOUTH ...`).
+  unit on the bellmouth's own duct system is never fed, **nor a unit
+  whose supply system reaches no room in scope** (`VENTFACING.CanFeed`,
+  every test above; YANM3's STOREs BP01.B1.019 / .076, 2026-10-24 - their
+  air went to such units, one faced 1.22 m off). Every decision and its
+  reason is in the debug log (`BELLMOUTH ...`; a unit in reach left out
+  is named, "supplies no room in scope - not fed").
+- **Between rooms of different links, the HIGHEST FLOOR IN THIS MODEL
+  wins** (`RoomInfo.HostFloor`, `RoomAt`; total transforms). Comparing
+  each link's own `BaseZ` made one interior model placed on every floor
+  tie, and the tie went to the placement read first - KIFAF LEVEL 04A's
+  kitchen/foyer terminals were in LEVEL 03's rooms (2026-10-19), hidden
+  by equal sheet values, found by Merge by FCU.
 - **A terminal's room is the room IN FRONT of its face** (300 mm along
   `VENTFACING.Mouth`, falling back to where it stands): a sidewall
   grille's insertion point in the kitchen wall made kitchens "served by
@@ -205,9 +257,19 @@ plain status lines.
 - **Endcaps split a room's air between the endcaps bound to its units**
   (`VENTFCUCHECK`: `Tally`, `Share`, `Carried`) — the shares always add
   back to the whole. One unit, one endcap divides by one; counts per side.
-- **A sheet row matches a room by name + number + level**
-  (`VENTSHEET.SpaceKey`). Export and airflow write must agree on all
-  three: same storey mapping, same names (`VENTARRANGE.NameOf`).
+- **A sheet row matches a room by its model ID first** (the hidden
+  `AUTOVENT model ID` column, `AirData.Id`, `VENTSHEET.Resolve`), else by
+  name + number + level (`VENTSHEET.SpaceKey`) — one row to one room,
+  never a row whose ID is another model room's. Two apartments built
+  from one interior model repeat name + number (KIFAF 121.141/143/144);
+  without IDs both took one row's air. Still-ambiguous rooms are in the
+  run's dialog ("share a name and number"). `LoadedRows` keeps every row;
+  `LoadedData` (one per key) is for the window. Export and airflow write
+  must still agree on name + number + level for ID-less sheets.
+- **A workbook with formulas and no saved results** (AUTOVENT's own
+  export, never opened in Excel) is calculated on reading
+  (`VENTSHEET.NoResults` → `Calculate`, `Calculated` logged) — it read
+  as 0 L/s everywhere.
 
 ### Levels
 - **The levels are THIS model's** (`GetHostLevels`); linked level names
@@ -218,8 +280,13 @@ plain status lines.
   job and put every room one level up. Every level is corrected by what
   its own model's rooms/spaces measure (`RVTLINKSELECTION.LevelError` →
   `VENTLEVELMAP.LevelError`, median, 50 mm dead band) — host storeys,
-  link spans, SPRINKLERS. **Never compare `Level.Elevation` with
-  geometry.** `Storey.Shown` is for telling a person only.
+  link spans, SPRINKLERS. **A model with no rooms or spaces is measured
+  on its ducts / pipes / trays / conduits** (start point vs reference
+  level + Start Middle Elevation; user, 2026-10-24): YANM3's MEP model
+  has none, its levels stayed 3.9 m high and 137 of 138 linked rooms fell
+  below its lowest level. The run log says what it measured on.
+  **Never compare `Level.Elevation` with geometry.** `Storey.Shown` is
+  for telling a person only.
 - **Band rule** (`VENTLEVELMAP.StoreyOf`): a room belongs to the highest
   level at or under its floor, with a 300 mm allowance below. Below every
   level = in no band, left out and counted.
@@ -227,30 +294,107 @@ plain status lines.
   stands on (allow-list `Content`, shafts and rooms excluded);
   `ElementLevelFilter` is slow, so walk inwards from each end.
 
-### Levels tree (`VENTLEVELROWS`, tests: `levelrowtest`, `toggletest`)
-- A level's tick follows its rooms (all / none / third state). Building
-  the list is not choosing (tick set before `Parent`); a person's choice
-  outlives a rebuild (`_roomChoice`); `_settling`/`_pushing` keep the two
-  directions apart.
+### Levels and rooms (`VENTROOMSWINDOW`, `VENTLEVELROWS`; tests: `arrangeflowtest`, `levelrowtest`, `toggletest`)
+- **"Levels to process" and Arrange rooms... are ONE window** (user,
+  2026-10-19: "combine..."; asked, chose a window of its own over the
+  main window's card). Card 3 is now a count (`TxtTicked`,
+  `VENTLEVELNOTE.Ticked`), the sheet-level warning and summary, and the
+  **Levels and rooms...** button. The window: every level (open / close:
+  arrow, double-click, Left/Right), under an open one its rooms and
+  containers in sheet order, a tick on every row, the airflow columns,
+  All / None / Show in plan beside Arrange rooms' buttons.
+- **A SHEET'S LOOK** (user, 2026-10-25: "make the rooms and level window
+  look more like excel view"): every row is cells (`Cell`: a gridline
+  right and under, #D4D4D4) - a grey gutter (Excel's row numbers; the
+  drag handle, a level's arrow) | tick | Number (units indented) | Name |
+  **Notes** (merged with, one FCU with, ungrouped from, terminal on no
+  FCU, the model - their own column now, parted by " · ") | m² | m |
+  Fresh | Extract | Fresh | Extract; Name : Notes share the rest 4 : 5.
+  Grey two-row headings (`Header`, groups Room / Sheet / Model) built
+  from the same widths, in by **2** - the list's border AND the 1 its
+  template pads inside (a ListBox's Padding is not that) - plus the scroll
+  bar while it shows; `arrangeflowtest` checks the headings sit over
+  their cells to 0.6 px. Levels are group rows; rows touch (item border
+  0), so the drop mark lays 3 px over its neighbour with a -3 margin.
+  Tests find a row's parts with `Within<T>` (logical tree), not by
+  position. Window 1440 wide (VENTFIT caps it).
+- **The sheet's columns, READ ONLY** (user, 2026-10-25; asked, chose
+  read-only over editable - the workbook stays the one calculator): under
+  "Sheet", left of its airflows: Sheet m², Fresh category (6-1), Extract
+  category (6-4), Occupants, Units (`VENTSHEET.AirData` reads them -
+  blanks as NaN / "", never 0 - `VENTFLOWS.Sheet` carries them, cells
+  tagged "sheet"). A blank category shows, grey italic, what an export
+  would fill (`SheetFlows`: `VENTOCCUPANCY.Learned` from the sheet, else
+  `RuleFor`; none when occupancy is off for the model). The model's m²
+  goes amber where the sheet's differs by > 0.5 m² (`VENTFLOWS.AreaChanged`).
+- **Columns...** (`VENTCOLUMNS`, per PERSON in
+  `%AppData%\ATKINSMEC\autovent_columns.txt`, each key on / off so a new
+  one takes its default): Notes, Room m² m, Sheet m², Occupancy
+  categories, Occupants and units; defaults notes, room, categories. The
+  headings are rebuilt with the list (`Header(flows)`). Tests point
+  `VENTCOLUMNS.SettingsPath` at a temp file.
+- **Differences only** (beside the search; `Search.Apply`'s `keep`, both
+  at once): a number used twice, sheet ≠ model airflows, a terminal on no
+  FCU, no row in the sheet, area changed (`Attention`; the row's tooltip
+  says which). Sheet | Model sit under **"Merge and write as"** - they
+  switch the grouping and what Write writes, not which columns show.
+- **MODELESS, owned by the main window, everything at once** - no OK /
+  Cancel. An arrangement change → `Arranged` (main window:
+  `SaveSettings` + `RefreshLevels`, whose `Rebuilt` → `Refill`; a change
+  made in the window is shown once, by `Changed`, `_arranging` guards the
+  re-entry); a tick → `Ticked` (`ShowTicks`). **Reset level asks first.**
+  Show in plan (request 3) and Write to terminals (request 4) go through
+  the main window's external event; the answer (`Shown`) reaches both.
+- The ticks are the main window's `LevelRow` / `RoomRow` (`() => _levels`,
+  rebuilt by `RefreshLevels`), BOUND in the window (room two-way, level
+  one-way + `ClickMeans`, label bound); a container's box is set by hand
+  (`Ticks`). A level's tick follows its rooms (all / none / third state).
+  Building the list is not choosing (tick set before `Parent`); a
+  person's choice outlives a rebuild (`_roomChoice`); `_settling` /
+  `_pushing` keep the two directions apart.
 - **WPF sends a click on the third state to UNTICKED**: the level box is
-  `OneWay` and `LevelTick_Click` decides (`ClickMeans`).
+  `OneWay` and `LevelClicked` decides (`ClickMeans`).
 - Runs are handed the **unticked** rooms (`ExcludedRooms`), so a room
   drawn later is still processed.
-- Picks ≠ ticks (file-list rules: click, Ctrl, Shift, Ctrl+A); ticking a
-  picked row ticks all picked; a picked level stands for its rooms.
-  Settled in `PreviewMouseLeftButtonDown`; the TreeView's own highlight
-  is transparent and rows draw `IsPicked`.
-- **Search** (`Search.Apply`) only hides rows (`IsShown`): ticks stand.
-  While on, a level's tick, All, None, Ctrl+A, ranges and picked levels
-  act on rows **showing**. Opened levels are restored on clear
-  (`_openBeforeSearch`, by name). With no search, behaviour is unchanged.
-- Show in plan (`VENTSHOW`, request 3): one plan, one level; frames every
-  corner through the link transform; selects via `SetReferences` on 2023+.
+- Picks ≠ ticks: the ListBox's own (Extended: click, Ctrl, Shift,
+  Ctrl+A); a box on a PICKED row ticks every picked row; Space ticks the
+  picks; a picked level or container stands for its rooms showing (Show
+  in plan, Write). Colours sit on the ITEM so a pick shows.
+- **Search** (`Search.Apply`, words = level + `VENTARRANGE.Words`) only
+  hides rows (`IsShown`): ticks stand. While on, a level's tick, a
+  container's, All, None and picked levels act on rows **showing**; a
+  container shows if a unit does. Opened levels are restored on clear
+  (`_openBefore`, by name) and on close. Esc clears it, then closes.
+- Show in plan (`VENTSHOW`, request 3; also a double-click on a room or
+  container): one plan, one level - the one most picks are on, a tie to
+  the higher; frames every corner through the link transform; selects via
+  `SetReferences` on 2023+.
+- **The terminals are read** (`SurveyTerminals`) when the window opens,
+  when the ticked links differ from those last read (`_surveyedFor`),
+  after Refresh, and **after a write - inline in request 4** (a request
+  raised inside the handler would arrive empty). Meanwhile the Model
+  columns say "-" and the line "Reading the terminals...".
 
 ### Export (`REVITEXPORT`, `VENTOFFICE`, `VENTROWS`; test: `officetest`)
-- Three ways: fill the imported sheet (clones its rows' styles), a new
+- Three ways: **update the imported sheet** (`VENTUPDATE`), a new
   workbook from the office template, a worksheet added to the imported
   workbook (refuses a name in use; leaves every other cell alone).
+- **The update never throws away what was typed** (user, 2026-10-14;
+  it was "fill", which blanked every input and dropped unticked levels).
+  Rooms on TICKED levels matched to rows: hidden `AUTOVENT model ID`
+  column (every export writes it, `WriteKeys`) → number on the same
+  level → a name unique on that level on both sides (`Match`). Matched:
+  typed values carried (a value typed over a formula too; the sheet's
+  formula wins over an old one); name/number/area/height/units from the
+  model. New rooms and new levels (`Place`: after the last sheet level
+  below it, sheet order untouched) added. A room no longer in the model:
+  row KEPT, greyed italic + note (user's choice). Unticked level: rows
+  copied byte for byte (R1C1). Unticked room (`Room.Keep`): row as it
+  was, never added. Merged air cells are rebuilt by `MergeAir`; a total
+  TYPED over a merge is put back. The block grows **inside** its room
+  rows so summary-table ranges follow (and are re-pointed if not); the
+  Total is rebuilt (`VENTOFFICE.TotalOfSubTotals`). Tests: officetest
+  `MatchTests`, `UpdateTest`, `UpdateWithoutKeysTest`, `UpdateMergedTest`.
 - Template = the office workbook embedded byte for byte
   (`Resources\VentTemplate.xlsx`); replace the file to revise it.
   Worksheet preference **Tower 2 → Tower-1 → MLCP**. A Room Number column
@@ -269,17 +413,107 @@ plain status lines.
 - Round trip is the test: every output is read back through
   `VENTSHEET.excelsheet()` and calculated by EPPlus.
 
+### Occupancy categories (`VENTOCCUPANCY`, `VENTOCCUPANCYDIALOG`)
+- User, 2026-10-14: fill the sheet's two "Occupancy Category" columns —
+  Table 6-1 (outside air, office col O) and Table 6-4 (exhaust, AC) —
+  from room names. Found by heading (`FreshCategoryCol`,
+  `ExhaustCategoryCol`: "occupancy"+"category", "exhaust" decides which).
+- **Rules**: "name contains" words → both categories, for apartments /
+  not / any (`Room.InDwelling`, set before ungrouping). Most specific wins
+  (words' length, scoped before any); a rule word ≥3 letters starts a name
+  word, 1–2 letters must BE one (`G RM` ≠ GYM RM). **"Equals" rules**
+  (`Rule.Exact`, user 2026-10-19; the dialog's Match column, the file's
+  8th field `equals` — an old override number there reads as contains):
+  the name's words ARE the rule's, same order, nothing more (`Fits`), and
+  any equals rule beats every contains rule (`ExactFirst`); between two,
+  scoped before any. Blank = write nothing.
+  `FIRE LOBBY` → Common Corridors, so FIREMAN LOBBY is not a main entry
+  lobby (user, 2026-10-16). Office-wide on this PC
+  (`%AppData%\ATKINSMEC\autovent_occupancy.txt`; none = `Defaults()`,
+  Reset deletes it). Per model on/off (`occupancy` line, default on).
+  **A saved file still gets later built-in values** (`WithBuiltIn`, in
+  `Load`; user, 2026-10-19 — KIFAF's kitchens were 0 L/s because the file
+  predated the kitchen's value): a saved rule with the same scope, words
+  and both categories as a built-in one takes the built-in Use / Units
+  for each it leaves BLANK. Typed values stand; blank cannot mean "none"
+  for those two on a built-in rule.
+- **Only blank cells**, and only a category the cell's own drop-down (else
+  the ASHRAE sheet) has — `Pick` returns the list's spelling; a miss would
+  be #N/A across the row. An update first follows what the SHEET gave rooms
+  of that name (`Learned`). Apartments → "Dwelling Unit" (user's choice).
+- **The office's Table 6-4 gave 0 L/s** for apartment kitchens (no rate)
+  and residential toilets (only the light-use rate; the sheet takes the
+  heavy one unless "Nature of use" says light), and per-fixture
+  categories need "No. of Units". A rule therefore also carries `Use`
+  (AD) and `Units` (AE, when the fixture count left it blank): residential
+  toilet / shower = light use, 1 unit; apartment kitchen = 1 unit.
+  Extras apply when the row's exhaust category IS the rule's. Rows still
+  per-fixture with no units → `Filled.NoUnits`, in the export log.
+- **The apartment kitchen is PER UNIT, as "Toilets - private"** (user,
+  2026-10-19, `KitchenCheck`, beside `DwellingCheck` in every export and
+  update). The office's Table 6-4 row for "Residential kitchens-
+  Apartments" is EMPTY (62.1 leaves dwellings to 62.2) and the AF formula's
+  per-unit OR(...) list did not name it, so it read 0 L/s. Now: the empty
+  row gets 62.1's residential kitchen rates (50/100 cfm, 25/50 L/s a
+  unit; never over a row with any value) and every OR(...) naming
+  `"Toilets - private"` names the kitchen beside it (AF reads it per unit,
+  AG leaves it). 1 unit x 50 L/s, 25 for light use. Adding a worksheet to
+  an imported workbook fills ITS empty row too (said in the log). It
+  replaced an override (AK = Yes + AL 50, 10-15 to 10-19) the user had
+  undone: no rule writes AK/AL any more; an old file's eighth field is
+  not read. `OverrideCol`/`BalancingCol` are still detected (a typed
+  balancing airflow keeps a row off the NoUnits list). **Two "balancing"
+  headings**: Y (outside air's alternate approach) and AL —
+  `BalancingCol` is the one AFTER the override column.
+- **Apartments' bedrooms and occupants** (`Dwellings`): "No of Bedrooms"
+  (M, apartment's first row) = rooms named bedroom (`IsBedroom`);
+  occupants N1 = bedrooms + 1, **2 in the master (else first) bedroom, 1
+  in each other** (user's choice); a studio 1 in its first Dwelling Unit
+  room. Blank cells only. `OccupantsCol` = "occupants" + "n1", not N2.
+- **"Dwelling Unit" was broken in the office's own workbook**: the room
+  formula's `IF(O=$H$470,"NA",...)` points tens of rows away from the
+  helper cell (one pattern pointed at "Lecture Classroom"), so the
+  category gave #VALUE!. `DwellingCheck` re-points it at Table 6-1's own
+  cell in every export and update (template room row only; untouched
+  levels keep theirs).
+
 ### Fixtures (`VENTFIXTURES`)
 WCs and urinals counted into "No. of Units" (column found by heading,
 shifts with the Room Number column). Sources default to the room links;
 families default to `LooksLikeWcOrUrinal` (never "lavatory" — a basin in
 Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
 300 mm in front, then the origin. Occupants are NOT counted.
+- **The dialog lists MODELS, not placements** (user, 2026-10-17):
+  `VENTFIXTUREDIALOG.ModelOf` = the label's title before `" : "`; a
+  ticked model stores all its placements, and the export adds any placed
+  since (`VENTFIXTURES.EveryPlacement`, by link type — explicit choices
+  only; the default stays the room links). The window's line counts
+  models (`ModelCount`). Ticks equal to the room links' MODELS = follow
+  the default.
+- **Both lists pick several rows** (ListBox, Extended: click / Ctrl /
+  Shift / Ctrl+A); a box on a picked row ticks every picked row; Space
+  ticks the picks. The name picks the row, the box ticks it. Picks are
+  read from `SelectedItems`. The families search only hides rows; WPF
+  drops a hidden row from the selection itself. Families keep their tick
+  while models are unticked and ticked again (`_familyOn`). Test:
+  `fixturedialogtest` (real dialog, off-screen, real `OnClick`).
 
 ### Apartments (Tower-1 pattern: apartment down F, rooms in H, bedrooms merged)
+- **On screen they are "Containers", their rooms "Units"** (user,
+  2026-10-19: AUTOVENT for offices too) — every window, tooltip, status,
+  the export/debug/apartments logs; the occupancy scope reads Units / Not
+  units. **Code, settings keys (`apartments`, `apartment`), the rules file
+  and `ATKINSMEC_apartments_log.txt` keep "apartment".** A container's
+  rooms are still DWELLINGS for the occupancy rules (Dwelling Unit,
+  bedrooms + occupants) — a per-link "Residential" tick was offered, not
+  taken.
 - "Apartments" tick per link (`ApartmentLinkIds`); interior placements
-  named by a keyword (default `IND`) or ticked level by level in
-  **Interior models...** (`VENTINTERIOR`; picks per level name).
+  named by keywords (default `IND, ID` since 2026-10-19; commas between,
+  any one; each a WORD of the label - ≥3 letters starts a word, 1–2 must
+  be one, so "ID" is never GRID/SIDE: `VENTINTERIOR.Named`) or ticked
+  level by level in **Interior models...** (`VENTINTERIOR`; picks per
+  level name). A keyword the user typed is saved per model; the default
+  is saved as null, so models that never changed it follow a new default.
 - `VENTAPARTMENTS.Build` asks every apartments model which room stands at
   each interior room (`GetRoomAtPoint` at 150 mm, 1.0 m, 1.5 m above its
   floor; **prefers an answer on the room's own storey**). `Map.Settle`
@@ -294,12 +528,12 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   beside the apartment name (G) holds the apartment's number from the
   architect's model, as text (user, 2026-10-11) - the importer never
   reads it.
-- **`Desktop\ATKINSMEC_apartments_log.txt`** is written on every map
+- **`ATKINSMEC_apartments_log.txt`** is written on every map
   build: each model's level error, rooms per level, what each interior
   room was found in, what other models have there. **Read it before
   theorising.**
 
-### Arrange rooms (`VENTARRANGE`, `VENTARRANGEDIALOG`)
+### Arranging rooms (`VENTARRANGE`, in Levels and rooms)
 - Per container (`level:<name>`, `apt:<key>`) orders; an interior room
   taken out of its apartment - **Ungroup** / **Regroup** on screen -
   (**sheet only** — the map is untouched);
@@ -309,30 +543,144 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
 - Applied on top of the default sort in **both** `RoomsOn` and
   `CollectRooms`; **`REVITROOMS` uses the same `NameOf`** or renamed rows
   get no airflow. Nothing leaves its level or apartment.
-- Dialog search: `Words` (incl. model names), headings kept with their
-  rooms, moves step past rows showing (`Stepped`).
+- Search: `Words` (incl. model names), headings kept with their rooms,
+  moves step past rows showing (`Stepped`). Moves and drags stay in the
+  row's level and container.
 - Saved per model (`ungrouped`, `order`, `rename`, `merge`,
   `arrangelink`); link ids re-pointed by label (`Remap`, `Repointed`).
 - **Merge / Unmerge** (user, 2026-10-12: spaces on one FCU fed by one
-  fresh air connection). `VENTARRANGE.Merges` (groups of room keys; one
-  apartment's rooms or the level's own, never mixed); `Together` keeps a
-  group's rows adjacent in every order; ungroup/regroup/reset leave the
-  merge. Export: `Room.Merge` → `VENTROWS.MergeAir` merges the FRESH and
-  EXTRACT cells down the group, top cell
-  `IF((f1)&(f2)="","",N(f1)+N(f2))` from each row's own formula (a row
-  not set up is `""`, and `""+x` is `#VALUE!` down to the Total), lower
-  cells emptied; both columns' sums taken before either is emptied.
+  fresh air connection). **A MERGE IS ONE SIDE'S** (user, 2026-10-22:
+  TA-04-04's kitchen exhaust "is serving only a kitchen" but showed as
+  the foyer's and living/dining's; asked, chose FRESH AIR ONLY for both
+  an FCU merge and the Merge button): `VENTARRANGE.Merges` = fresh air
+  (the Merge button, an FCU's rooms, the sheet's merged fresh cells);
+  `ExtractMerges` = extract, ONLY the sheet's merged extract cells
+  (`VENTFLOWS.Adopt` puts each side's into its own; Model has none).
+  Groups of room keys; one apartment's rooms or the level's own, never
+  mixed; `Together` keeps both kinds adjacent (`Bound`); Unmerge parts
+  both; ungroup/regroup/reset leave the merge. Saved as `merge` /
+  `xmerge` lines. Export: `Room.Merge` / `Room.ExtractMerge` →
+  `VENTROWS.MergeAir` merges each column by its own side down the group,
+  top cell `IF((f1)&(f2)="","",N(f1)+N(f2))` from each row's own formula
+  (a row not set up is `""`, and `""+x` is `#VALUE!` down to the Total),
+  lower cells emptied; every sum taken before any cell is emptied.
   Import: `AirData.FreshMerge/ExhaustMerge`. Airflow write
-  (`REVITROOMS`): groups = sheet merges ∪ arrangement merges
-  (`VENTFCUCHECK.Groups`, union-find, earliest room leads); a group's
-  total shared by the in-room terminals of all its rooms, endcaps carry
-  it once (`Totals`, `AsGroups`). Tests: ventleveltest, ventfcutest,
-  officetest (`MergedTest`), ventsettingstest.
+  (`REVITROOMS`): `freshOf` = sheet fresh cells ∪ `Merges`, `extractOf`
+  = sheet extract cells ∪ `ExtractMerges` (`VENTFCUCHECK.Groups`,
+  union-find, earliest room leads); every step takes its own side's -
+  in-room terminals, endcaps (`AsGroups`), the tally (`tally` /
+  `tallyExtract`), bellmouths, the survey, a write. A legacy save's
+  `merge` lines read as fresh air; an export before the window is opened
+  again has no extract merges. Tests: ventleveltest, ventfcutest,
+  officetest (`MergedTest`), ventsettingstest, arrangeflowtest.
+- **Room columns** (user, 2026-10-24): "Room" m² and m, left of the
+  airflows and shown with or without a sheet - `LinkedRoom.AreaM2` /
+  `HeightM` / `HeightToCeiling`, read in `ReadRooms` by the export's own
+  rule (`RVTLINKSELECTION.Ceilings` + `RoomHeightM`, moved there from
+  REVITEXPORT: floor to the lowest false ceiling over the room's point,
+  else the room's box height; the tooltip says which), carried on
+  `VENTARRANGE.Row`. "-" = not read.
+- **Not enclosed (N)...** (user, 2026-10-24; `VENTUNENCLOSED`, Revit-free,
+  test `arrangeflowtest`): the ticked links' (and found interior
+  placements') rooms with NO AREA but a location - `ReadUnenclosed`, read
+  with each link's rooms in `VENTREAD` (`Answer.Unenclosed`, cached
+  `_unenclosedOf`, let go on Refresh). Not enclosed, or **redundant**
+  (`GetRoomAtPoint` 1 ft above it finds another room with an area -
+  named). Never placed = not listed. A side button, off at 0; opens a list
+  (Model, Level - the link's own, Number, Name, Why) by model, up the
+  building, natural number order; **Copy** = tab-separated with a heading,
+  for an email or Excel. They get no airflows - the fix is the
+  architect's. The row class has PROPERTIES: WPF binds to nothing else.
+- **Airflow columns** (user, 2026-10-19; `VENTFLOWS`, test
+  `arrangeflowtest`): Fresh / now / Extract / now. The value is the
+  SHEET's (the window's `SheetFlows` = `VENTSHEET.Resolve`, model ID
+  first), **READ ONLY** (user, 2026-10-20: "the flowrate from the sheet
+  should be read only" - Set airflow... and its double-click are gone);
+  "now" = what the terminals carry, amber where it differs (none = 0).
+  Groups as the RUN makes them (sheet merges ∪ arrangement, so a sheet
+  merge across containers shows as one group though it cannot be
+  adopted); a group's air on its first row, ↑ below. **The sheet's merges
+  become the arrangement's** on Sheet (`FromSheet`: `VENTFLOWS.Adopt` via
+  `VENTARRANGE.Merge`; refused across containers) - see the switch below.
+- **"now"** (read as Levels and rooms says above: `VENTREAD.Ask.Terminals` →
+  `REVITROOMS` `Mode.Survey`: the run's own walk over the ticked links,
+  every level, unticked rooms too; no write, no dialog, no log): a room's
+  own terminals + its part of each endcap on its units
+  (`VENTFLOWS.Attribute` — weighted by the run's `Share`, so a run's own
+  values read back exactly; split within a merged group by sheet value).
+- **Merge by FCU** (user, 2026-10-19: "the FCU is serving the foyer, the
+  kitchen and the living/dining, but it doesnt detect the foyer as
+  merged"; `VENTFLOWS.FcuGroups`): the survey also returns each unit's
+  supplied rooms and its fresh endcaps. **Supplied = the rooms of the
+  supply terminals whose DUCTS reach it** (user 2026-10-21: TA-04-10's
+  powder room "is actually not supplied from the FCU"; then its dressing,
+  whose diffuser IS on the bedroom's FCU). `TraceDucts` follows each
+  supply terminal (`IsSupply`: not endcap / bellmouth / fresh / extract;
+  connector supply air or flowing in) BACK along connected ducts / flex /
+  fittings / accessories to the equipment it reaches - at ANY of the
+  unit's connectors, never through another terminal or unit. Walking OUT
+  from an FCU's "supply" connectors (the first try, same day) missed
+  TA-04-04's kitchen and living/dining - ducts on a connector the family
+  classes otherwise. The Revit SYSTEM (`GetServedRoomKeys`) is wider than
+  the ductwork (KIFAF: one FCU's system reached the mirror apartment's
+  kitchen; a no-endcap unit "supplied" eight apartments) and now decides
+  only for a unit no terminal's ducts reach. A supply terminal reaching no
+  unit is "terminal on no FCU" on its row (`Unreached`, id on hover) and
+  in the survey log with where its ducts end open. The RUN's endcap trace
+  still uses the system - not changed. `ATKINSMEC_survey_log.txt` (the
+  survey's whole walk, since 2026-10-21) lists the FCUs whose ducts and
+  system disagree, terminal by terminal. Suggested only: a unit with a
+  fresh air connection; its rooms in the one container (or level-own)
+  holding MORE THAN HALF of them (stray rooms left out, named in the
+  tooltip); no room claimed by two suggestions (both dropped, counted);
+  not already merged together. Rows say "one FCU with ...".
+- **Sheet | Model switch** (user, 2026-10-19 - replaced a Merge by FCU
+  button): two ToggleButtons. **The switch decides what Write to
+  terminals writes** (user: "should decide which flowrates will be
+  assigned to the air terminals"; asked, chose the Model column values).
+  **EACH PRESS WORKS ITS OWN MERGES OUT AFRESH** (user, 2026-10-19/20:
+  Sheet "should show the merged rooms according to sheet", Model
+  "according to model"; then "when pressing on sheet the spaces from
+  model showing merged"). **Sheet = the sheet's merged rooms and NOTHING
+  else** (`FromSheet`: `VENTFLOWS.Adopt` into an empty arrangement; no
+  sheet, none) - pressed even with Sheet already down, so merges saved by
+  an older version (left on Model, FCU groups in `Merges`, nothing
+  saying so) are replaced; writes the Sheet columns. **Model = the FCUs'
+  groups, fresh air, and NOTHING else - no extract merges** (`VENTFLOWS.ByFcu(null, ...)` - it used to
+  carry every Sheet merge no FCU touched), from the terminals as last
+  read; sheet merges NOT unioned; writes the Model columns - each group's
+  terminal total; `WroteModel` → `ExtEventHan.WriteSheetMerges = false`
+  → `REVITROOMS.SheetMerges` leaves the sheet's merged cells out of the
+  grouping. **ALSO ON OPENING** (`Derive`, user 2026-10-20 again: "when
+  pressing on the model button, it should be showing the spaces from the
+  model that are merged..."): the button that is down has its merges
+  worked out as soon as their source is here - the sheet on Sheet, the
+  terminals on Model (`Terminals` / `Refill` call it once they arrive;
+  until then the saved merges stand); saved only if they changed (`Same`).
+  So the merges shown are ALWAYS the button's. **A hand Merge / Unmerge
+  lasts until the next press, or the window is opened again.** Nothing
+  picked: nothing written, either view (pick rooms or a level). The view
+  showing is the arrangement's (`Merges` - saved, exported, used by the
+  runs); `Arrangement.ByModel` (saved, `mergeview` line) reopens the
+  window on the view it was left on. Renames/orders are shared.
+  Caution: a room with an in-room fresh terminal AND an endcap on its
+  unit reads both as "now" - a Model write puts that sum on both.
+  Columns headed **Sheet** (Fresh, Extract) and **Model** (Fresh,
+  Extract). Rows: **red** = room number shared on the level with a
+  DIFFERENT room (`VENTFLOWS.Repeated`; the same room id under another
+  link id - one model placed again - is not red, user 2026-10-19), else
+  **yellow** = sheet ≠ model (every row of the group).
+- **Write to terminals** = request 4, the window left open → `REVITROOMS` `Mode.Write`:
+  the picked rooms' groups (none picked: nothing),
+  `VENTFLOWS.Overrides` (group value on its first room, 0 on the rest),
+  only those groups' in-room terminals and the endcaps carrying them
+  (an endcap also carries its other groups' SHEET air). Short report +
+  the debug log. **Never run in Revit.**
 
 ### Logs and video
-- `Desktop\ATKINSMEC_debug_log.txt` on every airflow run (levels of each
+- `ATKINSMEC_debug_log.txt` on every airflow run (levels of each
   link, a room's floor checked two ways).
-- `Desktop\ATKINSMEC_export_log.txt` on every export: the full report.
+- `ATKINSMEC_export_log.txt` on every export: the full report.
   The dialog itself is one line - "The sheet has been exported to
   <path>" - and nothing on screen mentions "the office" (user, 2026-10-11).
 - Tutorial video: `tests/ventpreview tutorial` + `tests/video`
@@ -346,6 +694,16 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
 Modal; runs with **no model open**. `CHWVOLUME` measures, `CHWEXPORT`
 (Revit-free) writes, `CHWCLOUD` opens ACC models in the background
 (picked from the collaboration cache; regions probed).
+- **The list is a tree** (`CHWTREE`, Revit-free, test: `chwtreetest`;
+  user, 2026-10-19): the open model, each link PLACEMENT below it, each
+  nested link below the placement it is in (`IsNestedLink` →
+  `GetParentId` is a TYPE, so the placement is the parent type's
+  placement with the nearest origin, `CHWTREE.Nearest`). A model placed
+  again is a `Repeat`, offered **unticked** (totals as before until
+  ticked in); a doc measured once per run (`Again`).
+- Search box: hides rows only (`CHWTREE.Shown`: a match + every row
+  above it + the open model); Tick all / Untick all act on the rows
+  showing.
 
 ## DUCT INSULATION
 `DUCTINSULATIONUPDATER` (`IUpdater`) — **must never throw**; it would
@@ -360,6 +718,14 @@ abort the user's own transaction.
 - A grid point in a hole goes to the nearest clear point, **preferring
   its own row/column line** (within 0.3 m); walls count only on the
   room's own storey (`StandsInRoom`, 300 mm).
+- **A one-head room's head goes in the middle of its MAIN PART** (user,
+  2026-10-25: a store's head 0.6 m off its middle, "SPRINKLERS placed
+  it"): one cell = the whole rectangle round the room, whose centre is the
+  OUTLINE's - pulled towards a nook or a door recess. `MainPart`: the
+  largest rectangle inside the outline (holes ignored - columns are still
+  dodged after), 48 samples a side, histogram; a plain rectangle's own
+  centre exactly. A part then beyond reach gets its own head from the gap
+  filling (the nook case: 2 heads where there was 1 - the user took that).
 - Window reads only in an API context (constructor / `SPRINKLEREVENT`),
   per-link floors cached, reads have their own slot.
 
@@ -409,7 +775,7 @@ cache, `Scope`); a throwing check becomes a warning row; settings via
   preferences, joints written down and mended. `QACHWROOM` slides
   fittings to keep short pipes (Leg / Branch / Teed; `Sound` checks
   joints, no turned pipe, square joints) — **`roomtest` is a hand MIRROR
-  of it: change both together.** `Desktop\ATKINSMEC_chw_log.txt`.
+  of it: change both together.** `ATKINSMEC_chw_log.txt`.
 - **CHW disconnections**: pipes only; each pipe to its nearest unit
   (all pairings sorted); connector by system, then description, then
   distance; supply never to return; unclassified connectors joinable
@@ -442,7 +808,7 @@ reducer/tap/tee/terminal/equipment. Connectors matched by position.
 Shape changes refused. `Verify` reads the model after commit (failures
 are processed at commit). Rewrite curves keeping direction
 (`EQUIPLINE.MovingIsStart`). `EQUIPFAILURES` never resolves an error.
-Reach 40. `Desktop\ATKINSMEC_equip_log.txt`.
+Reach 40. `ATKINSMEC_equip_log.txt`.
 
 ## DUCT ESP
 Its own calculation across this model and ticked links (`ESPCOLLECT`
@@ -453,7 +819,56 @@ family value > family coefficient > table; built-in coefficients are
 rough and flagged everywhere. ESP = worst outlet + worst inlet + margin.
 A port reaching no terminal is a finding. Writes only to this model's
 units. Window built in code (set `AutoScaleMode.Font` explicitly; fits
-the work area). `Desktop\ATKINSMEC_esp_log.txt`. Never run in Revit.
+the work area). `ATKINSMEC_esp_log.txt`. Never run in Revit.
+
+## ROOM TAGS
+User, 2026-10-23: "check the missing room tags in sheets and annotate
+them for selected links with search bar for links and make them annotate
+without duplication". Modal, window built in code (`TAGForm`, Revit-free,
+callbacks from `TAGCommand`); `TAGREAD` reads, `TAGWRITE` tags, `TAGPLAN`
+(Revit-free, test: `roomtagtest`, also `roomtagtest preview <folder>
+[1.5]`) decides.
+- Plans = floor and ceiling plans placed on sheets (no templates). A
+  room is a placement's room (`link:room`) - a model placed twice is two.
+- **Shown in a plan**: 2023+ asks the view
+  (`FilteredElementCollector(doc, viewId, linkId)`, rooms, area > 0);
+  2022 has no such collector - the band rule (`VENTLEVELMAP.StoreyOf`
+  on the room's geometry floor, `GenLevel`'s name). Both: the room's
+  own point (`LocationPoint` through the link's total transform) inside
+  the crop box, else counted as outside the crop and left alone (the
+  collector passes rooms outside a crop). A plan showing none of a
+  link's rooms while rooms stand on its level gets a note ("Rooms hidden
+  in the view?"); so does a hidden link.
+- **Tagged** = any `RoomTag` (any type, not orphaned) of that linked
+  room whose owner view, mapped to its PRIMARY, is the plan's owner.
+- **Never twice**: a dependent's tags are its primary's, so tags go in
+  the primary (`OwnerOf`) and a room missing in a plan and its
+  dependents is one tag (`ToTag`, per owner); a second run finds nothing.
+- Tags: `NewRoomTag(LinkElementId, UV host XY, ownerViewId)` →
+  `ChangeTypeId` to the picked type; one transaction "Room tags"; warnings
+  deleted; counted from the model after the commit, then read again.
+- **Remove duplicates** (user, 2026-10-24; `TAGPLAN.Doubles`): tags of
+  one room in one owner view, of one type (**Any tag type** ticked: any
+  type - off by default, as a name tag + an area tag is often meant).
+  Each tag knows which plans on sheets show it (`SeenIn`: its head inside
+  the plan's crop). As few stay as leave every plan that showed a tag of
+  the room showing one - greedy, the tag in most plans not yet covered,
+  the oldest on a tie - so a room tagged once in each of two dependents'
+  areas keeps both. Pinned / grouped tags stay; a tag no sheet plan shows
+  is left alone. Acts on ticked plans' duplicates (a row's = the ones its
+  plan shows), asks first, one transaction "Remove duplicate room tags",
+  only ever deletes a `RoomTag`, counted from the model, read again.
+- Window: links (search hides only, ticks stand; All / None act on rows
+  showing), Check sheets → a row per plan with Missing and Duplicates
+  (Fix ticks: rows with either; unticked rows remembered; sheets search;
+  Tick all / Untick all on rows showing), the picked plan's missing rooms,
+  duplicates and notes, tag type (Revit's default for room tags), Tag
+  missing (asks first), Remove duplicates + Any tag type, Log. A link changed after a check
+  drops the rows. Per model in `%AppData%\ATKINSMEC\roomtags.txt`:
+  ticked links by label (default = links with rooms, saved as null; an
+  unloaded link keeps its tick) and the tag type by name.
+- `ATKINSMEC_roomtags_log.txt` on every check and tagging. **Never run
+  in Revit.**
 
 ---
 
@@ -482,8 +897,12 @@ touching a layout.
 - `Document.IsReadOnly` means "not right now", not "read-only file".
 - **Report from the model, not from what was attempted** (commit-time
   failures).
-- Logs on the Desktop exist because harnesses passed while real models
-  failed. Read them first.
+- Logs exist because harnesses passed while real models failed. Read
+  them first. **All nine are in `%AppData%\ATKINSMEC\`** (the eighth,
+  `ATKINSMEC_survey_log.txt`, is Levels and rooms' terminals read; the
+  ninth `ATKINSMEC_roomtags_log.txt`) beside the
+  settings, through `LOGS.PathOf` (user, 2026-10-16; on the Desktop
+  before). A new log goes through it too.
 - **Tests live in `tests\`, never the scratchpad** (Windows cleans
   `%LocalAppData%\Temp`). Each compiles the real Revit-free files by
   relative path; run them all after any change:

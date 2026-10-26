@@ -1,5 +1,5 @@
 @echo off
-REM ATKINSMEC installer. Double-click this file.
+REM Atkins MEP Toolkit installer. Double-click this file.
 REM No administrator rights are needed: everything goes into your own
 REM Windows profile, under %AppData%.
 

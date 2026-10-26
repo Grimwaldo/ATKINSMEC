@@ -102,8 +102,8 @@ namespace ATKINSMEC
                 "The whole run is one undo step: Ctrl+Z puts everything " +
                 "back.");
             Body(
-                "Every step is written to ATKINSMEC_equip_log.txt on your " +
-                "Desktop - which connector, how far the walk went, what " +
+                "Every step is written to ATKINSMEC_equip_log.txt in " +
+                LOGS.Folder + " - which connector, how far the walk went, what " +
                 "each duct was resized from and to, and what Revit said " +
                 "about anything it refused. Read that before guessing.");
         }
