@@ -3177,7 +3177,7 @@ namespace ATKINSMEC
             {
                 VENTFLOWS.Sheet sheet = SheetRow(key);
 
-                if (sheet != null && VENTFLOWS.Choose(_work, key, field, text, sheet))
+                if (sheet != null && VENTFLOWS.Choose(_work, key, field, text, sheet, _formulas == null ? null : _formulas.PerUnit))
                     kept++;
             }
 

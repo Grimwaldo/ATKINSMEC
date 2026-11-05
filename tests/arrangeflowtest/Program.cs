@@ -577,6 +577,32 @@ internal static class Program
 
         Check("null is as the sheet", VENTFLOWS.Choose(a, "1:2", VENTFLOWS.OccupantsField, null, sheetRow) && !a.Occupancy.ContainsKey("1:2"));
 
+        // ---- a per-unit exhaust category on a room with no units: 1 unit
+        // (user, 2026-11-05: toilets read 0 L/s)
+        var perUnit = new HashSet<string> { "toilets - private", "toilets - public" };
+        var t = new VENTARRANGE.Arrangement();
+
+        Check("Toilets - public chosen, no units in the sheet: 1 unit",
+            VENTFLOWS.Choose(t, "5:1", VENTFLOWS.ExhaustCategoryField, "Toilets - public", Row(0, 0), perUnit) &&
+            t.Occupancy["5:1"].ExhaustCategory == "Toilets - public" && t.Occupancy["5:1"].Units == 1);
+
+        Check("...the sheet's 3 units kept",
+            VENTFLOWS.Choose(t, "5:2", VENTFLOWS.ExhaustCategoryField, "Toilets - private", Row(0, 0, units: 3), perUnit) &&
+            !t.Occupancy["5:2"].Units.HasValue);
+
+        Check("...units chosen first kept",
+            VENTFLOWS.Choose(t, "5:3", VENTFLOWS.UnitsField, "4", Row(0, 0), perUnit) &&
+            VENTFLOWS.Choose(t, "5:3", VENTFLOWS.ExhaustCategoryField, "toilets – PRIVATE", Row(0, 0), perUnit) &&
+            t.Occupancy["5:3"].Units == 4);
+
+        Check("...a category rated by area: no units given",
+            VENTFLOWS.Choose(t, "5:4", VENTFLOWS.ExhaustCategoryField, "Kitchenettes", Row(0, 0), perUnit) &&
+            !t.Occupancy["5:4"].Units.HasValue);
+
+        Check("...per-unit categories not known (no workbook): no units given",
+            VENTFLOWS.Choose(t, "5:5", VENTFLOWS.ExhaustCategoryField, "Toilets - public", Row(0, 0)) &&
+            !t.Occupancy["5:5"].Units.HasValue);
+
         // ---- from the rules, blank ones only
         var rules = new Dictionary<string, VENTFLOWS.Sheet>
         {

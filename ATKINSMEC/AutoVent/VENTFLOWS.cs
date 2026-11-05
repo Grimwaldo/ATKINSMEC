@@ -134,6 +134,11 @@ namespace ATKINSMEC
             public List<string> FreshChoices;
             public List<string> ExhaustChoices;
             public List<string> UseChoices;
+
+            // The exhaust categories rated per unit (toilets, showers, the
+            // kitchens - VENTOCCUPANCY.PerUnit's spelling); null: not known
+            public HashSet<string> PerUnit;
+
             public Func<IDictionary<string, VENTARRANGE.RoomOccupancy>, Dictionary<string, Calc>> Calculate;
         }
 
@@ -181,7 +186,14 @@ namespace ATKINSMEC
         // the value (a number for occupants and units). A choice that is
         // what the sheet has follows the sheet, so a later change to the
         // sheet comes through. False for a number that is not one.
-        public static bool Choose(VENTARRANGE.Arrangement arrangement, string key, string field, string text, Sheet sheet)
+        //
+        // A PER-UNIT EXHAUST CATEGORY CHOSEN on a room with no units (user,
+        // 2026-11-05: Toilets - private / public read 0 L/s, the sheet
+        // multiplying the rate by a blank "No. of Units") takes 1 unit - as
+        // the occupancy rules give a toilet one fixture where none was
+        // counted. Shown in the Units cell, changed there like any other.
+        public static bool Choose(VENTARRANGE.Arrangement arrangement, string key, string field, string text, Sheet sheet,
+                                  ICollection<string> perUnit = null)
         {
             if (arrangement == null || key == null)
                 return false;
@@ -203,6 +215,12 @@ namespace ATKINSMEC
 
                 case ExhaustCategoryField:
                     chosen.ExhaustCategory = value;
+
+                    double units = chosen.Units ?? (sheet == null ? double.NaN : sheet.Units);
+
+                    if (!string.IsNullOrEmpty(value) && perUnit != null && perUnit.Contains(Key(value)) && double.IsNaN(units))
+                        chosen.Units = 1;
+
                     break;
 
                 case UseField:
