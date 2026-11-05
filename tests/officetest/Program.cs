@@ -1406,6 +1406,48 @@ internal static class Program
 
             Check(Num("503", layout.ExhaustAirCol) == 0, "a public toilet with no fixtures counted: 0 L/s, as the log says");
 
+            // ---- Toilets - public / private picked in the sheet (user,
+            // 2026-11-05: "check if the exhaust flowrate value from toilets
+            // occupancy private or public shows up correctly"). Table 6-4:
+            // public 25 / 35 L/s a unit, private 12.5 / 25; rounded up to 5.
+            int gents = RowOf(ws, layout, "503"), officeRow = RowOf(ws, layout, "501");
+
+            double Exhaust(int row, string category, double? units, string use)
+            {
+                ws.Cells[row, layout.ExhaustCategoryCol].Value = category;
+                ws.Cells[row, layout.UnitsCol].Value = units;
+                ws.Cells[row, layout.UseCol].Value = use;
+                p.Workbook.Calculate();
+
+                object v = ws.Cells[row, layout.ExhaustAirCol].Value;
+                return v is double d ? d : (v == null || v.ToString() == "" ? 0 : -1);
+            }
+
+            var toilets = new List<string>();
+
+            void Toilet(int row, string category, double? units, string use, double expected)
+            {
+                double got = Exhaust(row, category, units, use);
+                toilets.Add(category + " x " + (units?.ToString() ?? "blank") + (use == null ? "" : " light") + " = " + got);
+
+                Check(got == expected, "the sheet: " + category + ", " + (units?.ToString() ?? "no") + " unit(s)" +
+                                       (use == null ? "" : ", light use") + " - " + got + " L/s (expected " + expected + ")");
+            }
+
+            Toilet(gents, "Toilets - public", 1, null, 35);
+            Toilet(gents, "Toilets - public", 3, null, 105);
+            Toilet(gents, "Toilets - public", 3, VENTOCCUPANCY.LightUse, 75);
+            Toilet(gents, "Toilets - public", null, null, 0);
+            Toilet(officeRow, "Toilets - private", 1, null, 25);
+            Toilet(officeRow, "Toilets - private", 2, null, 50);
+            Toilet(officeRow, "Toilets - private", 1, VENTOCCUPANCY.LightUse, 15);
+            Toilet(officeRow, "Toilets - private", null, null, 0);
+
+            Console.WriteLine("   toilets in the sheet: " + string.Join("; ", toilets));
+
+            Exhaust(gents, "Toilets - public", null, null);
+            Exhaust(officeRow, null, null, null);
+
             // ---- each apartment's bedrooms and people
             Check(Num("505", layout.BedroomsCol) == 1 && Num("510", layout.BedroomsCol) == 2 && Num("520", layout.BedroomsCol) == 0,
                   "No of Bedrooms on each apartment's first row: 1, 2 and the studio's 0");
@@ -1609,6 +1651,66 @@ internal static class Program
 
                 Check(calc[office].FreshError != null && calc[office].Air.Fresh == 0,
                       label + ": a category the table has not got - its error said: " + (calc[office].FreshError ?? "(none)"));
+
+                // ---- Toilets - public / private chosen in Levels and rooms
+                // (user, 2026-11-05): the new Exhaust air, against the same
+                // choice worked out by the whole workbook
+                int gents = Air("503").Row;
+
+                double InFull(int row, string category, double? units, string use)
+                {
+                    using (var p = new ExcelPackage(new FileInfo(saved)))
+                    {
+                        ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+                        ws.Cells[row, layout.ExhaustCategoryCol].Value = category;
+                        ws.Cells[row, layout.UnitsCol].Value = units;
+                        ws.Cells[row, layout.UseCol].Value = use;
+                        p.Workbook.Calculate();
+                        object v = ws.Cells[row, layout.ExhaustAirCol].Value;
+                        return v is double d ? d : (v == null || v.ToString() == "" ? 0 : -1);
+                    }
+                }
+
+                var chosenToilets = new List<string>();
+
+                void Chosen(int row, string category, double? units, string use, double expected)
+                {
+                    calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+                    {
+                        [row] = new VENTARRANGE.RoomOccupancy
+                        {
+                            ExhaustCategory = category,
+                            Units = units ?? double.NaN,
+                            Use = use ?? ""
+                        }
+                    });
+
+                    double full = InFull(row, category, units, use);
+                    string what = category + ", " + (units?.ToString() ?? "no") + " unit(s)" + (use == null ? "" : ", light use");
+                    chosenToilets.Add(what + " = " + calc[row].Air.Extract);
+
+                    Check(calc[row].Air.Extract == expected && full == expected && calc[row].ExtractError == null,
+                          label + ": " + what + " chosen - new Exhaust air " + calc[row].Air.Extract + ", the whole workbook " + full +
+                          " (expected " + expected + ")");
+                }
+
+                HashSet<string> perUnit = w.PerUnit();
+
+                Check(perUnit.Contains("toilets - public") && perUnit.Contains("toilets - private") &&
+                      perUnit.Contains("toilets - private (residential)") && !perUnit.Contains("kitchenettes"),
+                      label + ": the categories rated per unit - " + string.Join(", ", perUnit));
+
+                Chosen(gents, "Toilets - public", 1, null, 35);
+                Chosen(gents, "Toilets - public", 3, null, 105);
+                Chosen(gents, "Toilets - public", 3, VENTOCCUPANCY.LightUse, 75);
+                Chosen(gents, "Toilets - public", null, null, 0);
+                Chosen(office, "Toilets - private", 1, null, 25);
+                Chosen(office, "Toilets - private", 2, null, 50);
+                Chosen(office, "Toilets - private", 1, VENTOCCUPANCY.LightUse, 15);
+                Chosen(office, "Toilets - private", null, null, 0);
+                Chosen(ensuite, "Toilets - private", 1, null, 25);
+
+                Console.WriteLine("   " + label + ", toilets chosen: " + string.Join("; ", chosenToilets));
 
                 // ---- every choice gone: the sheet's
                 calc = w.Apply(none);

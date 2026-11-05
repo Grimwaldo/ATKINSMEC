@@ -247,6 +247,13 @@ namespace ATKINSMEC
             return VENTOCCUPANCY.Choices(_ws, Layout.ExhaustCategoryCol, row, true);
         }
 
+        // The Table 6-4 categories the sheet multiplies by "No. of Units"
+        // (VENTOCCUPANCY.PerUnit: lower case, one space, plain dashes)
+        public HashSet<string> PerUnit()
+        {
+            return VENTOCCUPANCY.PerUnit(_package.Workbook);
+        }
+
         public List<string> UseChoices(int row)
         {
             return Layout.UseCol <= 0 ? null : VENTOCCUPANCY.ListAt(_ws, Layout.UseCol, row) ?? VENTOCCUPANCY.Uses(_package.Workbook);

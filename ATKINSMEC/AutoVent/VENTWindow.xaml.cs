@@ -1529,6 +1529,7 @@ namespace ATKINSMEC
                 FreshChoices = whatIf.FreshChoices(sample),
                 ExhaustChoices = whatIf.ExhaustChoices(sample),
                 UseChoices = whatIf.UseChoices(sample),
+                PerUnit = whatIf.PerUnit(),
                 Calculate = chosen =>
                 {
                     // Two rooms on one row (a guess, VENTSHEET.Resolve): the
