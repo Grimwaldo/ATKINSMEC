@@ -605,7 +605,81 @@ namespace ventpreview
                 new ATKINSMEC.VENTUNENCLOSED.Room { LinkId = 10, RoomId = 93, Number = "TA-04-40", Name = "RISER", LinkName = "5232535-ATR-TWR-ZZZ-3DM-ARC-000010", Level = "LEVEL 04A", LevelZ = 15.6 }
             };
 
-            var dialog = new ATKINSMEC.VENTROOMSWINDOW(() => ticks, RowsOf, arrangement, sheet, carrying, units)
+            // THE OCCUPANCY CHOSEN HERE (2026-10-26): a bedroom's third person
+            // and the kitchen's second unit, worked through a stand-in for
+            // the sheet's formulas - its columns as the office heads them
+            arrangement.Occupancy["20:56"] = new ATKINSMEC.VENTARRANGE.RoomOccupancy { Occupants = 3 };
+            arrangement.Occupancy["21:7"] = new ATKINSMEC.VENTARRANGE.RoomOccupancy { Units = 2 };
+
+            ATKINSMEC.VENTFLOWS.CalcColumn Calc(int col, string letter, string label, string unit) =>
+                new ATKINSMEC.VENTFLOWS.CalcColumn { Col = col, Letter = letter, Label = label, Units = unit, Heading = label + " / " + unit };
+
+            var formulas = new ATKINSMEC.VENTFLOWS.Formulas
+            {
+                // As KIFAF 7.xlsx's Ventilation sheet's calculation comes out
+                // (VENTWHATIF.ColumnsFor, 2026-10-28) - wider than the
+                // window, so it scrolls
+                Columns =
+                {
+                    Calc(16, "P", "People Outdoor Air Rate Rp", "L/s*person"),
+                    Calc(17, "Q", "Area Outdoor Air Rate Ra", "l/s.m²"),
+                    Calc(18, "R", "Occupant Density", "# / 100 m²"),
+                    Calc(19, "S", "Number of Occupants Based on ASHRAE, N2", ""),
+                    Calc(20, "T", "Combined Outdoor Air Rate, V", "l/s*person"),
+                    Calc(21, "U", "Total Outside Air based on Actual Occupancy", "l/s"),
+                    Calc(22, "V", "Total Outside Air based on Default Occupancy", "l/s"),
+                    Calc(23, "W", "OutSide Airflow Used", "l/s"),
+                    Calc(24, "X", "OutSide Fresh Airflow Used (based on actual occupancy)", "l/s"),
+                    Calc(32, "AF", "Exhasut Rate", "L/s*unit"),
+                    Calc(33, "AG", "Exhasut Rate", "L/s*m²"),
+                    Calc(34, "AH", "Total Exhaust", "l/s")
+                },
+                FreshChoices = new System.Collections.Generic.List<string> { "Dwelling Unit", "Common Corridors", "Office Space" },
+                ExhaustChoices = new System.Collections.Generic.List<string> { "Toilets - private (residential)", "Residential kitchens- Apartments" },
+                UseChoices = new System.Collections.Generic.List<string> { "Heavy Use / Cont. Oper.", "Light Use / Cont. Oper." },
+                Calculate = chosen =>
+                {
+                    var calc = new System.Collections.Generic.Dictionary<string, ATKINSMEC.VENTFLOWS.Calc>();
+
+                    foreach (var row in sheet)
+                    {
+                        ATKINSMEC.VENTARRANGE.RoomOccupancy mine;
+                        chosen.TryGetValue(row.Key, out mine);
+
+                        var one = new ATKINSMEC.VENTFLOWS.Calc { Air = row.Value.Air.Copy() };
+                        bool dwelling = row.Value.FreshCategory == "Dwelling Unit";
+
+                        one.Cells[16] = row.Value.FreshCategory.Length == 0 ? "" : "2.5";
+                        one.Cells[17] = row.Value.FreshCategory.Length == 0 ? "" : dwelling ? "0.3" : "0.3";
+                        one.Cells[18] = dwelling ? "NA" : row.Value.FreshCategory.Length == 0 ? "" : "5";
+                        one.Cells[21] = double.IsNaN(row.Value.Air.Fresh) ? "" : (row.Value.Air.Fresh - 2.6).ToString("0.0");
+                        one.Cells[33] = double.IsNaN(row.Value.Air.Extract) ? "" : row.Value.Air.Extract.ToString("0");
+
+                        if (mine != null)
+                        {
+                            one.SheetCells = new System.Collections.Generic.Dictionary<int, string>(one.Cells);
+
+                            if (mine.Occupants.HasValue)
+                            {
+                                one.Air.Fresh += 2.5 * (mine.Occupants.Value - row.Value.Occupants);
+                                one.Cells[21] = (one.Air.Fresh - 2.6).ToString("0.0");
+                            }
+
+                            if (mine.Units.HasValue)
+                            {
+                                one.Air.Extract = 50 * mine.Units.Value;
+                                one.Cells[33] = one.Air.Extract.ToString("0");
+                            }
+                        }
+
+                        calc[row.Key] = one;
+                    }
+
+                    return calc;
+                }
+            };
+
+            var dialog = new ATKINSMEC.VENTROOMSWINDOW(() => ticks, RowsOf, arrangement, sheet, carrying, units, formulas)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = -4000,
@@ -630,6 +704,20 @@ namespace ventpreview
 
             Shoot(dialog, Path.Combine(folder, "autovent-arrange.png"));
             Shoot(dialog, Path.Combine(folder, "autovent-arrange-1.5x.png"), 1.5);
+
+            // Scrolled to the far right: the headings move with the cells
+            System.Windows.Controls.ScrollViewer sideways = FindChild<System.Windows.Controls.ScrollViewer>(list);
+
+            if (sideways != null)
+            {
+                sideways.ScrollToRightEnd();
+                dialog.UpdateLayout();
+
+                Shoot(dialog, Path.Combine(folder, "autovent-arrange-right.png"));
+
+                sideways.ScrollToLeftEnd();
+                dialog.UpdateLayout();
+            }
 
             // Model: grouped as the FCUs serve - then back to Sheet
             System.Reflection.MethodInfo view = typeof(ATKINSMEC.VENTROOMSWINDOW)

@@ -157,7 +157,8 @@ internal static class Program
     }
 
     private static VENTROOMSWINDOW Make(Dictionary<string, VENTFLOWS.Air> carrying, List<VENTFLOWS.Unit> units = null, bool sheet = true,
-                                        VENTARRANGE.Arrangement arrangement = null, Dictionary<string, VENTFLOWS.Sheet> rows = null)
+                                        VENTARRANGE.Arrangement arrangement = null, Dictionary<string, VENTFLOWS.Sheet> rows = null,
+                                        VENTFLOWS.Formulas formulas = null)
     {
         _levels = Levels();
         _arrangement = arrangement ?? new VENTARRANGE.Arrangement();
@@ -167,7 +168,7 @@ internal static class Program
         _shownElsewhere = -1;
         _written = false;
 
-        return new VENTROOMSWINDOW(() => _levels, RowsOf, _arrangement, sheet ? rows ?? Sheet() : null, carrying, units)
+        return new VENTROOMSWINDOW(() => _levels, RowsOf, _arrangement, sheet ? rows ?? Sheet() : null, carrying, units, formulas)
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = -4000,
@@ -309,12 +310,14 @@ internal static class Program
         return Within<TextBlock>(item.Content).SelectMany(t => t.Inlines.OfType<System.Windows.Documents.Run>());
     }
 
-    // The text cells of a tagged block of cells (Tag "flow" or "room")
+    // The text cells of a tagged block of cells (Tag "flow" or "room") - a
+    // list's text beside its arrow
     private static TextBlock[] CellsIn(StackPanel cells)
     {
         return cells == null
             ? new TextBlock[0]
-            : cells.Children.OfType<Border>().Select(b => b.Child).OfType<TextBlock>().ToArray();
+            : cells.Children.OfType<Border>().Select(b => b.Child as TextBlock ?? (b.Child is Grid ? Within<TextBlock>(b.Child).FirstOrDefault() : null))
+                .Where(t => t != null).ToArray();
     }
 
     // A click as a person makes it: the box toggles, then Click is raised
@@ -347,13 +350,13 @@ internal static class Program
         Console.WriteLine("the sheet's columns, Differences only, Columns...");
 
         // ---- the columns chosen, remembered
-        Check("by default: notes, the room's m² and m, the occupancy categories",
-            VENTCOLUMNS.Defaults().SetEquals(new[] { VENTCOLUMNS.Notes, VENTCOLUMNS.Room, VENTCOLUMNS.Categories }));
+        Check("by default: notes, the room's m² and m, the occupancy, occupants and units, the calculation",
+            VENTCOLUMNS.Defaults().SetEquals(new[] { VENTCOLUMNS.Notes, VENTCOLUMNS.Room, VENTCOLUMNS.Categories, VENTCOLUMNS.People, VENTCOLUMNS.Calculation }));
 
-        HashSet<string> parsed = VENTCOLUMNS.Parse("people\ton\nnotes\toff\nnonsense\ton\n");
+        HashSet<string> parsed = VENTCOLUMNS.Parse("people\toff\nnotes\toff\nnonsense\ton\n");
 
-        Check("a saved choice: people on, notes off; a column it does not name keeps its default, a name it does not know is ignored",
-            parsed.SetEquals(new[] { VENTCOLUMNS.Room, VENTCOLUMNS.Categories, VENTCOLUMNS.People }));
+        Check("a saved choice: people off, notes off; a column it does not name keeps its default, a name it does not know is ignored",
+            parsed.SetEquals(new[] { VENTCOLUMNS.Room, VENTCOLUMNS.Categories, VENTCOLUMNS.Calculation }));
 
         Check("round trip", VENTCOLUMNS.Parse(VENTCOLUMNS.Compose(parsed)).SetEquals(parsed));
 
@@ -405,14 +408,13 @@ internal static class Program
 
             ListBox list = ListOf(d);
 
-            TextBlock[] SheetCellsOf(string key) =>
-                CellsIn(((DockPanel)Item(ListOf(d), key).Content).Children.OfType<StackPanel>().FirstOrDefault(p => "sheet".Equals(p.Tag)));
+            TextBlock[] SheetCellsOf(string key) => BlockOf(ListOf(d), key, "occupancy");
 
             TextBlock[] lobby = SheetCellsOf("1:2");
             TextBlock[] kitchen = SheetCellsOf("2:2");
 
-            Check("the sheet's categories, read only: a blank one shows, grey, what an export fills in - '" + lobby[0].Text + "'",
-                lobby.Length == 2 && lobby[0].Text == "Main entry lobbies" && lobby[0].FontStyle == FontStyles.Italic &&
+            Check("the occupancy as the sheet has it: a blank category shows, grey, what an export fills in - '" + lobby[0].Text + "'",
+                lobby.Length == 5 && lobby[0].Text == "Main entry lobbies" && lobby[0].FontStyle == FontStyles.Italic &&
                 ((string)lobby[0].ToolTip).StartsWith("Blank in the sheet") && lobby[1].Text == string.Empty);
 
             Check("...a filled one as the sheet has it: " + kitchen[1].Text,
@@ -428,7 +430,7 @@ internal static class Program
             TextBlock[] people = SheetCellsOf("1:2");
 
             Check("Columns...: occupants and units shown - " + string.Join(" | ", people.Select(t => t.Text)),
-                people.Length == 4 && people[2].Text == "3" && people[3].Text == "-" &&
+                people.Length == 5 && people[3].Text == "3" && people[4].Text == "-" &&
                 HeadsShowing(d).Contains("Occupants") && HeadsShowing(d).Contains("Units"));
 
             Check("...and remembered for the person", VENTCOLUMNS.Load().Contains(VENTCOLUMNS.People));
@@ -482,6 +484,386 @@ internal static class Program
             Press(only);
 
             Check("off again: every row back", ListOf(d).Items.Cast<ListBoxItem>().Count(i => !Is(i, "IsLevel") && !Is(i, "IsApartment")) == 9);
+        });
+    }
+
+    // Lets the window's queued work run (a choice is kept after the focus
+    // has gone)
+    private static void Pump()
+    {
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Background, new Action(() => { }));
+    }
+
+    // THE SHEET'S FORMULAS, as the main window hands them over (VENTWHATIF
+    // there): a stand-in that works a room's fresh air out of its
+    // occupants - 2.5 a person + 7 - and gives #N/A for "Nonsense"; one
+    // calculation column, "T"
+    private static int _calculated;
+
+    private static VENTFLOWS.Formulas Formulas(Dictionary<string, VENTFLOWS.Sheet> rows)
+    {
+        return new VENTFLOWS.Formulas
+        {
+            Columns = new List<VENTFLOWS.CalcColumn>
+            {
+                new VENTFLOWS.CalcColumn { Col = 20, Letter = "T", Label = "Total Outside Air", Units = "l/s", Heading = "Total Outside Air / l/s" }
+            },
+            FreshChoices = new List<string> { "Office Space", "Corridors", "Main entry lobbies", "Dwelling Unit" },
+            ExhaustChoices = new List<string> { "Toilets - public", "Toilets - private (residential)" },
+            UseChoices = new List<string> { "Heavy Use / Cont. Oper.", "Light Use / Cont. Oper." },
+            Calculate = chosen =>
+            {
+                _calculated++;
+
+                var calc = new Dictionary<string, VENTFLOWS.Calc>();
+
+                foreach (KeyValuePair<string, VENTFLOWS.Sheet> row in rows)
+                {
+                    VENTARRANGE.RoomOccupancy mine;
+                    chosen.TryGetValue(row.Key, out mine);
+
+                    var one = new VENTFLOWS.Calc { Air = row.Value.Air.Copy() };
+                    one.Cells[20] = "17";
+
+                    if (mine != null)
+                    {
+                        one.SheetCells = new Dictionary<int, string> { [20] = "17" };
+
+                        if (mine.Occupants.HasValue && !double.IsNaN(mine.Occupants.Value))
+                        {
+                            one.Air.Fresh = 2.5 * mine.Occupants.Value + 7;
+                            one.Cells[20] = one.Air.Fresh.ToString();
+                        }
+
+                        if (mine.FreshCategory == "Nonsense")
+                        {
+                            one.Air.Fresh = 0;
+                            one.FreshError = "#N/A";
+                        }
+                    }
+
+                    calc[row.Key] = one;
+                }
+
+                return calc;
+            }
+        };
+    }
+
+    private static void Occupancy()
+    {
+        Console.WriteLine();
+        Console.WriteLine("the occupancy chosen, its new values, Model writes them");
+
+        // ---- one field chosen (VENTFLOWS.Choose)
+        var sheetRow = Row(30, None, occupants: 3);
+        var a = new VENTARRANGE.Arrangement();
+
+        Check("a number chosen is kept", VENTFLOWS.Choose(a, "1:2", VENTFLOWS.OccupantsField, "10", sheetRow) &&
+            a.Occupancy["1:2"].Occupants == 10 && a.Occupancy["1:2"].FreshCategory == null);
+
+        Check("...the sheet's own value chosen follows the sheet - the room's choice gone",
+            VENTFLOWS.Choose(a, "1:2", VENTFLOWS.OccupantsField, "3", sheetRow) && !a.Occupancy.ContainsKey("1:2"));
+
+        Check("...empty is blank, not the sheet's",
+            VENTFLOWS.Choose(a, "1:2", VENTFLOWS.OccupantsField, "", sheetRow) && double.IsNaN(a.Occupancy["1:2"].Occupants.Value));
+
+        Check("...not a number: refused, nothing changed", !VENTFLOWS.Choose(a, "1:2", VENTFLOWS.UnitsField, "two", sheetRow) &&
+            !a.Occupancy["1:2"].Units.HasValue);
+
+        Check("a category the same as the sheet's but for case and spaces follows the sheet",
+            VENTFLOWS.Choose(a, "1:3", VENTFLOWS.FreshCategoryField, "office  space", Row(10, None, "Office Space")) &&
+            !a.Occupancy.ContainsKey("1:3"));
+
+        Check("null is as the sheet", VENTFLOWS.Choose(a, "1:2", VENTFLOWS.OccupantsField, null, sheetRow) && !a.Occupancy.ContainsKey("1:2"));
+
+        // ---- from the rules, blank ones only
+        var rules = new Dictionary<string, VENTFLOWS.Sheet>
+        {
+            ["1:1"] = Row(10, None, "Corridors", freshSuggested: "Main entry lobbies"),
+            ["1:2"] = Row(30, None, freshSuggested: "main entry LOBBIES"),
+            ["2:1"] = Row(0, 0, freshSuggested: "Plant Room"),
+            ["2:2"] = Row(0, 0, exhaustCategory: "Toilets - public")
+        };
+
+        rules["2:2"].RuleExhaust = "Toilets - public";
+        rules["2:2"].RuleUse = "light use / cont. oper.";
+        rules["2:2"].RuleUnits = 1;
+
+        var fromRules = new VENTARRANGE.Arrangement();
+        int took = VENTFLOWS.FromRules(fromRules, rules.Keys, rules, Formulas(rules));
+
+        Check("from the rules: a blank category given the suggestion, in the list's spelling - " + took + " room(s)",
+            took == 2 && fromRules.Occupancy["1:2"].FreshCategory == "Main entry lobbies");
+
+        Check("...a category already there kept; one the list has not got left blank",
+            !fromRules.Occupancy.ContainsKey("1:1") && !fromRules.Occupancy.ContainsKey("2:1"));
+
+        Check("...the rule's nature of use and units where its exhaust category is the rule's - " +
+              (fromRules.Occupancy.ContainsKey("2:2") ? fromRules.Occupancy["2:2"].Use + ", " + fromRules.Occupancy["2:2"].Units : "none"),
+            fromRules.Occupancy["2:2"].Use == "Light Use / Cont. Oper." && fromRules.Occupancy["2:2"].Units == 1 &&
+            fromRules.Occupancy["2:2"].ExhaustCategory == null);
+
+        Check("...run again: nothing more to fill", VENTFLOWS.FromRules(fromRules, rules.Keys, rules, Formulas(rules)) == 0);
+
+        // ---- the real window, with the stand-in formulas
+        Dictionary<string, VENTFLOWS.Sheet> rows = Sheet();
+        rows["1:2"] = Row(30, None, freshSuggested: "Main entry lobbies", occupants: double.NaN, area: 20.4);
+
+        _calculated = 0;
+
+        // Every column as it comes - an earlier test hid some
+        VENTCOLUMNS.Save(VENTCOLUMNS.Defaults());
+
+        Run(Make(Carrying(), rows: rows, formulas: Formulas(rows)), d =>
+        {
+            ListBox list = ListOf(d);
+            List<string> heads = HeadsShowing(d);
+
+            Check("headed: the occupancy, the new values - Fresh air, Exhaust air - and the calculation's own column",
+                heads.Contains("Occupancy") && heads.Contains("New values") && heads.Contains("Fresh air") && heads.Contains("Exhaust air") &&
+                heads.Contains("Calculation") && heads.Contains("Total Outside Air") && heads.Contains("T · l/s") && _calculated > 0);
+
+            TextBlock[] lobbyNew = BlockOf(list, "1:2", "new");
+
+            Check("nothing chosen: the new values are the sheet's, plain - " + string.Join(" | ", lobbyNew.Select(t => t.Text)),
+                lobbyNew.Length == 2 && lobbyNew[0].Text == "30" && lobbyNew[0].FontWeight != FontWeights.SemiBold);
+
+            Check("the occupancy cells and the Model's open to a double-click",
+                "edit:occupants".Equals(CellOf(list, "1:2", "occupancy", 3).Tag) &&
+                "edit:fresh-category".Equals(CellOf(list, "1:2", "occupancy", 0).Tag) &&
+                "write:fresh".Equals(CellOf(list, "1:2", "model", 0).Tag) && "write:extract".Equals(CellOf(list, "1:2", "model", 1).Tag) &&
+                CellOf(list, "1:2", "sheet", 0).Tag == null);
+
+            // ---- 10 people in the lobby
+            int arranged = _arranged;
+
+            Call(d, "Chosen", new List<string> { "1:2" }, VENTFLOWS.OccupantsField, "10");
+
+            list = ListOf(d);
+            lobbyNew = BlockOf(list, "1:2", "new");
+            Border occupants = CellOf(list, "1:2", "occupancy", 3);
+
+            Check("10 people chosen: kept in the arrangement and saved - " + _arranged,
+                _arrangement.Occupancy["1:2"].Occupants == 10 && _arranged == arranged + 1);
+
+            Check("...the cell says so, the sheet's on hover - " + ((TextBlock)occupants.Child).Text + ", " + ((TextBlock)occupants.Child).ToolTip,
+                ((TextBlock)occupants.Child).Text == "10" && "Sheet: blank".Equals(((TextBlock)occupants.Child).ToolTip) &&
+                occupants.Background != null && occupants.Background != Brushes.Transparent);
+
+            Check("...the new fresh air worked out, amber, the sheet's on hover: " + lobbyNew[0].Text,
+                lobbyNew[0].Text == "32" && lobbyNew[0].FontWeight == FontWeights.SemiBold && "Sheet: 30".Equals(lobbyNew[0].ToolTip));
+
+            TextBlock[] calc = BlockOf(list, "1:2", "calc");
+
+            Check("...and the calculation's column with it, the sheet's on hover - " + calc[0].Text,
+                calc.Length == 1 && calc[0].Text == "32" && "Sheet: 17".Equals(calc[0].ToolTip) && BlockOf(list, "1:1", "calc")[0].Text == "17");
+
+            Check("...needing attention: its new values are not the sheet's",
+                ((List<string>)Call(d, "Attention", Item(list, "1:2").Tag.GetType().GetField("Row").GetValue(Item(list, "1:2").Tag)))
+                    .Contains("new values differ from the sheet"));
+
+            // ---- written: the Sheet's on Sheet, the new values on Model
+            Pick(list, "1:2");
+            Call(d, "WriteNow");
+
+            Check("Sheet: the sheet's 30 written", d.Writes != null && Near(d.Writes["1:2"].Fresh, 30) && !d.WroteModel);
+
+            Call(d, "View", true);
+            Pick(ListOf(d), "1:2");
+            Call(d, "WriteNow");
+
+            Check("Model: the new 32 written", d.Writes != null && Near(d.Writes["1:2"].Fresh, 32) && d.WroteModel);
+
+            Call(d, "View", false);
+
+            // ---- a category the sheet's table has not got
+            Call(d, "Chosen", new List<string> { "1:1" }, VENTFLOWS.FreshCategoryField, "Nonsense");
+
+            TextBlock corridor = BlockOf(ListOf(d), "1:1", "new")[0];
+
+            Check("a category the table has not got: the formula's error in the new value - " + corridor.Text,
+                corridor.Text == "#N/A" && ((string)corridor.ToolTip).Contains("#N/A"));
+
+            // ---- picked rooms: back to the sheet
+            Pick(ListOf(d), "1:1", "1:2");
+            Call(d, "AsSheetPicked");
+
+            Check("Occupancy as the sheet: the picked rooms' choices gone, the sheet's values back - the corridor's merge 10 + 20",
+                _arrangement.Occupancy.Count == 0 && BlockOf(ListOf(d), "1:2", "new")[0].Text == "30" &&
+                BlockOf(ListOf(d), "1:1", "new")[0].Text == "30");
+
+            // ---- from the rules, none picked: every room showing
+            ListOf(d).SelectedItems.Clear();
+            Call(d, "FromRulesPicked");
+
+            Check("Occupancy from rules, nothing picked: every room showing - the lobby's blank category filled",
+                _arrangement.Occupancy.ContainsKey("1:2") && _arrangement.Occupancy["1:2"].FreshCategory == "Main entry lobbies" &&
+                _arrangement.Occupancy.Count == 1);
+
+            // ---- a list in a cell, as a person picks from it
+            _arrangement.Occupancy.Clear();
+            Call(d, "Changed", (object)null);
+
+            ListBoxItem item = Item(ListOf(d), "1:1");
+            Border category = CellOf(ListOf(d), "1:1", "occupancy", 0);
+
+            Call(d, "BeginEdit", item.Tag, VENTFLOWS.FreshCategoryField, category);
+
+            var combo = category.Child as ComboBox;
+
+            Check("a double-click on a category: the sheet's list, after As the sheet and (blank) - " +
+                  (combo == null ? "none" : combo.Items.Count + " item(s)"),
+                combo != null && combo.Items.Count == 6 && combo.SelectedIndex == 0);
+
+            if (combo != null)
+            {
+                // Open once loaded, as a double-click leaves it
+                Pump();
+
+                combo.SelectedIndex = 4;
+                combo.IsDropDownOpen = false;
+                Pump();
+            }
+
+            Check("...one picked: kept - " + (_arrangement.Occupancy.ContainsKey("1:1") ? _arrangement.Occupancy["1:1"].FreshCategory : "none"),
+                _arrangement.Occupancy.ContainsKey("1:1") && _arrangement.Occupancy["1:1"].FreshCategory == "Main entry lobbies");
+
+            category = CellOf(ListOf(d), "1:1", "occupancy", 0);
+            Call(d, "BeginEdit", Item(ListOf(d), "1:1").Tag, VENTFLOWS.FreshCategoryField, category);
+            combo = category.Child as ComboBox;
+
+            if (combo != null)
+            {
+                // Open once loaded, as a double-click leaves it
+                Pump();
+
+                combo.SelectedIndex = 0;
+                combo.IsDropDownOpen = false;
+                Pump();
+            }
+
+            Check("...\"As the sheet\" picked: the room follows the sheet again", !_arrangement.Occupancy.ContainsKey("1:1"));
+
+            // ---- several rooms at once: picked, then one of them edited
+            Pick(ListOf(d), "1:1", "1:2");
+
+            Border lobbyPeople = CellOf(ListOf(d), "1:2", "occupancy", 3);
+            Call(d, "BeginEdit", Item(ListOf(d), "1:2").Tag, VENTFLOWS.OccupantsField, lobbyPeople);
+
+            var box = lobbyPeople.Child as TextBox;
+
+            if (box != null)
+            {
+                box.Text = "4";
+                box.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(box), 0, System.Windows.Input.Key.Enter) { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+                Pump();
+            }
+
+            Check("a number typed in a picked row: every picked room takes it - " + string.Join(", ", _arrangement.Occupancy.Keys.OrderBy(k => k)),
+                box != null && _arrangement.Occupancy.Count == 2 && _arrangement.Occupancy.Values.All(o => o.Occupants == 4));
+
+            // ---- a Model airflow written at once
+            _written = false;
+
+            Call(d, "WriteGroup", new List<string> { "2:1", "2:2" }, false, 45.0);
+
+            Check("a Model cell's airflow written to its group's terminals at once: 45 on the first room, 0 on the other, fresh air only",
+                _written && Near(d.Writes["2:1"].Fresh, 45) && Near(d.Writes["2:2"].Fresh, 0) &&
+                d.WriteFresh.SetEquals(new[] { "2:1", "2:2" }) && d.WriteExtract.Count == 0 && double.IsNaN(d.Writes["2:1"].Extract));
+
+            // ---- A DROP-DOWN, AS IN EXCEL (user, 2026-10-28: "its not a
+            // droplist like excel"): one click opens the list, the picks stay
+            _arrangement.Occupancy.Clear();
+            Call(d, "Changed", (object)null);
+
+            Pick(ListOf(d), "1:1", "1:2");
+
+            // Pressed where it is drawn
+            d.UpdateLayout();
+
+            Border lobbyCategory = CellOf(ListOf(d), "1:2", "occupancy", 0);
+
+            Check("a list's cell shows its arrow", Within<TextBlock>(lobbyCategory).Any(t => t.Text == "▾"));
+
+            PressOn(Within<TextBlock>(lobbyCategory).First());
+            Pump();
+
+            var dropped = lobbyCategory.Child as ComboBox;
+
+            Check("one click on a category: its list open, both rows still picked - " +
+                  (dropped == null ? "no list" : "open " + dropped.IsDropDownOpen) + ", " + ListOf(d).SelectedItems.Count + " picked",
+                dropped != null && dropped.IsDropDownOpen && ListOf(d).SelectedItems.Count == 2);
+
+            if (dropped != null)
+            {
+                var again = new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseDownEvent
+                };
+
+                typeof(System.Windows.Input.MouseButtonEventArgs).GetProperty("ClickCount").GetSetMethod(true).Invoke(again, new object[] { 2 });
+                dropped.RaiseEvent(again);
+
+                Check("...a double-click's second press does not close it", again.Handled);
+
+                dropped.SelectedIndex = 2;
+                dropped.IsDropDownOpen = false;
+                Pump();
+            }
+
+            Check("...picked from it: every picked room takes it - " + string.Join(", ", _arrangement.Occupancy.Select(o => o.Key + " " + o.Value.FreshCategory)),
+                _arrangement.Occupancy.Count == 2 && _arrangement.Occupancy.Values.All(o => o.FreshCategory == "Office Space"));
+
+            Pick(ListOf(d), "1:1", "1:2");
+            d.UpdateLayout();
+
+            Border other = CellOf(ListOf(d), "2:3", "occupancy", 2);
+            PressOn(Within<TextBlock>(other).First());
+            Pump();
+
+            Check("a click on a row not picked: that row alone picked, its list open",
+                other.Child is ComboBox && ListOf(d).SelectedItems.Count == 1 &&
+                ((ListBoxItem)ListOf(d).SelectedItems[0]).Tag == Item(ListOf(d), "2:3").Tag);
+
+            if (other.Child is ComboBox left)
+            {
+                left.IsDropDownOpen = false;
+                Pump();
+            }
+
+            Check("...closed with nothing picked: nothing chosen", !_arrangement.Occupancy.ContainsKey("2:3"));
+
+            // ---- scrolled sideways (user, 2026-10-28: "many columns are
+            // empty without headers"): the headings past the window there
+            d.Width = d.MinWidth;
+            d.UpdateLayout();
+
+            ScrollViewer sideways = FindAll<ScrollViewer>(ListOf(d)).First();
+            sideways.ScrollToRightEnd();
+            d.UpdateLayout();
+            Pump();
+
+            var headGrid = Field<Grid>(d, "_heads");
+            var lastHead = (Border)((FrameworkElement)Within<TextBlock>(headGrid).First(t => t.Text == "Total Outside Air").Parent).Parent;
+            Border lastCell = CellOf(ListOf(d), "1:2", "calc", 0);
+
+            double X(FrameworkElement e) => e.TranslatePoint(new Point(0, 0), d).X;
+
+            Check("scrolled to the right: the last heading over its column, laid out whole - " +
+                  $"offset {sideways.HorizontalOffset:0}, {X(lastHead):0.#}/{X(lastCell):0.#}",
+                sideways.HorizontalOffset > 0 && Math.Abs(X(lastHead) - X(lastCell)) < 0.6 &&
+                System.Windows.Controls.Primitives.LayoutInformation.GetLayoutClip(headGrid) == null);
+        });
+    }
+
+    // A press as a person makes it, on a cell: the mouse's own event down
+    // the tree - each element raises its left-button one from it
+    private static void PressOn(UIElement on)
+    {
+        on.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseDownEvent
         });
     }
 
@@ -608,11 +990,34 @@ internal static class Program
             .Select(t => t.Text).OrderBy(t => t, StringComparer.Ordinal).ToList();
     }
 
-    // A room's four airflow cells, as shown
+    // A room's four airflow cells, as shown: the Sheet's fresh and extract
+    // (its m² aside), the Model's fresh and extract
     private static string[] Cells(ListBox list, string key)
     {
+        return FlowCellsOf(list, key).Select(t => t.Text).ToArray();
+    }
+
+    private static TextBlock[] FlowCellsOf(ListBox list, string key)
+    {
         var panel = (DockPanel)Item(list, key).Content;
-        return CellsIn(panel.Children.OfType<StackPanel>().First(p => "flow".Equals(p.Tag))).Select(t => t.Text).ToArray();
+
+        TextBlock[] sheet = CellsIn(panel.Children.OfType<StackPanel>().First(p => "sheet".Equals(p.Tag)));
+        TextBlock[] model = CellsIn(panel.Children.OfType<StackPanel>().First(p => "model".Equals(p.Tag)));
+
+        return sheet.Skip(sheet.Length - 2).Concat(model).ToArray();
+    }
+
+    // A block of a room's cells, by its tag
+    private static TextBlock[] BlockOf(ListBox list, string key, string tag)
+    {
+        var panel = (DockPanel)Item(list, key).Content;
+        return CellsIn(panel.Children.OfType<StackPanel>().FirstOrDefault(p => tag.Equals(p.Tag)));
+    }
+
+    private static Border CellOf(ListBox list, string key, string tag, int nth)
+    {
+        var panel = (DockPanel)Item(list, key).Content;
+        return panel.Children.OfType<StackPanel>().First(p => tag.Equals(p.Tag)).Children.OfType<Border>().ElementAt(nth);
     }
 
     private static void Pick(ListBox list, params string[] keys)
@@ -795,8 +1200,7 @@ internal static class Program
             Check("the sheet's merge was made the arrangement's on opening - and the main window told to save it",
                 _arrangement.MergeOf("2:2") != null && _arranged == 1);
 
-            TextBlock Now(string key) =>
-                CellsIn(((DockPanel)Item(list, key).Content).Children.OfType<StackPanel>().First(p => "flow".Equals(p.Tag)))[2];
+            TextBlock Now(string key) => FlowCellsOf(list, key)[2];
 
             string[] lobby = Cells(list, "1:2");
             Check("the model beside the sheet: 30 in the sheet, 22 on the terminals - marked, where 25 / 25 is not",
@@ -1062,9 +1466,12 @@ internal static class Program
             Pick(list, "2:3");
             Call(d, "WriteNow");
 
-            Check("Model, a room picked: its FCU group's fresh air written with the terminals' 25 - not the sheet's 15 for the bedroom",
+            // (user, 2026-10-26: "from the new occupancy ... when 'model' is
+            // selected") - nothing chosen here, so the new values are the
+            // sheet's: 25 + 0 + 15 on the group's first room
+            Check("Model, a room picked: its FCU group's NEW fresh air written, the group's 25 + 0 + 15 - not the terminals' 25",
                 d.Writes != null && d.WroteModel &&
-                Near(d.Writes["2:1"].Fresh, 25) && Near(d.Writes["2:3"].Fresh, 0) &&
+                Near(d.Writes["2:1"].Fresh, 40) && Near(d.Writes["2:3"].Fresh, 0) &&
                 d.WriteFresh.SetEquals(new[] { "2:1", "2:2", "2:3" }));
 
             Check("...its extract by the room's own group: the bedroom carries none, so none is written - not the kitchen's 50",
@@ -1086,9 +1493,9 @@ internal static class Program
             PickLines(list, LevelItem(list, Level));
             Call(d, "WriteNow");
 
-            Check("Model, a level picked: every room on it with air on its terminals - " +
+            Check("Model, a level picked: every room on it with new air - the lobby's 30, not the terminals' 22 - " +
                   (d.Writes == null ? "none" : string.Join(", ", d.Writes.Keys.OrderBy(k => k))),
-                d.Writes != null && d.Writes.ContainsKey("1:2") && Near(d.Writes["1:2"].Fresh, 22) &&
+                d.Writes != null && d.Writes.ContainsKey("1:2") && Near(d.Writes["1:2"].Fresh, 30) &&
                 d.Writes.ContainsKey("1:1") && d.WriteFresh.Contains("2:3") && !d.Writes.ContainsKey("3:2") &&
                 !d.Writes.ContainsKey("4:1"));
         });
@@ -1268,7 +1675,8 @@ internal static class Program
             ListBox list = ListOf(d);
             var panel = (DockPanel)Item(list, "1:2").Content;
 
-            Check("no sheet, no terminals: no airflow columns", !panel.Children.OfType<StackPanel>().Any(p => "flow".Equals(p.Tag)));
+            Check("no sheet, no terminals: no airflow columns, no occupancy",
+                !panel.Children.OfType<StackPanel>().Any(p => new[] { "sheet", "new", "model", "occupancy", "calc" }.Contains((string)p.Tag)));
 
             // The room's area and height (user, 2026-10-24) - with no sheet too
             TextBlock[] lobby = RoomCells(list, "1:2");
@@ -1304,9 +1712,10 @@ internal static class Program
 
             List<StackPanel> right = panel.Children.OfType<StackPanel>().ToList();
 
-            Check("with a sheet: the airflows on the right, the sheet's columns left of them, the room's area and height left of those",
-                right.Count >= 3 && "flow".Equals(right[0].Tag) && "sheet".Equals(right[1].Tag) && "room".Equals(right[2].Tag) &&
-                right.Take(3).All(p => DockPanel.GetDock(p) == Dock.Right));
+            Check("with a sheet: right to left the occupancy, the Model, the new values, the Sheet, the room - " +
+                  string.Join(", ", right.Select(p => p.Tag)),
+                right.Select(p => (string)p.Tag).SequenceEqual(new[] { "occupancy", "model", "new", "sheet", "room" }) &&
+                right.All(p => DockPanel.GetDock(p) == Dock.Right));
 
             // AS A SHEET (user, 2026-10-25: "make the rooms and level window
             // look more like excel view")
@@ -1323,7 +1732,7 @@ internal static class Program
             List<Border> cellsOf = Within<Border>(merged).Where(b => b.Child == null || !(b.Child is Border)).ToList();
 
             Check("every cell gridded - a line on its right and under it: " + cellsOf.Count + " cell(s)",
-                cellsOf.Count == 13 && cellsOf.All(b => b.BorderThickness == new Thickness(0, 0, 1, 1)));
+                cellsOf.Count == 16 && cellsOf.All(b => b.BorderThickness == new Thickness(0, 0, 1, 1)));
 
             var heads = (Grid)typeof(VENTROOMSWINDOW).GetField("_heads", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(d);
 
@@ -1333,13 +1742,12 @@ internal static class Program
             Border HeadOf(string text, int nth = 0) =>
                 Within<TextBlock>(heads).Where(t => t.Text == text).Select(t => (Border)t.Parent).ElementAt(nth);
 
-            List<Border> flowCells = ((DockPanel)Item(list, "2:1").Content).Children.OfType<StackPanel>()
-                .First(p => "flow".Equals(p.Tag)).Children.OfType<Border>().ToList();
+            List<Border> flowCells = new List<Border> { CellOf(list, "2:1", "sheet", 0), null, null, CellOf(list, "2:1", "model", 1) };
 
-            // The right-hand headings are added right to left: the Model's
-            // Extract first, the Sheet's Fresh fourth
-            Border sheetFresh = HeadOf("Fresh", 1);
-            Border modelExtract = HeadOf("Extract", 0);
+            // The headings left to right: the Sheet's Fresh first, the
+            // Model's Extract second
+            Border sheetFresh = HeadOf("Fresh", 0);
+            Border modelExtract = HeadOf("Extract", 1);
 
             Check("the headings over their cells: Number, Name, Notes, the Sheet's Fresh and the Model's Extract - " +
                   $"{X(HeadOf("Number")):0.#}/{X((Border)merged.Children[2]):0.#}, {X(HeadOf("Notes")):0.#}/{X((Border)middle.Children[1]):0.#}, " +
@@ -1351,8 +1759,8 @@ internal static class Program
                 Math.Abs(Right(modelExtract) - Right(flowCells[3])) < 0.6);
 
             Check("...and every heading showing: " + string.Join(", ", HeadsShowing(d)),
-                HeadsShowing(d).SequenceEqual(new[] { "Number", "Name", "Notes", "Room", "m²", "m", "Sheet", "Fresh category", "Extract category",
-                        "Model", "Fresh", "Extract", "Fresh", "Extract" }
+                HeadsShowing(d).SequenceEqual(new[] { "Number", "Name", "Notes", "Room", "m²", "m", "Sheet", "Fresh", "Extract",
+                        "New values", "Fresh air", "Exhaust air", "Model", "Fresh", "Extract", "Occupancy", "Fresh category", "Extract category", "Use" }
                     .OrderBy(t => t, StringComparer.Ordinal)));
 
             TextBlock[] living = RoomCells(list, "2:1");
@@ -1361,6 +1769,10 @@ internal static class Program
                 living.Length == 2 && living[0].Text == 35.0.ToString("0.0") && living[1].Text == 3.1.ToString("0.00") &&
                 "No ceiling found - the room's own height".Equals(living[1].ToolTip));
         });
+
+        // THE OCCUPANCY CHOSEN HERE (user, 2026-10-26) - last: it shows every
+        // column again
+        Occupancy();
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0 ? "all checks passed" : _failed + " check(s) FAILED");

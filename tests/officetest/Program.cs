@@ -56,6 +56,7 @@ internal static class Program
         UpdateMergedTest(template);
         OccupancyRuleTests(template);
         OccupancyExportTest(template);
+        WhatIfTests();
         OccupancyUpdateTest(template);
         KitchenUpdateTest(template);
         TwinsTest(template);
@@ -1441,6 +1442,289 @@ internal static class Program
 
         Check(Read("507").Units == 1 && double.IsNaN(Read("503").Units),
               "...the ensuite's unit; the public toilet's blank: " + Read("507").Units + ", " + Read("503").Units);
+    }
+
+    // ==================================================
+    // Levels and rooms' new values (VENTWHATIF)
+    // ==================================================
+
+    // User, 2026-10-26: the occupancy chosen in Levels and rooms, worked
+    // through the sheet's own formulas in a COPY of the workbook - never
+    // saved. Runs on OccupancyExportTest's and MergedTest's workbooks.
+    static void WhatIfTests()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== new values: the sheet's own formulas over the occupancy chosen, in a copy");
+
+        string exported = Path.Combine(Out, "occupancy.xlsx");
+        string saved = Path.Combine(Out, "occupancy-saved.xlsx");
+
+        // As Excel leaves it: calculated, the results saved with it
+        using (var p = new ExcelPackage(new FileInfo(exported)))
+        {
+            p.Workbook.Calculate();
+            p.SaveAs(new FileInfo(saved));
+        }
+
+        var none = new Dictionary<int, VENTARRANGE.RoomOccupancy>();
+
+        foreach (string path in new[] { exported, saved })
+        {
+            string label = path == exported ? "never opened in Excel" : "saved by Excel";
+
+            byte[] before = File.ReadAllBytes(path);
+            DateTime when = File.GetLastWriteTimeUtc(path);
+
+            VENTSHEET.sheetpath = path;
+            VENTSHEET.sheetname = "Occ";
+
+            new VENTSHEET().excelsheet();
+
+            VENTSHEET.AirData Air(string number) => VENTSHEET.LoadedRows.First(r => r.Key.RoomNumber == number).Value;
+
+            string trouble;
+
+            using (VENTWHATIF w = VENTWHATIF.Open(path, "Occ", out trouble))
+            {
+                Check(w != null, label + ": the copy opens" + (trouble == null ? "" : " - " + trouble));
+
+                if (w == null)
+                    continue;
+
+                VENTSHEET.SheetLayout layout = w.Layout;
+
+                int office = Air("501").Row, kitchen = Air("506").Row, ensuite = Air("507").Row;
+
+                Check(office > layout.HeaderEndRow && kitchen > office && Air("507").Use == VENTOCCUPANCY.LightUse && Air("501").Use == "",
+                      label + ": each room's row and nature of use read - " + office + ", " + kitchen + ", '" + Air("507").Use + "'");
+
+                Dictionary<int, VENTFLOWS.Calc> calc = w.Apply(none);
+
+                Check(calc[office].Air.Fresh == 20 && calc[kitchen].Air.Extract == 50 && calc[ensuite].Air.Extract == 10 &&
+                      calc[office].SheetCells == null,
+                      label + ": nothing chosen, every row as the sheet has it - 20, 50, 10: " +
+                      calc[office].Air.Fresh + ", " + calc[kitchen].Air.Extract + ", " + calc[ensuite].Air.Extract);
+
+                // ---- the calculation's columns, as the sheet heads them
+                List<VENTFLOWS.CalcColumn> columns = w.Columns;
+
+                var shown = new[] { layout.FreshAirCol, layout.ExhaustAirCol, layout.FreshCategoryCol, layout.ExhaustCategoryCol,
+                                    layout.UseCol, layout.OccupantsCol, layout.UnitsCol, layout.AreaCol, layout.RoomNumberCol };
+
+                VENTFLOWS.CalcColumn rp = columns.FirstOrDefault(c => c.Heading.Contains("Rp") && c.Units.Contains("person"));
+                VENTFLOWS.CalcColumn actual = columns.FirstOrDefault(c => c.Heading.Contains("Actual Occupancy"));
+
+                Check(rp != null && actual != null && !columns.Any(c => shown.Contains(c.Col)) &&
+                      columns.All(c => c.Col > layout.RoomNumberCol && c.Label.Length > 0 && !c.Label.Contains("-Apr-") && c.Label != "Date"),
+                      label + ": the other columns, none shown already, labelled without the sign-off cells - " +
+                      string.Join(" | ", columns.Select(c => c.Letter + " " + c.Label + (c.Units.Length > 0 ? " (" + c.Units + ")" : ""))));
+
+                // ---- only the calculation, for the rooms' own rows (user,
+                // 2026-10-28: "many columns are empty without headers"): a
+                // column a formula works out with something in it
+                List<int> roomRows = VENTSHEET.LoadedRows.Select(r => r.Value.Row).Where(r => r > 0).ToList();
+                List<VENTFLOWS.CalcColumn> worked = w.ColumnsFor(roomRows);
+
+                using (var p = new ExcelPackage(new FileInfo(path)))
+                {
+                    ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+
+                    bool Formula(int col) => roomRows.Any(r => !string.IsNullOrEmpty(ws.Cells[r, col].Formula));
+
+                    List<VENTFLOWS.CalcColumn> typed = columns.Where(c => !Formula(c.Col)).ToList();
+
+                    Check(worked.Count > 0 && worked.All(c => Formula(c.Col)) && worked.Contains(rp) && worked.Contains(actual) &&
+                          typed.Count > 0 && !worked.Intersect(typed).Any(),
+                          label + ": the calculation shown - worked out by a formula - " + worked.Count + " of " + columns.Count +
+                          "; typed left out: " + string.Join(", ", typed.Select(c => c.Letter + " " + c.Label)));
+                }
+
+                Check(actual.Label == "Total Outside Air based on Actual Occupancy",
+                      label + ": a column called by its own heading, not the formula written under it - " + actual.Label);
+
+                Check(w.ColumnsFor(new int[0]).Count == 0, label + ": no rooms, no calculation shown");
+
+                Check(w.FreshChoices(office).Contains("Office Space") && w.ExhaustChoices(office).Contains("Toilets - public") &&
+                      w.UseChoices(office).Contains(VENTOCCUPANCY.LightUse),
+                      label + ": the lists the cells offer");
+
+                // ---- 10 people in the office: 2.5 x 10 + 0.3 x 40 = 37, rounded up to 40
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy> { [office] = new VENTARRANGE.RoomOccupancy { Occupants = 10 } });
+
+                double Figure(string text) => double.TryParse(text, out double v) ? v : double.NaN;
+
+                Check(calc[office].Air.Fresh == 40 && Figure(calc[office].Cells[actual.Col]) == 37 && Figure(calc[office].SheetCells[actual.Col]) == 17,
+                      label + ": 10 people in the office - 37 L/s, 40 rounded up; the sheet's 17 beside it: " +
+                      calc[office].Air.Fresh + ", " + calc[office].Cells[actual.Col] + " / " + calc[office].SheetCells[actual.Col]);
+
+                // ---- the kitchen: 2 units, then light use
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+                {
+                    [office] = new VENTARRANGE.RoomOccupancy { Occupants = 10 },
+                    [kitchen] = new VENTARRANGE.RoomOccupancy { Units = 2 }
+                });
+
+                Check(calc[kitchen].Air.Extract == 100 && calc[office].Air.Fresh == 40,
+                      label + ": the kitchen's 2 units, 2 x 50 = " + calc[kitchen].Air.Extract + "; the office's change stands");
+
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+                {
+                    [kitchen] = new VENTARRANGE.RoomOccupancy { Units = 2, Use = VENTOCCUPANCY.LightUse }
+                });
+
+                Check(calc[kitchen].Air.Extract == 50 && calc[office].Air.Fresh == 20 && calc[office].SheetCells == null,
+                      label + ": light use, 2 x 25 = " + calc[kitchen].Air.Extract + "; the office's choice gone, it is the sheet's again (" +
+                      calc[office].Air.Fresh + ")");
+
+                // ---- a category, against the same change worked out in full
+                string other = w.FreshChoices(office).First(c => c != "Office Space" && c.StartsWith("Conference", StringComparison.OrdinalIgnoreCase));
+
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+                {
+                    [office] = new VENTARRANGE.RoomOccupancy { FreshCategory = other }
+                });
+
+                double full;
+
+                using (var p = new ExcelPackage(new FileInfo(saved)))
+                {
+                    ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+                    ws.Cells[office, layout.FreshCategoryCol].Value = other;
+                    p.Workbook.Calculate();
+                    full = ws.Cells[office, layout.FreshAirCol].Value is double d ? d : -1;
+                }
+
+                Check(full > 0 && calc[office].Air.Fresh == full && calc[kitchen].Air.Extract == 50,
+                      label + ": the office as '" + other + "': " + calc[office].Air.Fresh + " - as the whole workbook worked out works it: " + full);
+
+                // ---- blank, and a category the table has not got
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+                {
+                    [ensuite] = new VENTARRANGE.RoomOccupancy { ExhaustCategory = "" },
+                    [office] = new VENTARRANGE.RoomOccupancy { FreshCategory = "Nonsense" }
+                });
+
+                Check(calc[ensuite].Air.Extract == 0 && calc[ensuite].ExtractError == null,
+                      label + ": the ensuite's category blank - no exhaust (" + calc[ensuite].Air.Extract + ")");
+
+                Check(calc[office].FreshError != null && calc[office].Air.Fresh == 0,
+                      label + ": a category the table has not got - its error said: " + (calc[office].FreshError ?? "(none)"));
+
+                // ---- every choice gone: the sheet's
+                calc = w.Apply(none);
+
+                Check(calc[office].Air.Fresh == 20 && calc[office].FreshError == null && calc[ensuite].Air.Extract == 10 &&
+                      calc[kitchen].Air.Extract == 50,
+                      label + ": every choice gone - the sheet's air again: " + calc[office].Air.Fresh + ", " + calc[ensuite].Air.Extract + ", " + calc[kitchen].Air.Extract);
+
+                // ...and the copy's cells as the sheet had them: the office's
+                // 10 people again come out as before
+                calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy> { [office] = new VENTARRANGE.RoomOccupancy { Occupants = 10 } });
+
+                Check(calc[office].Air.Fresh == 40, label + ": chosen again after a revert, worked out again - " + calc[office].Air.Fresh);
+            }
+
+            Check(File.ReadAllBytes(path).SequenceEqual(before) && File.GetLastWriteTimeUtc(path) == when,
+                  label + ": the workbook on disk untouched");
+        }
+
+        // ---- a merged group: its air on its first row, worked out with it
+        string merged = Path.Combine(Out, "merged.xlsx");
+
+        VENTSHEET.sheetpath = merged;
+        VENTSHEET.sheetname = "Merged";
+
+        new VENTSHEET().excelsheet();
+
+        VENTSHEET.AirData Row(string number) => VENTSHEET.LoadedRows.First(r => r.Key.RoomNumber == number).Value;
+
+        int living = Row("121.125").Row, kitchenRow = Row("121.126").Row;
+
+        string why;
+
+        using (VENTWHATIF w = VENTWHATIF.Open(merged, "Merged", out why))
+        {
+            Dictionary<int, VENTFLOWS.Calc> before = w.Apply(none);
+
+            Dictionary<int, VENTFLOWS.Calc> after = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+            {
+                [kitchenRow] = new VENTARRANGE.RoomOccupancy { Occupants = 10 }
+            });
+
+            double full;
+
+            using (var p = new ExcelPackage(new FileInfo(merged)))
+            {
+                ExcelWorksheet ws = p.Workbook.Worksheets["Merged"];
+                ws.Cells[kitchenRow, w.Layout.OccupantsCol].Value = 10d;
+                p.Workbook.Calculate();
+                full = ws.Cells[living, w.Layout.FreshAirCol].Value is double d ? d : -1;
+            }
+
+            Check(after[living].Air.Fresh == full && full > before[living].Air.Fresh && after[kitchenRow].Air.Fresh == 0 &&
+                  after[living].SheetCells == null,
+                  "a merged group: 10 people in its second room move the total on its first row, " + before[living].Air.Fresh +
+                  " -> " + after[living].Air.Fresh + " (in full: " + full + "); the first row's own columns as the sheet's");
+        }
+
+        // ---- "Dwelling Unit" mended in the copy, as an export mends it: a
+        // sheet with the office's broken test (IF(O=$H$470,"NA",...))
+        string broken = Path.Combine(Out, "occupancy-broken.xlsx");
+        int bedroomRow, officeRow, densityCol = 0;
+
+        using (var p = new ExcelPackage(new FileInfo(saved)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            bedroomRow = RowOf(ws, layout, "505");
+            officeRow = RowOf(ws, layout, "501");
+
+            for (int c = 1; c <= ws.Dimension.End.Column; c++)
+            {
+                string f = ws.Cells[bedroomRow, c].Formula ?? "";
+
+                if (f.Contains("\"NA\"") && f.Contains("Table 6-1"))
+                    densityCol = c;
+            }
+
+            for (int r = layout.FirstDataRow; r <= ws.Dimension.End.Row; r++)
+            {
+                string f = ws.Cells[r, densityCol].Formula;
+
+                if (!string.IsNullOrEmpty(f))
+                    ws.Cells[r, densityCol].Formula = Regex.Replace(f, @"'ASHRAE 62\.1 - Table 6-1'!\$A\$\d+(?=,""NA"")", "$$H$$470");
+            }
+
+            p.SaveAs(new FileInfo(broken));
+        }
+
+        double unmended;
+
+        using (var p = new ExcelPackage(new FileInfo(broken)))
+        {
+            ExcelWorksheet ws = p.Workbook.Worksheets["Occ"];
+            VENTSHEET.SheetLayout layout = VENTSHEET.DetectLayout(ws, false);
+
+            ws.Cells[officeRow, layout.FreshCategoryCol].Value = "Dwelling Unit";
+            p.Workbook.Calculate();
+
+            unmended = ws.Cells[officeRow, layout.FreshAirCol].Value is double d ? d : -1;
+        }
+
+        using (VENTWHATIF w = VENTWHATIF.Open(broken, "Occ", out why))
+        {
+            Dictionary<int, VENTFLOWS.Calc> calc = w.Apply(new Dictionary<int, VENTARRANGE.RoomOccupancy>
+            {
+                [officeRow] = new VENTARRANGE.RoomOccupancy { FreshCategory = "Dwelling Unit" }
+            });
+
+            // No one counted in it - a living room's case: 0.3 x 40 m2 = 12,
+            // rounded up to 15
+            Check(unmended < 0 && calc[officeRow].FreshError == null && calc[officeRow].Air.Fresh == 15,
+                  "the office's broken Dwelling Unit test (" + (unmended < 0 ? "an error" : unmended.ToString()) + " as it stands) mended in the copy: " +
+                  calc[officeRow].Air.Fresh + (calc[officeRow].FreshError == null ? "" : " " + calc[officeRow].FreshError));
+        }
     }
 
     // A SHEET MADE BEFORE 2026-10-19, UPDATED - KIFAF 5's case: the kitchen

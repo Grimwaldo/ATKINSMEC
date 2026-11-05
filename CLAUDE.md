@@ -317,25 +317,82 @@ plain status lines.
   their cells to 0.6 px. Levels are group rows; rows touch (item border
   0), so the drop mark lays 3 px over its neighbour with a -3 margin.
   Tests find a row's parts with `Within<T>` (logical tree), not by
-  position. Window 1440 wide (VENTFIT caps it).
-- **The sheet's columns, READ ONLY** (user, 2026-10-25; asked, chose
-  read-only over editable - the workbook stays the one calculator): under
-  "Sheet", left of its airflows: Sheet m², Fresh category (6-1), Extract
-  category (6-4), Occupants, Units (`VENTSHEET.AirData` reads them -
-  blanks as NaN / "", never 0 - `VENTFLOWS.Sheet` carries them, cells
-  tagged "sheet"). A blank category shows, grey italic, what an export
-  would fill (`SheetFlows`: `VENTOCCUPANCY.Learned` from the sheet, else
-  `RuleFor`; none when occupancy is off for the model). The model's m²
-  goes amber where the sheet's differs by > 0.5 m² (`VENTFLOWS.AreaChanged`).
+  position. Window 1600 wide (VENTFIT caps it).
+- **Columns, left to right** (`ColumnsShowing` - one list the headings
+  and every row's cells are built from; blocks of cells docked right,
+  tagged room / sheet / new / model / occupancy / calc): Room m² m |
+  **Sheet** (m², Fresh, Extract - READ ONLY, always) | **New values**
+  (Fresh air, Exhaust air) | **Model** (Fresh, Extract) | **Occupancy**
+  (Fresh category, Extract category, Use, Occupants, Units) |
+  **Calculation**. The airflows beside the name, so they show on a
+  laptop. Name + Notes never under 340 px: past that the list SCROLLS
+  SIDEWAYS - every row's Width set to max(columns, viewport)
+  (`ApplyWidths`, on the list's own `ScrollChanged`), the headings moved
+  by a `TranslateTransform` inside a clipping border (rows measured at
+  infinite width would each take their own text's width and the columns
+  would not line up). **The headings sit on a `Canvas`** in that border:
+  in a narrower parent WPF clips an element to its slot BEFORE its
+  RenderTransform moves it, so scrolled sideways the columns past the
+  window had no headings (user, 2026-10-28: "many columns are empty
+  without headers"; arrangeflowtest checks `GetLayoutClip` is null).
+- **THE OCCUPANCY, CHOSEN HERE** (user, 2026-10-26: "select the
+  occupancy of the space just like the excel sheet ... put the new values
+  ... in another columns called 'new values'"; asked: categories, use,
+  occupants, units; from rules = blank ones only; calculated by THE
+  SHEET'S OWN FORMULAS). **ONE CLICK on an occupancy cell opens it, as
+  Excel's drop-down** (user, 2026-10-28: "its not a droplist like excel";
+  a list's cell shows a ▾): the cell's own list ("As the sheet",
+  "(blank)", its drop-down's or ASHRAE's categories; Use's list) or a box
+  for a number. The press is handled on the list's
+  `PreviewMouseLeftButtonDown` (no drag, no pick): a row among the picks
+  keeps them, so its choice is every picked room's; a row not picked is
+  picked alone; Ctrl / Shift still pick. (A double-click's first press
+  had dropped the other picks.) The list ignores a double-click's second
+  press, which would close it. Tests press with `PreviewMouseDownEvent`:
+  the left-button one is a DIRECT event each element raises from it. Kept in the arrangement (`VENTARRANGE.
+  RoomOccupancy`, null = as the sheet, "" / NaN = blank; the sheet's own
+  value chosen goes back to null, `VENTFLOWS.Choose`), saved per model as
+  `roomoccupancy` lines (`VENTSAVED.RoomPick`, "~" for null; a key with a
+  link id - re-pointed by `Remap`). A choice: blue cell, "Sheet: X" on
+  hover. A blank category shows, grey italic, what an export would fill
+  (`SheetFlows`: `Learned`, else `RuleFor`). **Occupancy from rules**
+  (picked rooms, none picked: every room showing): blank categories from
+  those suggestions, only a spelling the cell's list has (`PickFrom`),
+  then the rule's Use / Units into blank ones where the exhaust category
+  is the rule's (`FromRules`, as `VENTOCCUPANCY.Fill`). **Occupancy as
+  the sheet** clears the picked rooms'. NOTHING is written to the
+  workbook; the export does not use these choices.
+- **New values** (`VENTWHATIF`, EPPlus, test officetest `WhatIfTests`):
+  the main window opens a COPY of the imported workbook in memory (the
+  file's bytes, `FileShare.ReadWrite`, never saved) with Levels and rooms
+  and again for another sheet read (`FormulasFor`; closed with the
+  window). Each room's sheet row (`AirData.Row`, by `VENTSHEET.Resolve`):
+  a choice goes into its input cells (the original formula/value kept and
+  put back when the choice goes), the row's cells are calculated, and the
+  first row of a merge it is in. A row with no choice reads as the sheet
+  had it when opened (`_asSheet`), never as EPPlus re-works it. The copy
+  has "Dwelling Unit" and the kitchen mended (`DwellingCheck`,
+  `KitchenCheck` on every row) as an export would. Final air as the
+  sheet's are read (blank = 0); an error (`#N/A` for a category the table
+  has not got) shown in the cell. Amber where not the sheet's.
+  **Calculation** columns = the headed, unhidden columns after the Space
+  block (not those shown, `Columns`) that a FORMULA works out with
+  something in it on one of the rooms' rows (`ColumnsFor`, 2026-10-28 -
+  KIFAF 7: 23 → 12; height, bedrooms, balancing, remarks were typed or
+  empty all the way down); label = the lowest heading part that is not a
+  unit, a sign-off ("Calc. by", initials, dates) or a formula written out
+  ("Rp x N1 + Ra x A"; a bracketed one after a name left off), over two
+  lines, letter + unit under it; amber where not the sheet's. Off in
+  Columns... as one.
 - **Columns...** (`VENTCOLUMNS`, per PERSON in
   `%AppData%\ATKINSMEC\autovent_columns.txt`, each key on / off so a new
   one takes its default): Notes, Room m² m, Sheet m², Occupancy
-  categories, Occupants and units; defaults notes, room, categories. The
-  headings are rebuilt with the list (`Header(flows)`). Tests point
-  `VENTCOLUMNS.SettingsPath` at a temp file.
+  categories + use, Occupants and units, Calculation columns; all on but
+  Sheet m². Tests point `VENTCOLUMNS.SettingsPath` at a temp file.
 - **Differences only** (beside the search; `Search.Apply`'s `keep`, both
-  at once): a number used twice, sheet ≠ model airflows, a terminal on no
-  FCU, no row in the sheet, area changed (`Attention`; the row's tooltip
+  at once): a number used twice, model ≠ what Write would write, new
+  values ≠ the sheet's, a terminal on no FCU, no row in the sheet, area
+  changed (`Attention`; the row's tooltip
   says which). Sheet | Model sit under **"Merge and write as"** - they
   switch the grouping and what Write writes, not which columns show.
 - **MODELESS, owned by the main window, everything at once** - no OK /
@@ -499,8 +556,9 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   `fixturedialogtest` (real dialog, off-screen, real `OnClick`).
 
 ### Apartments (Tower-1 pattern: apartment down F, rooms in H, bedrooms merged)
-- **On screen they are "Containers", their rooms "Units"** (user,
-  2026-10-19: AUTOVENT for offices too) — every window, tooltip, status,
+- **On screen they are "Redundant rooms", their rooms "Units"** (user,
+  2026-10-26; "Containers" from 2026-10-19 - AUTOVENT for offices too) —
+  every window, tooltip, status,
   the export/debug/apartments logs; the occupancy scope reads Units / Not
   units. **Code, settings keys (`apartments`, `apartment`), the rules file
   and `ATKINSMEC_apartments_log.txt` keep "apartment".** A container's
@@ -584,7 +642,8 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   test `arrangeflowtest`): the ticked links' (and found interior
   placements') rooms with NO AREA but a location - `ReadUnenclosed`, read
   with each link's rooms in `VENTREAD` (`Answer.Unenclosed`, cached
-  `_unenclosedOf`, let go on Refresh). Not enclosed, or **redundant**
+  `_unenclosedOf`, let go on Refresh). Not enclosed, or **inside another
+  room** (said so - "redundant" is the containers' word now)
   (`GetRoomAtPoint` 1 ft above it finds another room with an area -
   named). Never placed = not listed. A side button, off at 0; opens a list
   (Model, Level - the link's own, Number, Name, Why) by model, up the
@@ -648,7 +707,9 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   saying so) are replaced; writes the Sheet columns. **Model = the FCUs'
   groups, fresh air, and NOTHING else - no extract merges** (`VENTFLOWS.ByFcu(null, ...)` - it used to
   carry every Sheet merge no FCU touched), from the terminals as last
-  read; sheet merges NOT unioned; writes the Model columns - each group's
+  read; sheet merges NOT unioned; writes the **NEW VALUES** (user,
+  2026-10-26: "from the new occupancy selected from the addin when
+  'model' is selected" - it wrote the terminals' own totals before) - each group's
   terminal total; `WroteModel` → `ExtEventHan.WriteSheetMerges = false`
   → `REVITROOMS.SheetMerges` leaves the sheet's merged cells out of the
   grouping. **ALSO ON OPENING** (`Derive`, user 2026-10-20 again: "when
@@ -670,6 +731,9 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   DIFFERENT room (`VENTFLOWS.Repeated`; the same room id under another
   link id - one model placed again - is not red, user 2026-10-19), else
   **yellow** = sheet ≠ model (every row of the group).
+- **A double-click on a Model airflow** types a value written to that
+  group's terminals AT ONCE on Enter (the user's choice; Esc or clicking
+  away writes nothing) - `WriteGroup`, the same request 4 on one side.
 - **Write to terminals** = request 4, the window left open → `REVITROOMS` `Mode.Write`:
   the picked rooms' groups (none picked: nothing),
   `VENTFLOWS.Overrides` (group value on its first room, 0 on the rest),

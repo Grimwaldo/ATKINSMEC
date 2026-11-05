@@ -141,9 +141,7 @@ namespace ATKINSMEC
                     continue;
 
                 string units = parts.LastOrDefault(IsUnit) ?? string.Empty;
-                string label = parts.Where(p => !IsUnit(p) && !IsNoise(p))
-                                    .OrderByDescending(p => p.Length)
-                                    .FirstOrDefault();
+                string label = LabelOf(parts);
 
                 string letter = ExcelCellAddress.GetColumnLetter(c);
 
@@ -158,6 +156,43 @@ namespace ATKINSMEC
             }
 
             return columns;
+        }
+
+        // THE CALCULATION SHOWN for these rows - the rooms' own: a column one
+        // of them works out (a formula) and shows something in. Not one
+        // typed by hand (height, bedrooms, remarks), nor one empty all the
+        // way down (user, 2026-10-28: "many columns are empty").
+        public List<VENTFLOWS.CalcColumn> ColumnsFor(IEnumerable<int> rows)
+        {
+            List<int> mine = (rows ?? Enumerable.Empty<int>()).Where(r => _asSheet.ContainsKey(r)).Distinct().ToList();
+
+            return Columns.Where(c => mine.Any(r => WorkedOut(r, c.Col))).ToList();
+        }
+
+        private bool WorkedOut(int row, int col)
+        {
+            string text;
+
+            return !string.IsNullOrEmpty(_ws.Cells[row, col].Formula) &&
+                   _asSheet[row].Cells.TryGetValue(col, out text) && !string.IsNullOrWhiteSpace(text);
+        }
+
+        // What a column is called: its own heading - the lowest part that is
+        // not a unit, a sign-off or a formula written out ("Rp x N1 + Ra x
+        // A"); a formula in brackets after a name left off
+        private static string LabelOf(List<string> parts)
+        {
+            List<string> names = parts.Where(p => !IsUnit(p) && !IsNoise(p))
+                                      .Select(p => Regex.Replace(p, @"\s*\[[^\]]*\]", string.Empty).Trim())
+                                      .Where(p => p.Length > 0)
+                                      .ToList();
+
+            return names.LastOrDefault(p => !IsFormula(p)) ?? names.OrderByDescending(p => p.Length).FirstOrDefault();
+        }
+
+        private static bool IsFormula(string part)
+        {
+            return part.Contains("+") || part.Contains("=") || Regex.IsMatch(part, @"\s[x×*]\s", RegexOptions.IgnoreCase);
         }
 
         // A column's heading, cell by cell down the header rows

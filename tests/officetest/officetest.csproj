@@ -21,5 +21,8 @@
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTUPDATE.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTOCCUPANCY.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTWHATIF.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFLOWS.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFCUCHECK.cs" />
   </ItemGroup>
 </Project>

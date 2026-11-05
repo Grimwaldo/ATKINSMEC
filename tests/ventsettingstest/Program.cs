@@ -818,6 +818,37 @@ internal static class Program
                 sessionBack[1].Merges.Count == 0 && sessionBack[1].Rooms.Count == 0 &&
                 sessionBack[1].Workbook == "" && sessionBack[1].ExportWay == "");
 
+            // ---- the occupancy chosen in Levels and rooms (user, 2026-10-26):
+            // each field following the sheet (null), blank (""), or a value
+            var occupancyModel = new VENTSAVED.Model
+            {
+                Key = "file:c:\\jobs\\occupancy.rvt",
+                RoomOccupancy =
+                {
+                    new VENTSAVED.RoomPick { Key = "3001198:7", Fresh = "Office Space", Occupants = "10" },
+                    new VENTSAVED.RoomPick { Key = "3001198:8", Exhaust = "", Use = "Light Use / Cont. Oper.", Units = "2.5" }
+                }
+            };
+
+            var pickedBack = VENTSAVED.Parse(VENTSAVED.Compose(new[] { occupancyModel, plainModel() }));
+
+            VENTSAVED.RoomPick office = pickedBack[0].RoomOccupancy.Find(r => r.Key == "3001198:7");
+            VENTSAVED.RoomPick toilet = pickedBack[0].RoomOccupancy.Find(r => r.Key == "3001198:8");
+
+            Check("a room's occupancy survives: what was chosen, and what follows the sheet stays following it",
+                pickedBack[0].RoomOccupancy.Count == 2 && office != null &&
+                office.Fresh == "Office Space" && office.Occupants == "10" &&
+                office.Exhaust == null && office.Use == null && office.Units == null);
+
+            Check("...a field left blank stays blank, not \"as the sheet\"",
+                toilet != null && toilet.Exhaust == "" && toilet.Use == "Light Use / Cont. Oper." && toilet.Units == "2.5" &&
+                toilet.Fresh == null && toilet.Occupants == null);
+
+            Check("...and none of it leaks onto the next model", pickedBack[1].RoomOccupancy.Count == 0);
+
+            Check("an occupancy line with no key is passed over",
+                VENTSAVED.Parse("model\tk\nroomoccupancy\t\tOffice Space\n")[0].RoomOccupancy.Count == 0);
+
             Check("a merge of one room, or a key twice, is no merge",
                 VENTSAVED.Parse("model\tk\nmerge\t1:2\nmerge\t1:2\t1:2\n")[0].Merges.Count == 0);
 

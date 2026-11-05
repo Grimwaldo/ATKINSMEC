@@ -70,6 +70,58 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: Levels and rooms - headings when scrolled, drop-down cells, the calculation only - 2026-10-28
+
+User, in Revit: "many columns are empty without headers"; "the occupancy
+is not functioning properly its not a droplist like excel".
+
+- Headings: past the window's width they were clipped (WPF clips to the
+  slot before the RenderTransform moves them) - on a Canvas now.
+  Reproduced in ventpreview (`autovent-arrange-right.png`, scrolled to
+  the far right) before and after.
+- Calculation columns: KIFAF 7.xlsx gave 23, half of them typed or empty
+  on every row - now only those a formula works out with something in it
+  on a room's row (`VENTWHATIF.ColumnsFor`): 12. Labels by the column's
+  own heading ("Total Outside Air based on Actual Occupancy", not "Rp x N1
+  + Ra x A ..."), over two lines. On KIFAF a change recalculates in a few
+  ms (Office Space, 12 people: 40 L/s; 20: 60).
+- Occupancy cells: one click opens the list (▾ in the cell) or the
+  number box, keeping the picks; a double-click's first press had dropped
+  them, so "several picked rooms at once" never worked with the mouse
+  (the test had called BeginEdit directly).
+- Tests: arrangeflowtest (click opens, picks kept, a row not picked alone,
+  second press, arrow, headings scrolled), officetest (`ColumnsFor`,
+  labels). 8 mutations, all caught.
+- NOT run in Revit.
+
+## AUTOVENT: occupancy chosen in Levels and rooms, new values, "Redundant rooms" - 2026-10-26
+
+User: call the containers "Redundant rooms"; choose a room's occupancy in
+Levels and rooms as in the sheet, show the new airflows in "New values"
+(Fresh air, Exhaust air) with the sheet's other calculation columns; the
+sheet's values read only; Write on Sheet writes the sheet's, on Model the
+new values; a double-click on a Model airflow changes the model. Asked:
+the Model double-click writes at once; categories, use, occupants, units
+editable; "from rules" fills blanks only; the SHEET'S OWN FORMULAS
+calculate (`VENTWHATIF`, a copy in memory, never saved).
+
+- Done and tested: officetest 601 (`WhatIfTests`: never-opened and
+  Excel-saved workbooks, 10 people / 2 units / light use / a category
+  against a full recalculation, blank, #N/A, revert, a merged group's
+  total, the broken Dwelling Unit mended, the file untouched),
+  ventsettingstest (`roomoccupancy` lines), arrangeflowtest (the window:
+  blocks, cells, Choose, FromRules, lists in cells, several picked, Model
+  writes new values, WriteGroup). 8 mutations, all caught.
+- NOT run in Revit. To check there: a real workbook's Calculation
+  columns (labels from its headings), how long a choice takes to
+  recalculate on a big sheet (one row + merge tops), the Model double-click
+  write, and that the window is usable on a laptop (it scrolls sideways).
+- Open: the export does not use the choices (the user said the sheet is
+  not to be written) - ask if they want an export to carry them.
+- On Model a sheet merge cut by FCU groups puts its whole total on its
+  first room's group (lower rows' cells are empty) - as the Sheet columns
+  already did.
+
 ## SPRINKLERS: a one-head room's head in the middle of its main part - 2026-10-25
 
 User (plan, a store's head off-centre): "how to deal with sprinklers that

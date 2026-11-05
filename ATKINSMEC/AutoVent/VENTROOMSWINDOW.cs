@@ -229,7 +229,7 @@ namespace ATKINSMEC
         // cell a column, gridlines between, under a grey heading row built
         // from the same columns (ColumnsShowing, Header):
         //
-        //   tick | Number | Name | Notes | Room | Occupancy | Sheet | New values | Model | Calculation
+        //   tick | Number | Name | Notes | Room | Sheet | New values | Model | Occupancy | Calculation
         //
         // Name and Notes share what is left, 4 : 5 - never less than
         // NameNotesWidth: past that the list scrolls sideways, and its
@@ -250,7 +250,7 @@ namespace ATKINSMEC
         private const double UseWidth = 96;
         private const double PeopleWidth = 66;
         private const double NewWidth = 64;
-        private const double CalcWidth = 84;
+        private const double CalcWidth = 100;
 
         // Each block of cells, by what it holds
         private const string RoomTag = "room";
@@ -291,7 +291,7 @@ namespace ATKINSMEC
 
         private static readonly Dictionary<string, string> GroupTips = new Dictionary<string, string>
         {
-            ["Occupancy"] = "As the sheet has it until changed here - double-click a cell",
+            ["Occupancy"] = "As the sheet has it until changed here - click a cell",
             ["Sheet"] = "As the sheet has it - read only",
             ["New values"] = "The sheet's own formulas with the occupancy here - what Model writes",
             ["Model"] = "L/s - on its terminals now; double-click to write",
@@ -453,8 +453,8 @@ namespace ATKINSMEC
             ScrollViewer.SetHorizontalScrollBarVisibility(_list, ScrollBarVisibility.Auto);
             VirtualizingPanel.SetIsVirtualizing(_list, true);
 
-            // THE HEADINGS, a sheet's: a row of groups - Room, Occupancy,
-            // Sheet, New values, Model, Calculation - over a row of columns,
+            // THE HEADINGS, a sheet's: a row of groups - Room, Sheet, New
+            // values, Model, Occupancy, Calculation - over a row of columns,
             // every cell as wide as the rows' cells: in by the list's border
             // and the 1 its template pads inside it (2), as wide as the rows
             // (ApplyWidths), and moved with them when the list scrolls
@@ -484,8 +484,16 @@ namespace ATKINSMEC
 
             Header(false);
 
+            // On a canvas, which lays them out as wide as they are: in a
+            // narrower parent WPF clips them to it BEFORE they are moved, and
+            // scrolled sideways the columns past the window had no headings
+            // (user, 2026-10-28: "many columns are empty without headers")
+            var headsCanvas = new Canvas();
+            headsCanvas.Children.Add(_heads);
+            headsCanvas.SetBinding(HeightProperty, new Binding("ActualHeight") { Source = _heads });
+
             var withHeads = new DockPanel();
-            var headsClip = new Border { ClipToBounds = true, Child = _heads };
+            var headsClip = new Border { ClipToBounds = true, Child = headsCanvas };
             DockPanel.SetDock(headsClip, Dock.Top);
             withHeads.Children.Add(headsClip);
             withHeads.Children.Add(_list);
@@ -643,6 +651,42 @@ namespace ATKINSMEC
             {
                 if (!_showing)
                     Enable();
+            };
+
+            // AN OCCUPANCY CELL IS A DROP-DOWN, AS IN EXCEL (user, 2026-10-28:
+            // "its not a droplist like excel"; a double-click opened it, and
+            // its first click had dropped the other picks): one click opens
+            // its list - or the box for a number - and leaves the picks as
+            // they are, so a picked row's choice is every picked room's. A
+            // row not picked is picked alone. Ctrl / Shift still pick.
+            _list.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                if (_editor != null || e.ClickCount > 1 || Keyboard.Modifiers != ModifierKeys.None)
+                    return;
+
+                var from = e.OriginalSource as DependencyObject;
+                ListBoxItem item = ItemAt(from);
+                Border cell = EditableAt(from);
+
+                if (item == null || cell == null || !((string)cell.Tag).StartsWith(EditTag, StringComparison.Ordinal))
+                    return;
+
+                var line = (Line)item.Tag;
+
+                if (line.Row == null)
+                    return;
+
+                // Not a drag, not a pick
+                e.Handled = true;
+                _pressed = null;
+
+                if (!item.IsSelected)
+                {
+                    _list.SelectedItems.Clear();
+                    item.IsSelected = true;
+                }
+
+                BeginEdit(line, ((string)cell.Tag).Substring(EditTag.Length), cell);
             };
 
             // A double-click on a level opens or closes it; on an occupancy
@@ -1617,19 +1661,6 @@ namespace ATKINSMEC
                 Add(RoomTag, "Room", "height", "m", RoomWidth, "Height - to the false ceiling, else the room's own");
             }
 
-            if (sheet && On(VENTCOLUMNS.Categories))
-            {
-                Add(OccupancyTag, "Occupancy", VENTFLOWS.FreshCategoryField, "Fresh category", CategoryWidth, "Occupancy category, Table 6-1 - double-click to change");
-                Add(OccupancyTag, "Occupancy", VENTFLOWS.ExhaustCategoryField, "Extract category", CategoryWidth, "Occupancy category, Table 6-4 - double-click to change");
-                Add(OccupancyTag, "Occupancy", VENTFLOWS.UseField, "Use", UseWidth, "Nature of use / operation - double-click to change");
-            }
-
-            if (sheet && On(VENTCOLUMNS.People))
-            {
-                Add(OccupancyTag, "Occupancy", VENTFLOWS.OccupantsField, "Occupants", PeopleWidth, "No. of occupants, N1 - double-click to change");
-                Add(OccupancyTag, "Occupancy", VENTFLOWS.UnitsField, "Units", PeopleWidth, "No. of units - double-click to change");
-            }
-
             if (sheet && On(VENTCOLUMNS.SheetArea))
                 Add(SheetTag, "Sheet", "sheet-area", "m²", RoomWidth, "Area in the sheet");
 
@@ -1649,6 +1680,21 @@ namespace ATKINSMEC
             {
                 Add(ModelTag, "Model", "now-fresh", "Fresh", FlowWidth, "On its terminals now - double-click to write");
                 Add(ModelTag, "Model", "now-extract", "Extract", FlowWidth, "On its terminals now - double-click to write");
+            }
+
+            // The occupancy after the airflows - what is chosen beside what
+            // it comes to, the airflows in sight on a laptop
+            if (sheet && On(VENTCOLUMNS.Categories))
+            {
+                Add(OccupancyTag, "Occupancy", VENTFLOWS.FreshCategoryField, "Fresh category", CategoryWidth, "Occupancy category, Table 6-1 - click to change");
+                Add(OccupancyTag, "Occupancy", VENTFLOWS.ExhaustCategoryField, "Extract category", CategoryWidth, "Occupancy category, Table 6-4 - click to change");
+                Add(OccupancyTag, "Occupancy", VENTFLOWS.UseField, "Use", UseWidth, "Nature of use / operation - click to change");
+            }
+
+            if (sheet && On(VENTCOLUMNS.People))
+            {
+                Add(OccupancyTag, "Occupancy", VENTFLOWS.OccupantsField, "Occupants", PeopleWidth, "No. of occupants, N1 - click to change");
+                Add(OccupancyTag, "Occupancy", VENTFLOWS.UnitsField, "Units", PeopleWidth, "No. of units - click to change");
             }
 
             if (sheet && On(VENTCOLUMNS.Calculation) && _formulas != null && _formulas.Columns != null)
@@ -1697,6 +1743,12 @@ namespace ATKINSMEC
 
                 if (second != null)
                 {
+                    // A calculation's heading over two lines, as the sheet
+                    // wraps it - its letter and unit under it
+                    line.TextWrapping = TextWrapping.Wrap;
+                    line.MaxHeight = 32;
+                    line.Margin = new Thickness(2, 1, 2, 0);
+
                     var two = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
 
                     two.Children.Add(line);
@@ -2293,7 +2345,7 @@ namespace ATKINSMEC
 
         // A ROOM'S OCCUPANCY, as the sheet has it or as chosen here - a
         // choice in blue, the sheet's own on hover; a blank category grey
-        // with what an export would fill it with. Double-clicked, chosen.
+        // with what an export would fill it with. Clicked, chosen.
         private Border OccupancyCell(Column column, VENTARRANGE.Row row)
         {
             VENTFLOWS.Sheet sheet = SheetRow(row.Key);
@@ -2357,6 +2409,32 @@ namespace ATKINSMEC
             }
 
             cell.Tag = EditTag + field;
+
+            // A list's cell shows its arrow, as Excel's drop-down does
+            if (text)
+            {
+                cell.Child = null;
+
+                var withArrow = new Grid();
+                withArrow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                withArrow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var arrow = new TextBlock
+                {
+                    Text = "▾",
+                    Foreground = Muted,
+                    FontSize = 12,
+                    Margin = new Thickness(4, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                Grid.SetColumn(arrow, 1);
+                withArrow.Children.Add(cellText);
+                withArrow.Children.Add(arrow);
+
+                cell.Padding = new Thickness(6, 0, 4, 0);
+                cell.Child = withArrow;
+            }
 
             return cell;
         }
@@ -2917,8 +2995,8 @@ namespace ATKINSMEC
             _cancelEdit = null;
         }
 
-        // A DOUBLE-CLICK ON AN OCCUPANCY CELL: the sheet's own list there -
-        // "As the sheet", blank, its categories - or a box for a number. Kept
+        // A CLICK ON AN OCCUPANCY CELL: the sheet's own list there - "As
+        // the sheet", blank, its categories - or a box for a number. Kept
         // for every picked room when this one is picked with others.
         private void BeginEdit(Line line, string field, Border cell)
         {
@@ -3073,6 +3151,14 @@ namespace ATKINSMEC
             {
                 combo.DropDownClosed += (s, e) => finish();
             }
+
+            // The second press of a double-click on the cell would close the
+            // list it opened
+            combo.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                if (e.ClickCount > 1)
+                    e.Handled = true;
+            };
 
             Open(cell, combo, () =>
             {

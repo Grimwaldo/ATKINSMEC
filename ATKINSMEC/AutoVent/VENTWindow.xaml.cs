@@ -1525,7 +1525,7 @@ namespace ATKINSMEC
 
             return new VENTFLOWS.Formulas
             {
-                Columns = whatIf.Columns,
+                Columns = whatIf.ColumnsFor(rowOf.Values),
                 FreshChoices = whatIf.FreshChoices(sample),
                 ExhaustChoices = whatIf.ExhaustChoices(sample),
                 UseChoices = whatIf.UseChoices(sample),
