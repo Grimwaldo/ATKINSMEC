@@ -62,48 +62,63 @@ namespace ATKINSMEC
                     continue;
                 }
 
-                string key = finding.ViewId + ":" + finding.ElementId;
-
-                // The same tag can be reported by two checks at once
-                if (!done.Add(key))
-                    continue;
-
-                var view = doc.GetElement(REVITCOMPAT.NewId(finding.ViewId))
-                    as View;
-
-                if (view == null || !view.AreGraphicsOverridesAllowed())
-                {
-                    result.Skipped++;
-                    continue;
-                }
-
-                ElementId id = REVITCOMPAT.NewId(finding.ElementId);
-
-                if (doc.GetElement(id) == null)
-                {
-                    result.Skipped++;
-                    continue;
-                }
-
-                try
-                {
-                    view.SetElementOverrides(id, highlight);
-
-                    result.Marked++;
-
-                    result.Spots.Add(new Spot
-                    {
-                        ViewId = finding.ViewId,
-                        ElementId = finding.ElementId
-                    });
-                }
-                catch
-                {
-                    result.Skipped++;
-                }
+                // Both halves of a pair (two tags on top of each other)
+                foreach (long elementId in Ids(finding))
+                    MarkOne(doc, finding.ViewId, elementId, highlight, done, result);
             }
 
             return result;
+        }
+
+        // What a finding marks: its element, and the other half of a pair
+        private static IEnumerable<long> Ids(QAFinding finding)
+        {
+            yield return finding.ElementId;
+
+            if (finding.OtherElementId > 0 && finding.OtherElementId != finding.ElementId)
+                yield return finding.OtherElementId;
+        }
+
+        private static void MarkOne(
+            Document doc, long viewId, long elementId,
+            OverrideGraphicSettings highlight, HashSet<string> done, Result result)
+        {
+            // The same tag can be reported by two checks at once
+            if (!done.Add(viewId + ":" + elementId))
+                return;
+
+            var view = doc.GetElement(REVITCOMPAT.NewId(viewId)) as View;
+
+            if (view == null || !view.AreGraphicsOverridesAllowed())
+            {
+                result.Skipped++;
+                return;
+            }
+
+            ElementId id = REVITCOMPAT.NewId(elementId);
+
+            if (doc.GetElement(id) == null)
+            {
+                result.Skipped++;
+                return;
+            }
+
+            try
+            {
+                view.SetElementOverrides(id, highlight);
+
+                result.Marked++;
+
+                result.Spots.Add(new Spot
+                {
+                    ViewId = viewId,
+                    ElementId = elementId
+                });
+            }
+            catch
+            {
+                result.Skipped++;
+            }
         }
 
         // Must be called inside a transaction. Putting an empty override
@@ -156,11 +171,14 @@ namespace ATKINSMEC
                 if (finding.ViewId == 0 || finding.ElementId == 0)
                     continue;
 
-                spots.Add(new Spot
+                foreach (long elementId in Ids(finding))
                 {
-                    ViewId = finding.ViewId,
-                    ElementId = finding.ElementId
-                });
+                    spots.Add(new Spot
+                    {
+                        ViewId = finding.ViewId,
+                        ElementId = elementId
+                    });
+                }
             }
 
             return spots;

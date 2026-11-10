@@ -74,6 +74,11 @@ namespace ATKINSMEC
             public bool AboutTheModel;
             public bool CanMark = true;
 
+            // The live markers re-run the page's checks on every change
+            // to the model: off where that is too slow to bear (the Tags
+            // checker measures every tag in scope)
+            public bool CanWatch = true;
+
             public string ThirdColumn = "Sheet";
             public string FourthColumn = "View";
 
@@ -128,6 +133,13 @@ namespace ATKINSMEC
 
         private readonly Document _doc;
 
+        private TAGForm _tags;
+        private string _tagsFailed = string.Empty;
+        private TabPage _tabTags;
+
+        // The check tab in front before Room tags was picked
+        private int _lastCheckTab;
+
         // Read once in the constructor: the constructor runs inside the
         // command's API context, a button handler does not
         private readonly string _docTitle;
@@ -163,6 +175,77 @@ namespace ATKINSMEC
             _docTitle = doc.Title;
 
             this.Text = "SHEET QA - " + _docTitle;
+
+            MakeTags(doc);
+        }
+
+        // ==================================================
+        // Room tags
+        // ==================================================
+
+        // The ROOM TAGS window, built here because what it lists - the
+        // links, the tag types, the model's key - is read from the model,
+        // and the constructor is the one place in an API context. Into its
+        // tab on Load.
+        private void MakeTags(Document doc)
+        {
+            try
+            {
+                long preferred;
+
+                List<KeyValuePair<long, string>> types = TAGREAD.TagTypes(doc, out preferred);
+
+                _tags = new TAGForm(
+                    _docTitle,
+                    TAGREAD.ModelKey(doc),
+                    TAGREAD.Links(doc),
+                    types,
+                    preferred,
+                    linkIds => TAGREAD.Read(_doc, linkIds),
+                    (plan, typeId) => TAGWRITE.Tag(_doc, plan, typeId),
+                    ids => TAGWRITE.Remove(_doc, ids));
+            }
+            catch (Exception ex)
+            {
+                _tags = null;
+                _tagsFailed = ex.Message;
+            }
+        }
+
+        private void ShowTags()
+        {
+            _tabTags = new TabPage("Room tags") { UseVisualStyleBackColor = true, Padding = new Padding(3) };
+
+            tabChecks.TabPages.Add(_tabTags);
+
+            if (_tags == null)
+            {
+                _tabTags.Controls.Add(new System.Windows.Forms.Label
+                {
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(12),
+                    Text = "Room tags could not read the model: " + _tagsFailed
+                });
+
+                return;
+            }
+
+            // Every read and write through QAEVENT, run when Revit is ready
+            _tags.Embed(_tabTags, work =>
+            {
+                if (_handler == null || _event == null)
+                    return;
+
+                _handler.RoomTagWork = work;
+                _event.Raise();
+            });
+        }
+
+        // Another model was in front: the work was dropped, said on its page
+        public void RoomTagsRefused(string why)
+        {
+            if (_tags != null && !_tags.IsDisposed)
+                _tags.Abandon(why);
         }
 
         private void QAForm_Load(object sender, EventArgs e)
@@ -308,6 +391,13 @@ namespace ATKINSMEC
             Fill(_chw);
             Fill(_chwJoints);
 
+            ShowTags();
+
+            // The Tags checker, after Room tags: built in code from the
+            // flowrate page's layout (QAFormTags)
+            MakeClashPage();
+            Fill(_clash);
+
             ShowChwTable();
 
             // Four corners; the pair is read as (vertical grids get the
@@ -379,24 +469,43 @@ namespace ATKINSMEC
 
         // The tab in front, which is what the shared buttons along the
         // bottom act on
+        //
+        // With Room tags in front it is the check page in front before it:
+        // a repaint coming back then still lands on the page it belongs to.
+        // The shared buttons are off on Room tags (Buttons).
         private Page Current
         {
             get
             {
-                if (tabChecks.SelectedIndex == 5)
+                int index = TagsInFront ? _lastCheckTab : tabChecks.SelectedIndex;
+
+                // The Tags checker is placed by its tab, not by a number
+                if (_clash != null && index >= 0 && index < tabChecks.TabPages.Count
+                    && tabChecks.TabPages[index] == _tabClash)
+                    return _clash;
+
+                if (index == 5)
                     return _chwJoints;
 
-                if (tabChecks.SelectedIndex == 4)
+                if (index == 4)
                     return _chw;
 
-                if (tabChecks.SelectedIndex == 3)
+                if (index == 3)
                     return _fcu;
 
-                if (tabChecks.SelectedIndex == 2)
+                if (index == 2)
                     return _ducts;
 
-                return tabChecks.SelectedIndex == 1 ? _grids : _flow;
+                return index == 1 ? _grids : _flow;
             }
+        }
+
+        // The Room tags tab - the old ROOM TAGS add-in (user, 2026-11-10),
+        // its own page with its own buttons: none of the shared ones along
+        // the bottom act on it
+        private bool TagsInFront
+        {
+            get { return _tabTags != null && tabChecks.SelectedTab == _tabTags; }
         }
 
         private void Raise(QAEVENT.Request what)
@@ -458,6 +567,9 @@ namespace ATKINSMEC
 
             Offer(_chwJoints, levelItems, "Everywhere in the model",
                 activeViewName, false);
+
+            Offer(_clash, sheetItems, $"Every sheet   ({sheets.Count})",
+                activeViewName, sheets.Count == 0);
         }
 
         private static void Offer(
@@ -646,15 +758,17 @@ namespace ATKINSMEC
         {
             Page page = Current;
 
-            btnExport.Enabled = page.Findings.Count > 0;
+            bool tags = TagsInFront;
+
+            btnExport.Enabled = !tags && page.Findings.Count > 0;
 
             // Marking colours an element in a view. A finding that
             // belongs to the model rather than to a sheet has no view to
             // colour it in, so the buttons say so by going grey.
-            bool markable = page.CanMark && page.Findings.Count > 0;
+            bool markable = !tags && page.CanMark && page.Findings.Count > 0;
 
             btnMark.Enabled = markable;
-            chkMarkers.Enabled = page.CanMark;
+            chkMarkers.Enabled = !tags && page.CanMark && page.CanWatch;
 
             btnClearMarks.Enabled = _marks.Count > 0 || markable;
 
@@ -685,8 +799,12 @@ namespace ATKINSMEC
             // fixable, so a tab change before they are all built would
             // throw. Every page belongs in this list.
             if (_flow == null || _grids == null || _ducts == null
-                || _fcu == null || _chw == null || _chwJoints == null)
+                || _fcu == null || _chw == null || _chwJoints == null
+                || _clash == null)
                 return;
+
+            if (!TagsInFront)
+                _lastCheckTab = tabChecks.SelectedIndex;
 
             Buttons();
         }
@@ -947,7 +1065,9 @@ namespace ATKINSMEC
                 ChwTable = _chwTable,
                 ChwOversizeSteps = (int)numChwSteps.Value,
                 ChwOversizeFromMm = (double)numChwFrom.Value,
-                ChwKeepShortPipes = chkChwKeepShort.Checked
+                ChwKeepShortPipes = chkChwKeepShort.Checked,
+
+                TagOverlapMm = _numClashMm == null ? 0.5 : (double)_numClashMm.Value
             };
 
             foreach (object item in clbChwJFamilies.CheckedItems)
@@ -1246,6 +1366,7 @@ namespace ATKINSMEC
                 return;
 
             _handler.ZoomTo = finding.ElementId;
+            _handler.ZoomAlso = finding.OtherElementId;
 
             Raise(QAEVENT.Request.Zoom);
         }
@@ -2484,7 +2605,7 @@ namespace ATKINSMEC
         {
             Page page = Current;
 
-            if (page.Findings.Count == 0)
+            if (TagsInFront || page.Findings.Count == 0)
                 return;
 
             Cursor = Cursors.WaitCursor;
@@ -2504,6 +2625,9 @@ namespace ATKINSMEC
 
             spots.AddRange(QAMARK.SpotsOf(_flow.Findings));
             spots.AddRange(QAMARK.SpotsOf(_grids.Findings));
+
+            if (_clash != null)
+                spots.AddRange(QAMARK.SpotsOf(_clash.Findings));
 
             if (spots.Count == 0)
                 return;
@@ -2624,7 +2748,7 @@ namespace ATKINSMEC
         {
             Page page = Current;
 
-            if (page.Findings.Count == 0)
+            if (TagsInFront || page.Findings.Count == 0)
                 return;
 
             using (SaveFileDialog saveFileDialog = new SaveFileDialog())
@@ -2703,6 +2827,20 @@ namespace ATKINSMEC
             // and touches no API; the unsubscribe and the clearing of
             // the markers happen in QAEVENT, which is allowed to.
             QAWATCH.Disarm();
+
+            // The room tags choices (links, tag type), as its own window
+            // kept them on closing
+            if (_tags != null && !_tags.IsDisposed)
+            {
+                try
+                {
+                    _tags.Remember();
+                }
+                catch
+                {
+                    // settings that cannot be written are not worth a dialog
+                }
+            }
 
             if (_handler != null && _event != null)
             {

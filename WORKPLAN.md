@@ -70,6 +70,55 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## SHEET QA: Tags checker - 2026-11-10
+
+User: "lets make another window in the QAcheck addin called tags
+checker, where it checks for annotations or tags clashing or overlapping
+each other in the model". Read as an eighth TAB of SHEET QA (the window
+is tabs; Room tags went the same way the same day), after Room tags, a
+check page like Flowrate: Every sheet / ticked sheets / the view open
+now; three checks - tags over tags (room, space, area tags included),
+tags over text notes, text over text; Show selects both, Mark colours
+both, Export; the overlap tolerance (0.5 mm on paper) beside Run. Built
+on PR #2's branch (Room tags), not on main.
+
+- How a tag is measured (`QATAGS`): Revit's box round it with its
+  LEADER OFF - set in a transaction that is rolled back, never
+  committed - and turned back to the view where the view is turned.
+  Text notes from their own corner / width / height. The head's own box
+  (`GetTagBoxMiddlePoints`) is documented for 2025+ but not public.
+- Tests: `tagclashtest`, 40 checks; 8 mutations of QATAGCLASH all
+  caught. Built here in the cloud for 2022-2027 (apt's dotnet SDKs,
+  `EnableWindowsTargeting`) - the first cloud build; PR #2 built clean
+  with it too.
+- **NEVER RUN IN REVIT, and the page has not been seen on screen** (it
+  is laid out in code from the Flowrate page's controls). To check on a
+  real job: the tab looks like Flowrate's at 100% and 150%; a plan with
+  tags known to overlap (with and without leaders, room tags with a
+  leader outside the room) - the rows, the depth, Show framing both;
+  that the undo list is empty after a run and a workshared model owned
+  by someone else raises nothing; a turned view (rough rows near 45
+  degrees); how long Every sheet takes on a big job
+  (`ATKINSMEC_tags_log.txt` lists every view). Revit's box round a tag
+  may be looser than its text - if pairs that only touch are listed,
+  raise the tolerance and say so.
+- Not done, offered: a fix that moves one tag of a pair clear; leaders
+  crossing other tags; dimensions.
+
+## ROOM TAGS becomes a tab of SHEET QA - 2026-11-10
+
+User: "lets add the room tags addin as a new tab in the QAcheck addin
+instead of being a seperate addin". The ROOM TAGS button (`Tool11`) and
+`TAGCommand.cs` are gone; SHEET QA has a seventh tab, **Room tags**, the
+same window embedded (`TAGForm.Embed`), its reads and writes through
+`QAEVENT.RoomTagWork`. One `.addin` for the suite, so nothing else to
+unregister; the `roomtags` icon is left in `Resources\Icons` unused.
+`roomtagtest` drives `TAGForm` alone, unchanged. Written in the cloud
+(no dotnet there): **build 2022 / 2025 / 2027 and run roomtagtest on the
+PC before merging. Never run in Revit** - check on a real job that Check
+sheets, Tag missing and Remove duplicates come back through the external
+event, and that Esc / Enter in the tab do not close SHEET QA.
+
 ## AUTOVENT: Levels and rooms - headings when scrolled, drop-down cells, the calculation only - 2026-10-28
 
 User, in Revit: "many columns are empty without headers"; "the occupancy

@@ -51,6 +51,15 @@ namespace ATKINSMEC
         public QASETTINGS Settings { get; set; }
         public List<QAFinding> ToFix { get; set; }
         public long ZoomTo { get; set; }
+
+        // The other half of a pair shown with it (two tags overlapping);
+        // zero when there is none
+        public long ZoomAlso { get; set; }
+
+        // The Room tags page's work (check, tag, remove duplicates): its
+        // own slot rather than a Request, so a repaint raised meanwhile
+        // cannot overwrite it - whatever else this run does, it runs too
+        public System.Action RoomTagWork { get; set; }
         public List<QAFinding> ToMark { get; set; }
         public List<QAMARK.Spot> ToClear { get; set; }
 
@@ -66,17 +75,27 @@ namespace ATKINSMEC
                 // on their own whenever a model changes, so a repaint that
                 // finds another model in front just waits - a message every
                 // time would be unbearable
-                string wrong = Action == Request.None
+                System.Action tagWork = RoomTagWork;
+                RoomTagWork = null;
+
+                string wrong = Action == Request.None && tagWork == null
                     ? null
                     : SAMEDOC.Problem(app, Home, HomeTitle);
 
                 if (wrong != null)
                 {
-                    if (Action != Request.Repaint && Form != null && !Form.IsDisposed)
+                    if (tagWork != null && Form != null && !Form.IsDisposed)
+                        Form.RoomTagsRefused(wrong);
+                    else if (Action != Request.Repaint && Form != null && !Form.IsDisposed)
                         Form.ReportError(wrong);
 
                     return;
                 }
+
+                // Tagging is one transaction of its own (TAGWRITE), the
+                // reads none; the page shows what came back itself
+                if (tagWork != null && Form != null && !Form.IsDisposed)
+                    tagWork();
 
                 switch (Action)
                 {
@@ -649,7 +668,16 @@ namespace ATKINSMEC
             if (element == null)
                 return;
 
-            uiDoc.Selection.SetElementIds(new List<ElementId> { id });
+            var picked = new List<ElementId> { id };
+
+            Element also = ZoomAlso > 0 && ZoomAlso != ZoomTo
+                ? uiDoc.Document.GetElement(REVITCOMPAT.NewId(ZoomAlso))
+                : null;
+
+            if (also != null)
+                picked.Add(also.Id);
+
+            uiDoc.Selection.SetElementIds(picked);
 
             uiDoc.ShowElements(id);
 
@@ -657,6 +685,22 @@ namespace ATKINSMEC
 
             if (box == null)
                 return;
+
+            // Both halves of a pair in the frame
+            BoundingBoxXYZ alsoBox = also == null ? null : also.get_BoundingBox(null);
+
+            if (alsoBox != null)
+            {
+                box = new BoundingBoxXYZ
+                {
+                    Min = new XYZ(Math.Min(box.Min.X, alsoBox.Min.X),
+                                  Math.Min(box.Min.Y, alsoBox.Min.Y),
+                                  Math.Min(box.Min.Z, alsoBox.Min.Z)),
+                    Max = new XYZ(Math.Max(box.Max.X, alsoBox.Max.X),
+                                  Math.Max(box.Max.Y, alsoBox.Max.Y),
+                                  Math.Max(box.Max.Z, alsoBox.Max.Z))
+                };
+            }
 
             // ShowElements frames a tag far too tightly to place it
             XYZ margin = new XYZ(4, 4, 0);
