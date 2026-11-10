@@ -70,8 +70,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-installer.ps1    # ins
   "setup"). Uninstall reads `ATKINSMEC.files.txt` — never clear the
   shared add-ins folder. Output `installer\output\AtkinsMEPToolkit-Setup.exe`
   (+ `.zip`), ~21 MB, no admin rights needed.
-- **Git**: `main`, no remote, `core.autocrlf false` (files are a mix of
-  LF and CRLF — keep each as it is). A post-commit hook
+- **Git**: `main`, remote `origin` = github.com/Grimwaldo/ATKINSMEC,
+  `core.autocrlf false` (files are a mix of LF and CRLF — keep each as
+  it is). **Two-way sync** (2026-11-10): `tools\sync.ps1` commits local
+  changes, rebases onto `origin/main`, pushes; the scheduled task "ATKINSMEC
+  GitHub sync" runs it every 15 min (`tools\sync-install.ps1`, `-Remove`),
+  log `ATKINSMEC_sync_log.txt`. It only syncs `main` and aborts on a
+  conflict. Claude's cloud work reaches this folder once merged into
+  `main` on GitHub. A post-commit hook
   (`tools/git-hooks`, `core.hooksPath`) pushes to `backup-onedrive`
   (`C:\Users\moham\OneDrive\Backups\ATKINSMEC.git`). OneDrive was not
   signed in and `D:` is write-protected, so that copy is on the same disk.
