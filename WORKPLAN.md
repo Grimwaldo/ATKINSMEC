@@ -94,6 +94,27 @@ is not functioning properly its not a droplist like excel".
   labels). 8 mutations, all caught.
 - NOT run in Revit.
 
+## SHEET QA: the flowrate check skips tags that show no flow - 2026-11-10
+
+User, with a screenshot of a riser tag (ATR_ME_SYM_TAG_Duct Risers
+Rectangular & Circular, type FA/TB) reading "500x400 EAD FA/TB" listed as
+a tag reading zero: "check the text along with the flowrate, if its
+showing a text that doesnt display flow then dont report it".
+
+- `QAFLOWTEXT` (Revit-free): a tag on an element with no flow is
+  reported when its text (`TagText`) reads a flow unit or a zero on its
+  own, OR most of its type's tags on elements with a flow read their
+  flow (an unset flow may print nothing; `TagText` glues labels). The
+  row's Problem now says what the tag reads.
+- Test `flowtagtest`, 70 checks; 11 mutations, all caught. Built for
+  2022 / 2025 / 2027 in the cloud.
+- **NEVER RUN IN REVIT.** Open: what an UNSET flow prints in a tag
+  (blank or 0) was never seen - the type rule covers both. A real flow
+  tag could only go missing when its own text has no zero or flow unit
+  standing alone (blank, or a zero glued to a size) AND its type's
+  other tags are not recognised - a label rounding to a custom
+  increment, or units other than L/s, m³/h, CFM, gpm, L/min, m³/s.
+
 ## AUTOVENT: occupancy chosen in Levels and rooms, new values, "Redundant rooms" - 2026-10-26
 
 User: call the containers "Redundant rooms"; choose a room's occupancy in

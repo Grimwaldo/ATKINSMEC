@@ -1,6 +1,7 @@
 using Autodesk.Revit.DB;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ATKINSMEC
 {
@@ -10,6 +11,11 @@ namespace ATKINSMEC
     // question is what the drawing says: an untagged element with no flow
     // is a modelling matter, but a tag reading 0 l/s is on a sheet going
     // out of the door.
+    //
+    // ONLY A TAG THAT SHOWS A FLOW (user, 2026-11-10): a riser tag reading
+    // "500x400 EAD FA/TB" - size and system - on a duct with no flow is
+    // not wrong on the sheet. What a tag shows is decided in QAFLOWTEXT,
+    // from its own text and from the other tags of its type.
     public class QAFLOWCHECK : IQACHECK
     {
         public string Group
@@ -26,15 +32,32 @@ namespace ATKINSMEC
         {
             get
             {
-                return "Air terminal, duct and pipe tags whose element " +
-                       "has no flow. These print as 0 on the sheet.";
+                return "Air terminal, duct and pipe tags showing a flow " +
+                       "whose element has none. These print as 0 on the " +
+                       "sheet. A tag showing no flow (a size, a system) " +
+                       "is left out.";
             }
+        }
+
+        // A tag on an element with no flow, before it is known whether
+        // the tag shows that flow
+        private class Candidate
+        {
+            public View View;
+            public ViewSheet Sheet;
+            public IndependentTag Tag;
+            public Element Tagged;
+            public string Units;
+            public bool Assigned;
+
+            // What the tag reads; null when Revit would not say
+            public string Text;
         }
 
         public List<QAFinding> Run(
             Document doc, QACONTEXT context, QASETTINGS settings)
         {
-            var findings = new List<QAFinding>();
+            var candidates = new List<Candidate>();
 
             // A tag can appear in more than one view; each appearance is
             // its own tag element, so nothing is double counted. The same
@@ -46,6 +69,9 @@ namespace ATKINSMEC
 
                 foreach (IndependentTag tag in QACHECKS.TagsIn(doc, view))
                 {
+                    string text = null;
+                    bool read = false;
+
                     foreach (ElementId taggedId in TaggedIds(tag))
                     {
                         Element tagged = doc.GetElement(taggedId);
@@ -67,40 +93,169 @@ namespace ATKINSMEC
                         if (Math.Abs(flow.Value) > 1e-9)
                             continue;
 
-                        findings.Add(new QAFinding
+                        if (!read)
                         {
-                            Check = Name,
-                            Severity = QASeverity.Issue,
-                            SheetNumber = sheet == null
-                                ? string.Empty
-                                : sheet.SheetNumber,
-                            SheetName = sheet == null
-                                ? string.Empty
-                                : sheet.Name,
-                            ViewName = view.Name,
-                            ViewId = view.Id.ToValue(),
+                            text = TextOf(tag);
+                            read = true;
+                        }
 
-                            // The tag is what is wrong on the drawing
-                            ElementId = tag.Id.ToValue(),
-
-                            Element = QACHECKS.DescribeElement(tagged),
-
-                            // Zero and unset print the same on the
-                            // sheet but are put right differently: a
-                            // zero means the system calculated nothing,
-                            // an unset one usually means the element is
-                            // in no system at all
-                            Problem = assigned
-                                ? "flow is zero"
-                                : "flow is not set - is it on a system?",
-
-                            Value = units
+                        candidates.Add(new Candidate
+                        {
+                            View = view,
+                            Sheet = sheet,
+                            Tag = tag,
+                            Tagged = tagged,
+                            Units = units,
+                            Assigned = assigned,
+                            Text = text
                         });
                     }
                 }
             }
 
+            // The other tags of a type are read only where the tag's own
+            // text did not settle it
+            var unsettled = new HashSet<long>();
+
+            foreach (Candidate c in candidates)
+            {
+                if (c.Text == null || !QAFLOWTEXT.ReadsZero(c.Text))
+                    unsettled.Add(c.Tag.GetTypeId().ToValue());
+            }
+
+            Dictionary<long, QAFLOWTEXT.Evidence> evidence =
+                Learn(doc, unsettled);
+
+            var findings = new List<QAFinding>();
+
+            foreach (Candidate c in candidates)
+            {
+                QAFLOWTEXT.Evidence ofType;
+
+                evidence.TryGetValue(
+                    c.Tag.GetTypeId().ToValue(), out ofType);
+
+                if (!QAFLOWTEXT.Report(c.Text, ofType))
+                    continue;
+
+                // Zero and unset print the same on the sheet but are
+                // put right differently: a zero means the system
+                // calculated nothing, an unset one usually means the
+                // element is in no system at all
+                string problem = c.Assigned
+                    ? "flow is zero"
+                    : "flow is not set - is it on a system?";
+
+                if (c.Text != null)
+                {
+                    string reads = c.Text.Replace("\r", " ").Replace("\n", " ").Trim();
+
+                    problem += reads.Length == 0
+                        ? " (the tag reads nothing)"
+                        : " (the tag reads \"" + reads + "\")";
+                }
+
+                findings.Add(new QAFinding
+                {
+                    Check = Name,
+                    Severity = QASeverity.Issue,
+                    SheetNumber = c.Sheet == null
+                        ? string.Empty
+                        : c.Sheet.SheetNumber,
+                    SheetName = c.Sheet == null
+                        ? string.Empty
+                        : c.Sheet.Name,
+                    ViewName = c.View.Name,
+                    ViewId = c.View.Id.ToValue(),
+
+                    // The tag is what is wrong on the drawing
+                    ElementId = c.Tag.Id.ToValue(),
+
+                    Element = QACHECKS.DescribeElement(c.Tagged),
+
+                    Problem = problem,
+
+                    Value = c.Units
+                });
+            }
+
             return findings;
+        }
+
+        // What the tag prints, every label run together (TagText), or
+        // null when Revit will not say - it throws for a tag with no
+        // valid text
+        private static string TextOf(IndependentTag tag)
+        {
+            try
+            {
+                return tag.TagText ?? string.Empty;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // For each tag type asked about: its tags anywhere in the model
+        // on ONE element of this model that carries a flow, and how many
+        // of them read it. At most QAFLOWTEXT.EvidenceCap each.
+        private static Dictionary<long, QAFLOWTEXT.Evidence> Learn(
+            Document doc, HashSet<long> typeIds)
+        {
+            var result = new Dictionary<long, QAFLOWTEXT.Evidence>();
+
+            foreach (long id in typeIds)
+                result[id] = new QAFLOWTEXT.Evidence();
+
+            if (result.Count == 0)
+                return result;
+
+            int open = result.Count;
+
+            var tags = new FilteredElementCollector(doc)
+                .OfClass(typeof(IndependentTag))
+                .Cast<IndependentTag>();
+
+            foreach (IndependentTag tag in tags)
+            {
+                QAFLOWTEXT.Evidence ofType;
+
+                if (!result.TryGetValue(tag.GetTypeId().ToValue(), out ofType) ||
+                    ofType.Seen >= QAFLOWTEXT.EvidenceCap)
+                {
+                    continue;
+                }
+
+                List<ElementId> ids = TaggedIds(tag).ToList();
+
+                if (ids.Count != 1)
+                    continue;
+
+                string units;
+                bool assigned;
+
+                double? flow = FlowOf(
+                    doc.GetElement(ids[0]), out units, out assigned);
+
+                if (flow == null || !assigned || Math.Abs(flow.Value) <= 1e-9)
+                    continue;
+
+                string text = TextOf(tag);
+
+                if (text == null)
+                    continue;
+
+                ofType.Seen++;
+
+                if (QAFLOWTEXT.Shows(text, flow.Value, units))
+                    ofType.Showed++;
+
+                if (ofType.Seen >= QAFLOWTEXT.EvidenceCap && --open == 0)
+                    break;
+            }
+
+            return result;
         }
 
         // Only local elements. A tag pointing into a linked model reads
