@@ -820,7 +820,16 @@ cache, `Scope`); a throwing check becomes a warning row; settings via
 - "The view open now" must reach the collector (`QACHECKS.Look`); a
   sheet means the whole model.
 - **Flowrate**: tag colours the TAG; an unset flow is a finding.
-  `QAMARK` overrides (saved with the model, Clear is exact); `QAAVF` +
+  **Only a tag that SHOWS a flow** (user, 2026-11-10: a riser tag
+  reading "500x400 EAD FA/TB" was listed): `QAFLOWTEXT` (Revit-free,
+  test `flowtagtest`). The API cannot say what a tag's labels show, so
+  either is enough: its `TagText` reads a flow unit or a zero standing
+  on its own (not "500x400", "L00", "+0.00", "0 mm"), or most of its
+  TYPE's tags on elements with a flow read that flow (`Shows`, ≤40 per
+  type, only for types the text did not settle) - an unset flow may
+  print nothing, and `TagText` runs labels together ("500x4000 L/s").
+  Text unreadable and the type unknown = reported, as before. The row
+  says what the tag reads. `QAMARK` overrides (saved with the model, Clear is exact); `QAAVF` +
   `QAWATCH` live markers (`DocumentChanged` handler only raises the event,
   guards against its own writes, `Stop` in `OnFormClosed`). No view
   filters — they cannot colour a tag.

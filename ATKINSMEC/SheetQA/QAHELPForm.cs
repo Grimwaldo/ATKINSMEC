@@ -83,6 +83,14 @@ namespace ATKINSMEC
                 "tag reading zero is on a drawing going out of the door, " +
                 "and that is what this add-in is for.");
             Body(
+                "Only tags that SHOW a flow are listed. A tag showing a " +
+                "size and a system (\"500x400 EAD\") on a duct with no " +
+                "flow is left out. A tag counts as showing a flow when " +
+                "its text has a flow unit or a 0 on its own, or when " +
+                "most tags of the same type on ducts and pipes that do " +
+                "carry flow read that flow. Each row says what the tag " +
+                "reads.");
+            Body(
                 "The same element tagged on two sheets is reported twice, " +
                 "on purpose - both sheets are wrong.");
             Body(

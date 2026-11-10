@@ -19,6 +19,7 @@ $tests = @(
     'esptest', 'fittingtest', 'fixturedialogtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
     'officetest', 'roomtagtest', 'roomtest', 'runtest', 'sheettest', 'synctest',
     'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest', 'geomtest'
+    'flowtagtest'
 )
 
 # Harnesses kept but not run by default, because they are out of step
