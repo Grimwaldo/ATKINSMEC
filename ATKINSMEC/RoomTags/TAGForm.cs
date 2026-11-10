@@ -8,10 +8,12 @@ using System.Windows.Forms;
 
 namespace ATKINSMEC
 {
-    // THE ROOM TAGS WINDOW. Modal, like CHW VOLUME and DUCT ESP: it runs in
-    // the command's API context, so Check reads the model directly and Tag
-    // missing / Remove duplicates open their own transactions - no external
-    // event.
+    // THE ROOM TAGS PAGE of SHEET QA (user, 2026-11-10: "add the room tags
+    // addin as a new tab in the QAcheck addin instead of being a seperate
+    // addin"). QAForm hosts this form inside its Room tags tab (Embed), and
+    // every read and write goes through QAEVENT: Embed hands in the runner
+    // that takes the work into an API context, later. On its own (the
+    // tests, the preview) it is a window again and the work runs at once.
     //
     // Revit-free all the same: TAGCommand hands in the reads as callbacks,
     // and the window deals only in TAGPLAN objects. Built in code, in table
@@ -39,6 +41,13 @@ namespace ATKINSMEC
         private List<TAGPLAN.Row> _rows;
 
         private bool _filling;
+
+        // Runs a piece of work that touches the model. At once on its own;
+        // through SHEET QA's external event when embedded, so the work and
+        // everything after it happen when Revit gets round to it
+        private Action<Action> _inApi = work => work();
+
+        private Button _btnClose;
 
         // Asked before tagging or removing; a message box unless
         // tests\roomtagtest answers instead
@@ -108,6 +117,41 @@ namespace ATKINSMEC
             ShowRows();
 
             FORMSIZE.Remember(this);
+        }
+
+        // ==================================================
+        // Inside SHEET QA
+        // ==================================================
+
+        // Into a tab page: no border, no Close (the page's window has its
+        // own), and the work handed to the runner
+        public void Embed(Control page, Action<Action> inApi)
+        {
+            if (inApi != null)
+                _inApi = inApi;
+
+            TopLevel = false;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            CancelButton = null;
+
+            // Not the window's minimum: the tab decides. Not empty either,
+            // or FORMSIZE would make the first size the minimum
+            MinimumSize = new Size(1, 1);
+            Dock = DockStyle.Fill;
+
+            if (_btnClose != null)
+                _btnClose.Visible = false;
+
+            page.Controls.Add(this);
+            Show();
+        }
+
+        // The work never ran (SHEET QA refused it - another model in front)
+        public void Abandon(string why)
+        {
+            Cursor = Cursors.Default;
+            Say(why);
         }
 
         // ==================================================
@@ -369,6 +413,7 @@ namespace ATKINSMEC
             var close = new Button { Text = "Close", Width = 90, Height = 28, DialogResult = DialogResult.Cancel };
             close.Click += (s, e) => Close();
             bottom.Controls.Add(close, 7, 0);
+            _btnClose = close;
 
             _lblStatus = new Label
             {
@@ -432,6 +477,9 @@ namespace ATKINSMEC
 
         private void FitToScreen()
         {
+            if (!TopLevel)
+                return;
+
             try
             {
                 Rectangle area = Screen.FromControl(this).WorkingArea;
@@ -600,28 +648,31 @@ namespace ATKINSMEC
             Say("Reading the plans on sheets...");
             _lblStatus.Refresh();
 
-            try
+            _inApi(() =>
             {
-                ReadModel();
+                try
+                {
+                    ReadModel();
 
-                ShowRows();
-                WriteLog(null, null);
+                    ShowRows();
+                    WriteLog(null, null);
 
-                int missing = TAGPLAN.Missing(_rows);
-                int duplicates = TAGPLAN.ToRemove(_rows).Count;
+                    int missing = TAGPLAN.Missing(_rows);
+                    int duplicates = TAGPLAN.ToRemove(_rows).Count;
 
-                Say(missing == 0 && duplicates == 0
-                    ? "Every room shown is tagged, once."
-                    : missing + " room tag(s) missing, " + duplicates + " duplicate(s).");
-            }
-            catch (Exception ex)
-            {
-                Say("The check failed: " + ex.Message);
-            }
-            finally
-            {
-                Cursor = Cursors.Default;
-            }
+                    Say(missing == 0 && duplicates == 0
+                        ? "Every room shown is tagged, once."
+                        : missing + " room tag(s) missing, " + duplicates + " duplicate(s).");
+                }
+                catch (Exception ex)
+                {
+                    Say("The check failed: " + ex.Message);
+                }
+                finally
+                {
+                    Cursor = Cursors.Default;
+                }
+            });
         }
 
         // The plans, their tags, and the duplicates as the option says
@@ -894,11 +945,17 @@ namespace ATKINSMEC
             Say("Placing the tags...");
             _lblStatus.Refresh();
 
+            _inApi(() => Tagging(plan, type.Id));
+        }
+
+        // Tag missing's model half, in an API context
+        private void Tagging(Dictionary<long, List<TAGPLAN.Room>> plan, long typeId)
+        {
             TAGPLAN.Done done;
 
             try
             {
-                done = _tag(plan, type.Id);
+                done = _tag(plan, typeId);
             }
             catch (Exception ex)
             {
@@ -958,6 +1015,12 @@ namespace ATKINSMEC
             Say("Removing the duplicates...");
             _lblStatus.Refresh();
 
+            _inApi(() => Removing(ids));
+        }
+
+        // Remove duplicates' model half, in an API context
+        private void Removing(List<long> ids)
+        {
             TAGPLAN.Removal removal;
 
             try
@@ -1003,7 +1066,7 @@ namespace ATKINSMEC
         {
             return Confirm != null
                 ? Confirm(question)
-                : MessageBox.Show(this, question, "Room tags", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                : MessageBox.Show(TopLevel ? this : (IWin32Window)ParentForm ?? this, question, "Room tags", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
         }
 
         // ==================================================
@@ -1048,7 +1111,9 @@ namespace ATKINSMEC
             _lblStatus.Text = text ?? string.Empty;
         }
 
-        private void Remember()
+        // Kept on closing; SHEET QA calls it as its window closes, which an
+        // embedded form is never told of
+        public void Remember()
         {
             var type = _cmbType.SelectedItem as TypeItem;
 

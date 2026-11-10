@@ -70,6 +70,20 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## ROOM TAGS becomes a tab of SHEET QA - 2026-11-10
+
+User: "lets add the room tags addin as a new tab in the QAcheck addin
+instead of being a seperate addin". The ROOM TAGS button (`Tool11`) and
+`TAGCommand.cs` are gone; SHEET QA has a seventh tab, **Room tags**, the
+same window embedded (`TAGForm.Embed`), its reads and writes through
+`QAEVENT.RoomTagWork`. One `.addin` for the suite, so nothing else to
+unregister; the `roomtags` icon is left in `Resources\Icons` unused.
+`roomtagtest` drives `TAGForm` alone, unchanged. Written in the cloud
+(no dotnet there): **build 2022 / 2025 / 2027 and run roomtagtest on the
+PC before merging. Never run in Revit** - check on a real job that Check
+sheets, Tag missing and Remove duplicates come back through the external
+event, and that Esc / Enter in the tab do not close SHEET QA.
+
 ## AUTOVENT: Levels and rooms - headings when scrolled, drop-down cells, the calculation only - 2026-10-28
 
 User, in Revit: "many columns are empty without headers"; "the occupancy
