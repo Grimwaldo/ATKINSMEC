@@ -74,6 +74,11 @@ namespace ATKINSMEC
             public bool AboutTheModel;
             public bool CanMark = true;
 
+            // The live markers re-run the page's checks on every change
+            // to the model: off where that is too slow to bear (the Tags
+            // checker measures every tag in scope)
+            public bool CanWatch = true;
+
             public string ThirdColumn = "Sheet";
             public string FourthColumn = "View";
 
@@ -388,6 +393,11 @@ namespace ATKINSMEC
 
             ShowTags();
 
+            // The Tags checker, after Room tags: built in code from the
+            // flowrate page's layout (QAFormTags)
+            MakeClashPage();
+            Fill(_clash);
+
             ShowChwTable();
 
             // Four corners; the pair is read as (vertical grids get the
@@ -468,6 +478,11 @@ namespace ATKINSMEC
             get
             {
                 int index = TagsInFront ? _lastCheckTab : tabChecks.SelectedIndex;
+
+                // The Tags checker is placed by its tab, not by a number
+                if (_clash != null && index >= 0 && index < tabChecks.TabPages.Count
+                    && tabChecks.TabPages[index] == _tabClash)
+                    return _clash;
 
                 if (index == 5)
                     return _chwJoints;
@@ -552,6 +567,9 @@ namespace ATKINSMEC
 
             Offer(_chwJoints, levelItems, "Everywhere in the model",
                 activeViewName, false);
+
+            Offer(_clash, sheetItems, $"Every sheet   ({sheets.Count})",
+                activeViewName, sheets.Count == 0);
         }
 
         private static void Offer(
@@ -750,7 +768,7 @@ namespace ATKINSMEC
             bool markable = !tags && page.CanMark && page.Findings.Count > 0;
 
             btnMark.Enabled = markable;
-            chkMarkers.Enabled = !tags && page.CanMark;
+            chkMarkers.Enabled = !tags && page.CanMark && page.CanWatch;
 
             btnClearMarks.Enabled = _marks.Count > 0 || markable;
 
@@ -781,7 +799,8 @@ namespace ATKINSMEC
             // fixable, so a tab change before they are all built would
             // throw. Every page belongs in this list.
             if (_flow == null || _grids == null || _ducts == null
-                || _fcu == null || _chw == null || _chwJoints == null)
+                || _fcu == null || _chw == null || _chwJoints == null
+                || _clash == null)
                 return;
 
             if (!TagsInFront)
@@ -1046,7 +1065,9 @@ namespace ATKINSMEC
                 ChwTable = _chwTable,
                 ChwOversizeSteps = (int)numChwSteps.Value,
                 ChwOversizeFromMm = (double)numChwFrom.Value,
-                ChwKeepShortPipes = chkChwKeepShort.Checked
+                ChwKeepShortPipes = chkChwKeepShort.Checked,
+
+                TagOverlapMm = _numClashMm == null ? 0.5 : (double)_numClashMm.Value
             };
 
             foreach (object item in clbChwJFamilies.CheckedItems)
@@ -1345,6 +1366,7 @@ namespace ATKINSMEC
                 return;
 
             _handler.ZoomTo = finding.ElementId;
+            _handler.ZoomAlso = finding.OtherElementId;
 
             Raise(QAEVENT.Request.Zoom);
         }
@@ -2603,6 +2625,9 @@ namespace ATKINSMEC
 
             spots.AddRange(QAMARK.SpotsOf(_flow.Findings));
             spots.AddRange(QAMARK.SpotsOf(_grids.Findings));
+
+            if (_clash != null)
+                spots.AddRange(QAMARK.SpotsOf(_clash.Findings));
 
             if (spots.Count == 0)
                 return;

@@ -25,10 +25,11 @@ namespace ATKINSMEC
                 "marking the findings on the drawings, and that undoes " +
                 "in one step.");
             Body(
-                "The window is seven pages, chosen by the tabs along " +
+                "The window is eight pages, chosen by the tabs along " +
                 "the top: Flowrate check, Grids, Duct disconnection " +
                 "check, FCU flowrate check, CHW check, CHW pipe " +
-                "disconnection check and Room tags. Each page is " +
+                "disconnection check, Room tags and Tags checker. Each " +
+                "page is " +
                 "a whole job on its own - what to " +
                 "check, which checks, and what they found - and they " +
                 "never have to agree. Checking flowrate across every " +
@@ -654,6 +655,38 @@ namespace ATKINSMEC
                 "tag as duplicates too. Both ask first and are one undo " +
                 "each. The buttons along the bottom of the window do not " +
                 "act on this tab; Log opens its own report.");
+
+            Heading("Tags checker");
+            Body(
+                "Finds annotations drawn on top of each other in the " +
+                "views on the sheets: tags overlapping tags (room, space " +
+                "and area tags included), tags overlapping text notes, " +
+                "and text notes overlapping each other. Each is a check " +
+                "of its own on the page.");
+            Body(
+                "What is compared is the tag's head - the text - never " +
+                "its leader, since a leader passing another tag is how " +
+                "tags are drawn. To measure the head Revit has to be " +
+                "asked with the leaders off: the check turns them off, " +
+                "reads every tag, and rolls that back, so nothing in the " +
+                "model changes and nothing goes on the undo list.");
+            Body(
+                "Sizes are on paper, so 0.5 mm means the same on a 1:50 " +
+                "plan as on a 1:200 one. Two annotations count when they " +
+                "are further into each other than the box beside Run; " +
+                "Revit's box round a tag is a little loose, so a pair " +
+                "that only touches is left out.");
+            Body(
+                "A tag on top of another tag of the same element is said " +
+                "so - usually one tag too many. A pair seen in a view and " +
+                "in its dependent views is one row, saying how many other " +
+                "views show it. In a view turned well off square (near " +
+                "45 degrees) a tag's size cannot be read exactly, and its " +
+                "rows say it was measured roughly.");
+            Body(
+                "Show selects both and brings them into view; Mark " +
+                "colours both. The live markers are off on this page: " +
+                "they would measure every tag again on every change.");
 
             Heading("3.  Reading the results");
             Body(

@@ -217,7 +217,7 @@ namespace ATKINSMEC
 
                 PushButtonData qabuttondata = new PushButtonData("Tool6", "SHEET QA", path, "ATKINSMEC.QACommand");
                 Dress(qabuttondata, "sheetqa");
-                qabuttondata.ToolTip = "Checks what the sheets say before they go out: flowrate tags, grids, duct and CHW disconnections, FCU flows, CHW sizes, and room tags missing or doubled in plans on sheets. Most pages can fix what they find.";
+                qabuttondata.ToolTip = "Checks what the sheets say before they go out: flowrate tags, grids, duct and CHW disconnections, FCU flows, CHW sizes, room tags missing or doubled in plans on sheets, and tags or text overlapping each other. Most pages can fix what they find.";
                 PushButton qabutton = panel.AddItem(qabuttondata) as PushButton;
 
                 PushButtonData syncbuttondata = new PushButtonData("Tool7", "AUTOSYNC", path, "ATKINSMEC.SYNCCommand");

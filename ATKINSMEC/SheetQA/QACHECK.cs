@@ -32,6 +32,11 @@ namespace ATKINSMEC
         // what is wrong on the drawing
         public long ElementId { get; set; }
 
+        // The other half of a pair - two tags on top of each other (the
+        // Tags checker): Show selects both, Mark colours both. Zero for
+        // everything else.
+        public long OtherElementId { get; set; }
+
         public string Element { get; set; }
         public string Problem { get; set; }
         public string Value { get; set; }
@@ -129,12 +134,13 @@ namespace ATKINSMEC
         public const string Fcu = "FCU flowrate check";
         public const string Chw = "CHW check";
         public const string ChwJoints = "CHW pipe disconnection check";
+        public const string Tags = "Tags checker";
 
         public static string[] InOrder()
         {
             return new[]
             {
-                Flowrate, Grids, Ducts, Fcu, Chw, ChwJoints
+                Flowrate, Grids, Ducts, Fcu, Chw, ChwJoints, Tags
             };
         }
     }
@@ -256,6 +262,12 @@ namespace ATKINSMEC
         public HashSet<long> ChwEquipFamilyIds { get; set; } =
             new HashSet<long>();
 
+        // Tags checker: two annotations count as overlapping when they
+        // are further into each other than this, in millimetres ON PAPER
+        // - Revit's boxes round a tag are a little loose, and two tags
+        // that only touch are not worth a row
+        public double TagOverlapMm { get; set; } = 0.5;
+
         public string BubbleDescription
         {
             get
@@ -302,7 +314,10 @@ namespace ATKINSMEC
                 new QACHWOVERSIZECHECK(),
                 new QACHWFCUJOINTCHECK(),
                 new QACHWMEETCHECK(),
-                new QACHWSTRANDEDCHECK()
+                new QACHWSTRANDEDCHECK(),
+                new QATAGOVERLAPCHECK(),
+                new QATAGTEXTCHECK(),
+                new QATEXTOVERLAPCHECK()
             };
         }
 
