@@ -9,7 +9,7 @@
 > in git: `git show 465c133:CLAUDE.md`. Read it there before reworking
 > anything this file only summarises.
 
-Eleven Revit add-ins, one assembly, one ribbon panel (**Atkins MEP Toolkit
+Ten Revit add-ins (ROOM TAGS is now a SHEET QA tab), one assembly, one ribbon panel (**Atkins MEP Toolkit
 → Mechanical**), built from one source tree for **Revit 2022–2027**.
 
 **"Atkins MEP Toolkit" is the name people SEE** (user, 2026-10-12): the
@@ -32,8 +32,7 @@ models — `QAAVF`'s style name and schema. Never rename those.
 | NWC BATCH | `NWCCommand.cs` | Navisworks .nwc from a list of models (disk or ACC). |
 | EQUIPMENT CHANGER | `EQUIPCommand.cs` | Changes equipment/terminal type and resizes the ductwork on it up to the first reducer/tap/tee/terminal. |
 | DUCT ESP | `ESPCommand.cs` | External static pressure across this model and linked models. |
-| ROOM TAGS | `TAGCommand.cs` | Rooms of ticked linked models shown untagged in plans on sheets; tags them, never twice. |
-| SHEET QA | `QACommand.cs` | Six QA pages: flowrate tags, grids, duct disconnections, FCU flows, CHW sizes, CHW disconnections. Most can fix what they find. |
+| SHEET QA | `QACommand.cs` | Seven pages: flowrate tags, grids, duct disconnections, FCU flows, CHW sizes, CHW disconnections, **Room tags** (rooms of ticked links untagged in plans on sheets, tagged once; duplicates removed). Most can fix what they find. |
 
 ---
 
@@ -891,11 +890,23 @@ A port reaching no terminal is a finding. Writes only to this model's
 units. Window built in code (set `AutoScaleMode.Font` explicitly; fits
 the work area). `ATKINSMEC_esp_log.txt`. Never run in Revit.
 
-## ROOM TAGS
+## ROOM TAGS (a SHEET QA tab)
 User, 2026-10-23: "check the missing room tags in sheets and annotate
 them for selected links with search bar for links and make them annotate
-without duplication". Modal, window built in code (`TAGForm`, Revit-free,
-callbacks from `TAGCommand`); `TAGREAD` reads, `TAGWRITE` tags, `TAGPLAN`
+without duplication". **Since 2026-11-10 the Room tags tab of SHEET QA**
+("add the room tags addin as a new tab in the QAcheck addin instead of
+being a seperate addin"): no button, no `TAGCommand`. `QAForm.MakeTags`
+builds the `TAGForm` in its constructor (links, tag types, model key are
+read there - the API context) and `ShowTags` embeds it in the last tab
+(`TAGForm.Embed`: `TopLevel = false`, no Close). Every read and write
+goes through `QAEVENT.RoomTagWork` - its own slot, run in `Execute`
+before the `Request` switch, SAMEDOC-refused into the page's status line
+(`Abandon`). Alone (tests, preview) `TAGForm` is a window again and runs
+the work at once. The shared bottom buttons (Export, Mark, markers) are
+off on that tab; `Current` stays the last check page so a repaint lands
+right. `TAGForm.Remember` is called from `QAForm.OnFormClosed` (an
+embedded form gets no FormClosing). Window built in code (`TAGForm`,
+Revit-free, callbacks from `QAForm`); `TAGREAD` reads, `TAGWRITE` tags, `TAGPLAN`
 (Revit-free, test: `roomtagtest`, also `roomtagtest preview <folder>
 [1.5]`) decides.
 - Plans = floor and ceiling plans placed on sheets (no templates). A
