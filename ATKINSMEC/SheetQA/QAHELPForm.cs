@@ -25,9 +25,10 @@ namespace ATKINSMEC
                 "marking the findings on the drawings, and that undoes " +
                 "in one step.");
             Body(
-                "The window is five pages, chosen by the tabs along " +
+                "The window is seven pages, chosen by the tabs along " +
                 "the top: Flowrate check, Grids, Duct disconnection " +
-                "check, FCU flowrate check and CHW check. Each page is " +
+                "check, FCU flowrate check, CHW check, CHW pipe " +
+                "disconnection check and Room tags. Each page is " +
                 "a whole job on its own - what to " +
                 "check, which checks, and what they found - and they " +
                 "never have to agree. Checking flowrate across every " +
@@ -637,6 +638,22 @@ namespace ATKINSMEC
                 "carrying more than the largest size in the table has " +
                 "nowhere to go and is left alone. The whole lot is one " +
                 "undo.");
+
+            Heading("Room tags");
+            Body(
+                "The Room tags tab finds the rooms of the ticked linked " +
+                "models that show in a floor or ceiling plan on a sheet " +
+                "with no room tag, and tags them - once per view, never " +
+                "twice. A dependent view's tags go in its primary.");
+            Body(
+                "Tick the linked models, press Check sheets, untick any " +
+                "plan to leave alone, pick the tag type, then Tag " +
+                "missing. Remove duplicates deletes extra tags of one " +
+                "room in one view, keeping a tag in every plan that " +
+                "showed one; Any tag type counts a name tag and an area " +
+                "tag as duplicates too. Both ask first and are one undo " +
+                "each. The buttons along the bottom of the window do not " +
+                "act on this tab; Log opens its own report.");
 
             Heading("3.  Reading the results");
             Body(

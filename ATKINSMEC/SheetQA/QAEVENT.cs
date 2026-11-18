@@ -51,6 +51,11 @@ namespace ATKINSMEC
         public QASETTINGS Settings { get; set; }
         public List<QAFinding> ToFix { get; set; }
         public long ZoomTo { get; set; }
+
+        // The Room tags page's work (check, tag, remove duplicates): its
+        // own slot rather than a Request, so a repaint raised meanwhile
+        // cannot overwrite it - whatever else this run does, it runs too
+        public System.Action RoomTagWork { get; set; }
         public List<QAFinding> ToMark { get; set; }
         public List<QAMARK.Spot> ToClear { get; set; }
 
@@ -66,17 +71,27 @@ namespace ATKINSMEC
                 // on their own whenever a model changes, so a repaint that
                 // finds another model in front just waits - a message every
                 // time would be unbearable
-                string wrong = Action == Request.None
+                System.Action tagWork = RoomTagWork;
+                RoomTagWork = null;
+
+                string wrong = Action == Request.None && tagWork == null
                     ? null
                     : SAMEDOC.Problem(app, Home, HomeTitle);
 
                 if (wrong != null)
                 {
-                    if (Action != Request.Repaint && Form != null && !Form.IsDisposed)
+                    if (tagWork != null && Form != null && !Form.IsDisposed)
+                        Form.RoomTagsRefused(wrong);
+                    else if (Action != Request.Repaint && Form != null && !Form.IsDisposed)
                         Form.ReportError(wrong);
 
                     return;
                 }
+
+                // Tagging is one transaction of its own (TAGWRITE), the
+                // reads none; the page shows what came back itself
+                if (tagWork != null && Form != null && !Form.IsDisposed)
+                    tagWork();
 
                 switch (Action)
                 {

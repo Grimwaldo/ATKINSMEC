@@ -217,7 +217,7 @@ namespace ATKINSMEC
 
                 PushButtonData qabuttondata = new PushButtonData("Tool6", "SHEET QA", path, "ATKINSMEC.QACommand");
                 Dress(qabuttondata, "sheetqa");
-                qabuttondata.ToolTip = "Checks what the sheets say before they go out. First check: air terminal, duct and pipe tags reading zero flow. Reads only, never changes the model.";
+                qabuttondata.ToolTip = "Checks what the sheets say before they go out: flowrate tags, grids, duct and CHW disconnections, FCU flows, CHW sizes, and room tags missing or doubled in plans on sheets. Most pages can fix what they find.";
                 PushButton qabutton = panel.AddItem(qabuttondata) as PushButton;
 
                 PushButtonData syncbuttondata = new PushButtonData("Tool7", "AUTOSYNC", path, "ATKINSMEC.SYNCCommand");
@@ -254,11 +254,8 @@ namespace ATKINSMEC
                 espbuttondata.AvailabilityClassName = "ATKINSMEC.ESPAvailability";
                 PushButton espbutton = panel.AddItem(espbuttondata) as PushButton;
 
-                PushButtonData tagbuttondata = new PushButtonData("Tool11", "ROOM TAGS", path, "ATKINSMEC.TAGCommand");
-                Dress(tagbuttondata, "roomtags");
-                tagbuttondata.ToolTip = "Finds the rooms of the ticked linked models shown with no room tag in the plans placed on sheets, and tags them - once per view, never twice. Removes duplicate room tags too.";
-                tagbuttondata.AvailabilityClassName = "ATKINSMEC.TAGAvailability";
-                PushButton tagbutton = panel.AddItem(tagbuttondata) as PushButton;
+                // ROOM TAGS is a tab of SHEET QA now (user, 2026-11-10) -
+                // no button of its own
 #endif
             }
         }
