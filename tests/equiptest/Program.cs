@@ -161,6 +161,51 @@ internal static class Program
         Check("a taller unit's spigot 55 mm up is left open on a joined duct",
             r.Kind == EQUIPREACHKIND.Open && r.Why.Contains("55 mm") &&
             r.Why.Contains("duct"));
+
+        Check("...and not as a turn, so it may still be carried over",
+            !r.Turned);
+
+        r = EQUIPREACH.Decide(here, far, P(100, 0, 0), faces,
+            new EQUIPV(0, 1, 0), false, shortest, "pipe");
+        Check("a turned connection says it is turned", r.Turned);
+
+        // --- moving the UNIT onto its duct ---------------------------
+        //
+        // The user's FCU-02 -> FCU-10, 2026-11-18: a 42 mm stub along +Y
+        // to a transition, and FCU-10's spigot 327 mm to the side of it
+        EQUIPV stub = P(0, 42, 0);
+
+        EQUIPV m = EQUIPREACH.Anchor(here, stub, P(327, 0, 0), shortest);
+        Check("the user's spigot 327 mm aside: the unit moves 327 mm back",
+            Near(m.X, -327) && Near(m.Y, 0) && Near(m.Z, 0));
+
+        m = EQUIPREACH.Anchor(here, stub, P(327, 20, 55), shortest);
+        Check("only the sideways part, while the stub can take the rest",
+            Near(m.X, -327) && Near(m.Y, 0) && Near(m.Z, -55));
+
+        m = EQUIPREACH.Anchor(here, stub, P(327, 60, 0), shortest);
+        Check("the whole offset when the stub is too short for the rest",
+            Near(m.X, -327) && Near(m.Y, -60) && Near(m.Z, 0));
+
+        m = EQUIPREACH.Anchor(here, stub, P(0, -100, 0), shortest);
+        Check("a spigot that moved back along the duct moves nothing - " +
+              "the duct stretches", m.Length < 1e-9);
+
+        m = EQUIPREACH.Anchor(here, stub, P(0, 20, 0), shortest);
+        Check("one the stub reaches as it is moves nothing",
+            m.Length < 1e-9);
+
+        m = EQUIPREACH.Anchor(here, stub, P(0.4, 0, 0), shortest);
+        Check("under a millimetre aside moves nothing", m.Length < 1e-9);
+
+        // After the move the duct reaches: decided again, it is There
+        EQUIPV moved = P(327, 0, 0) + EQUIPREACH.Anchor(here, stub,
+            P(327, 0, 0), shortest);
+
+        r = EQUIPREACH.Decide(here, stub, moved, faces, faces, false,
+            shortest, "duct");
+        Check("moved onto its duct, the stub joins as it is",
+            r.Kind == EQUIPREACHKIND.There);
     }
 
     // --- which new connector each joint belongs to --------------------

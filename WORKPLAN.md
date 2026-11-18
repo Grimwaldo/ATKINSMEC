@@ -70,6 +70,38 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## EQUIPMENT CHANGER: the unit moved onto its duct, pipework carried - 2026-11-18 (later)
+
+The fix below, run by the user: "it changed the fcu type but now its
+disconnected from the duct and pipes". The log said exactly why:
+supply spigot "moved 327 mm (0 along, 327 aside); duct 3854610 is
+42 mm" (half of FCU-10's ~650 mm extra width - the family grows from
+one end), and the two CHW connections 644 / 653 mm from the elbows
+(`Pipe Fittings - Standard` 3858126 / 3858129) sitting straight on them.
+All three were left open, by design - and that was not what anybody
+wanted.
+
+- **The unit moves onto its duct** (`EQUIPREACH.Anchor`, Revit-free;
+  `EQUIPCHANGE.OntoItsDuct`): the biggest duct connection that cannot
+  reach as it is decides; the unit moves by the sideways part, or the
+  whole offset when the run cannot take the rest along its line. Not if
+  pinned, not for a stub with nothing beyond it (that moves itself).
+- **Pipework is carried** (`EQUIPJOINT.Carry`): the elbow (or run) on the
+  connection moves by the offset with everything joined beyond it, out
+  every way until a straight run lying along the move (and long enough -
+  `Decide`) takes it, or an open end. `MoveElements` once; Revit drags
+  the stretching runs' ends. Refused: equipment, terminals, plumbing
+  fixtures, sprinklers, a tap into a run, pinned, more than 12 pieces.
+- **A second go**: if the commit throws out a go that moved anything,
+  the unit is done again moving nothing (left open as before), and says
+  Revit refused the moves.
+- The log now gives a fitting-on-connector offset as out / across.
+- Tests: equiptest +9 (anchor, turned); a mutation caught.
+- NOT run in Revit. Unknown: where the user's CHW elbows lead (the carry
+  succeeds only if a straight pipe lying across the unit's width is
+  behind them within 12 pieces); whether Revit drags a stretched run's
+  end on `MoveElements` as it does on a drag.
+
 ## EQUIPMENT CHANGER: pipes taken off too; never stretched backwards - 2026-11-18
 
 User, Revit 2024, Tower A HVAC model: FCU-02 -> FCU-10 (same family

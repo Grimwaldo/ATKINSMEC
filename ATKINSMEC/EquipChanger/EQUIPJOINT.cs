@@ -169,14 +169,19 @@ namespace ATKINSMEC
 
         // Put it back onto the new type's connector `nowIndex`. The new
         // connector may not be where the old one was, so the DUCT or
-        // PIPE is brought to it rather than the equipment being nudged:
-        // the equipment is where somebody put it.
+        // PIPE is brought to it.
+        //
+        // `carry`: when it cannot be brought straight, move the run or
+        // fitting on it - and whatever hangs off that - over to the new
+        // connector, as far as a straight run lying the way it moves,
+        // which stretches to follow (Carry). Off on the second try, when
+        // Revit refused the first at the commit.
         //
         // Returns null when it is joined again, else why it was LEFT
         // OPEN. Never a refusal of the whole change: a duct or pipe
-        // that cannot reach the new connector straight is a job for a
-        // person, and the window says which one.
-        public string Redo(Document doc, int nowIndex)
+        // that cannot reach the new connector is a job for a person,
+        // and the window says which one.
+        public string Redo(Document doc, int nowIndex, bool carry, List<string> notes)
         {
             Connector mine = QADUCTS.Lookup(doc, OwnerId, nowIndex);
             Connector theirs = Theirs(doc);
@@ -192,7 +197,7 @@ namespace ATKINSMEC
                 if (mine.IsConnectedTo(theirs))
                     return null;
 
-                string why = Bring(doc, theirs, mine);
+                string why = Bring(doc, theirs, mine, carry, notes);
 
                 if (why != null)
                 {
@@ -229,7 +234,7 @@ namespace ATKINSMEC
         }
 
         // The least a run may be left with
-        private static double Shortest(Document doc)
+        public static double Shortest(Document doc)
         {
             double tolerance = 0.0;
 
@@ -253,7 +258,9 @@ namespace ATKINSMEC
         // direction"), off the line it turns, and the fitting on its far
         // end "can no longer keep the connectivity". Either is posted at
         // the commit and throws the whole unit out. EQUIPREACH decides.
-        private string Bring(Document doc, Connector end, Connector mine)
+        private string Bring(
+            Document doc, Connector end, Connector mine, bool carry,
+            List<string> notes)
         {
             XYZ to = mine.Origin;
             XYZ here = end.Origin;
@@ -269,25 +276,38 @@ namespace ATKINSMEC
 
             if (curve == null)
             {
-                // A fitting or an accessory straight on the unit. It is
-                // joined on its other side too, so it is not moved:
-                // joined again only if the new connector is right on it
-                // (asked as a free run, which is There, Open for a turn,
-                // or Shift for anything that would need it moved)
+                // A fitting or an accessory straight on the unit (FCU-10's
+                // CHW elbows, 2026-11-18). Asked as a free run, which is
+                // There, Open for a turn, or Shift for anything that
+                // would need it moved.
                 EQUIPREACH still = EQUIPREACH.Decide(
                     EQUIPWALK.V(here), EQUIPWALK.V(here), EQUIPWALK.V(to),
                     Facing == null ? (EQUIPV?)null : EQUIPWALK.V(Facing),
                     facing == null ? (EQUIPV?)null : EQUIPWALK.V(facing),
                     true, 0.0, Noun);
 
+                EQUIPLOG.Say("   " + Called + ": the connection " +
+                             Moved(to - here) + "; " + OtherName +
+                             " sits on it");
+
                 if (still.Kind == EQUIPREACHKIND.There)
                     return null;
 
-                return still.Kind == EQUIPREACHKIND.Open
-                    ? still.Why
-                    : OtherName + " sits straight on it, and the new " +
-                      "connection is " + EQUIPREACH.Mm(still.Moved) +
-                      " mm away from it";
+                if (still.Kind == EQUIPREACHKIND.Open)
+                    return still.Why;
+
+                string stuck = OtherName + " sits straight on it, and the " +
+                               "new connection is " +
+                               EQUIPREACH.Mm(still.Moved) + " mm away";
+
+                if (!carry)
+                    return stuck;
+
+                string blocked = Carry(doc, owner, end.Id, to - here, notes);
+
+                return blocked == null
+                    ? null
+                    : stuck + "; carrying it over " + blocked;
             }
 
             var located = curve.Location as LocationCurve;
@@ -334,8 +354,21 @@ namespace ATKINSMEC
                     return null;
 
                 case EQUIPREACHKIND.Open:
-                    return reach.Why + " (" + Noun + " " +
-                           curve.Id.ToValue() + ")";
+                {
+                    string stuck = reach.Why + " (" + Noun + " " +
+                                   curve.Id.ToValue() + ")";
+
+                    if (!carry || reach.Turned)
+                        return stuck;
+
+                    // The run itself moves over whole, and what is on
+                    // its far end after it
+                    string blocked = Carry(doc, curve, end.Id, to - here, notes);
+
+                    return blocked == null
+                        ? null
+                        : stuck + "; carrying it over " + blocked;
+                }
 
                 case EQUIPREACHKIND.Shift:
                     ElementTransformUtils.MoveElement(
@@ -359,6 +392,297 @@ namespace ATKINSMEC
                          (movingStart ? "(its start)" : "(its finish)"));
 
             return null;
+        }
+
+        // How many pieces a carry may move before it is not a carry any
+        // more: an elbow, a valve or two, the drop to the main
+        public const int CarryLimit = 12;
+
+        // CARRY the pipework over to the new connector: move `first` -
+        // the fitting or run that was on the unit - by `move`, and with
+        // it everything joined beyond it, out along every way until each
+        // meets a STRAIGHT RUN LYING THE WAY IT MOVES, which Revit then
+        // stretches or shortens to follow (EQUIPREACH says whether it
+        // can without turning inside out). An open end needs nothing.
+        //
+        // User, 2026-11-18: FCU-10's CHW connections came out 644 and
+        // 653 mm from the elbows sitting on FCU-02's. By hand: drag the
+        // elbows over, the pipes behind them follow.
+        //
+        // Refused - and the joint left open, saying why - when it would
+        // move another unit or terminal, slide something tapped into a
+        // main, move a pinned element, or more than CarryLimit pieces.
+        // Returns null when it moved them.
+        private string Carry(
+            Document doc, Element first, int cameIn, XYZ move,
+            List<string> notes)
+        {
+            double shortest = Shortest(doc);
+
+            var moving = new List<ElementId> { first.Id };
+
+            var seen = new HashSet<long> { first.Id.ToValue() };
+
+            var queue = new Queue<KeyValuePair<Element, int>>();
+
+            queue.Enqueue(new KeyValuePair<Element, int>(first, cameIn));
+
+            var stretched = new List<string>();
+
+            try
+            {
+                if (first.Pinned)
+                    return "it is pinned";
+
+                while (queue.Count > 0)
+                {
+                    KeyValuePair<Element, int> item = queue.Dequeue();
+
+                    ConnectorManager manager = QADUCTS.Manager(item.Key);
+
+                    if (manager == null)
+                        return "its connectors could not be read";
+
+                    foreach (Connector connector in manager.Connectors)
+                    {
+                        if (connector.Id == item.Value)
+                            continue;
+
+                        if (connector.Domain != Autodesk.Revit.DB.Domain.DomainHvac &&
+                            connector.Domain != Autodesk.Revit.DB.Domain.DomainPiping)
+                            continue;
+
+                        foreach (Connector other in connector.AllRefs)
+                        {
+                            Element next = other.Owner;
+
+                            if (next == null)
+                                continue;
+
+                            long id = next.Id.ToValue();
+
+                            if (id == item.Key.Id.ToValue() || id == OwnerId)
+                                continue;
+
+                            // Sleeves and anything that is not pipe or
+                            // duct network, by category
+                            if (!EQUIPWALK.Ductwork(next) &&
+                                !EQUIPWALK.Pipework(next))
+                                continue;
+
+                            if (seen.Contains(id))
+                                continue;
+
+                            seen.Add(id);
+
+                            string named = EQUIPWALK.Describe(next) + " " + id;
+
+                            if (Fixed(next))
+                                return "would move " + named;
+
+                            if (next.Pinned)
+                                return "would move " + named + ", which is pinned";
+
+                            var run = next as MEPCurve;
+
+                            if (run != null)
+                            {
+                                if (other.ConnectorType != ConnectorType.End)
+                                    return "would slide something tapped " +
+                                           "into " + named;
+
+                                var located = run.Location as LocationCurve;
+
+                                var line = located == null
+                                    ? null
+                                    : located.Curve as Line;
+
+                                if (line == null)
+                                {
+                                    // Flex bends to follow
+                                    stretched.Add(named);
+
+                                    continue;
+                                }
+
+                                XYZ here = other.Origin;
+
+                                XYZ a = line.GetEndPoint(0);
+                                XYZ b = line.GetEndPoint(1);
+
+                                XYZ far = a.DistanceTo(here) <= b.DistanceTo(here)
+                                    ? b
+                                    : a;
+
+                                bool free = FreeBeyond(run, other.Id);
+
+                                EQUIPREACH takes = EQUIPREACH.Decide(
+                                    EQUIPWALK.V(here), EQUIPWALK.V(far),
+                                    EQUIPWALK.V(here + move), null, null,
+                                    free, shortest, Noun);
+
+                                if (takes.Kind == EQUIPREACHKIND.Stretch ||
+                                    takes.Kind == EQUIPREACHKIND.There)
+                                {
+                                    // Lies the way it moves, and is long
+                                    // enough: Revit drags its end along
+                                    stretched.Add(named + " (" +
+                                                  EQUIPREACH.Mm(takes.Length) +
+                                                  " -> " +
+                                                  EQUIPREACH.Mm(takes.Left) +
+                                                  " mm)");
+
+                                    continue;
+                                }
+
+                                // Across the move, or too short to take
+                                // it: it moves whole, and what is beyond
+                                // it must take it instead
+                                moving.Add(next.Id);
+
+                                if (takes.Kind != EQUIPREACHKIND.Shift)
+                                {
+                                    queue.Enqueue(
+                                        new KeyValuePair<Element, int>(next, other.Id));
+                                }
+                            }
+                            else
+                            {
+                                moving.Add(next.Id);
+
+                                queue.Enqueue(
+                                    new KeyValuePair<Element, int>(next, other.Id));
+                            }
+
+                            if (moving.Count > CarryLimit)
+                                return "would move more than " + CarryLimit +
+                                       " pieces of " + Noun + "work";
+                        }
+                    }
+                }
+
+                ElementTransformUtils.MoveElements(doc, moving, move);
+            }
+            catch (Exception ex)
+            {
+                EQUIPLOG.Blew("carrying " + Called + " over", ex);
+
+                return "failed: " + EQUIPCHANGE.Short(ex);
+            }
+
+            string said = "carried " + moving.Count + " piece(s) of " + Noun +
+                          "work " + EQUIPREACH.Mm(move.GetLength()) +
+                          " mm over to " + Called +
+                          (stretched.Count == 0
+                              ? string.Empty
+                              : "; stretched " + string.Join(", ", stretched.ToArray()));
+
+            EQUIPLOG.Say("   " + said);
+
+            var ids = new List<string>();
+
+            foreach (ElementId id in moving)
+                ids.Add(id.ToValue().ToString());
+
+            EQUIPLOG.Say("      moved: " + string.Join(", ", ids.ToArray()));
+
+            if (notes != null)
+            {
+                notes.Add("carried " + moving.Count + " piece(s) of " + Noun +
+                          "work " + EQUIPREACH.Mm(move.GetLength()) +
+                          " mm to " + Called);
+            }
+
+            return null;
+        }
+
+        // What a carry must never move
+        private static bool Fixed(Element element)
+        {
+            if (element == null || element.Category == null)
+                return true;
+
+            long id = element.Category.Id.ToValue();
+
+            return id == (long)BuiltInCategory.OST_MechanicalEquipment
+                || id == (long)BuiltInCategory.OST_DuctTerminal
+                || id == (long)BuiltInCategory.OST_PlumbingFixtures
+                || id == (long)BuiltInCategory.OST_Sprinklers;
+        }
+
+        // For the log: how far the connection moved, along the way the
+        // old connector faced and across it
+        private string Moved(XYZ move)
+        {
+            if (move == null)
+                return string.Empty;
+
+            if (Facing == null)
+                return "moved " + EQUIPREACH.Mm(move.GetLength()) + " mm";
+
+            XYZ facing = Facing.Normalize();
+
+            double ahead = move.DotProduct(facing);
+
+            double aside = (move - facing.Multiply(ahead)).GetLength();
+
+            return "moved " + EQUIPREACH.Mm(move.GetLength()) + " mm (" +
+                   EQUIPREACH.Mm(ahead) + " out, " + EQUIPREACH.Mm(aside) +
+                   " across)";
+        }
+
+        // The straight run this joint was on, from the unit's end. False
+        // when it is not one, or nothing is joined beyond it - that one
+        // is simply moved whole.
+        public bool Run(Document doc, out XYZ here, out XYZ far)
+        {
+            here = null;
+            far = null;
+
+            try
+            {
+                Connector theirs = Theirs(doc);
+
+                if (theirs == null)
+                    return false;
+
+                var curve = doc.GetElement(theirs.Owner.Id) as MEPCurve;
+
+                if (curve == null)
+                    return false;
+
+                var located = curve.Location as LocationCurve;
+
+                var line = located == null ? null : located.Curve as Line;
+
+                if (line == null)
+                    return false;
+
+                here = theirs.Origin;
+
+                XYZ a = line.GetEndPoint(0);
+                XYZ b = line.GetEndPoint(1);
+
+                far = a.DistanceTo(here) <= b.DistanceTo(here) ? b : a;
+
+                return !FreeBeyond(curve, theirs.Id);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // The new connector faces another way than this joint's did
+        public bool TurnedOn(Connector mine)
+        {
+            XYZ now = EQUIPWALK.Facing(mine);
+
+            if (Facing == null || now == null)
+                return false;
+
+            return Facing.Normalize().DotProduct(now.Normalize()) <
+                   EQUIPREACH.Square;
         }
 
         // Nothing is joined to this run anywhere but at `except` - not

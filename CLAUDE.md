@@ -891,10 +891,18 @@ reducer/tap/tee/terminal/equipment. Shape changes refused.
   domain, system, then distance, supply never to return. Never "nearest
   to where it was" - a bigger unit moves them all.
 - **Never backwards, never bent** (`EQUIPREACH.Decide`): slid along its
-  own line only, ≥ 5 mm left; nothing joined beyond = moved whole; to the
-  side, past the far end or turned = **left open**, the unit still
-  changed, named in the table ("yes, N open"), message box and log.
+  own line only, ≥ 5 mm left; nothing joined beyond = moved whole.
   Rewrite curves keeping direction (`EQUIPLINE.MovingIsStart`).
+- **What cannot reach is MOVED, as by hand** (user, 2026-11-18: FCU-10
+  "changed but now its disconnected from the duct and pipes" - spigot
+  327 mm aside of a 42 mm stub, CHW 650 mm from the elbows on it). The
+  UNIT moves sideways onto its biggest duct's line (`EQUIPREACH.Anchor`,
+  `OntoItsDuct`); a fitting or run still off is CARRIED over with what
+  is beyond it until a straight run lying the way it moved stretches to
+  follow (`EQUIPJOINT.Carry`; never equipment, a terminal, a tap on a
+  main, a pinned element, > 12 pieces). Thrown out at the commit → a
+  second go moving nothing. Still off = **left open**, unit changed,
+  named in the table ("yes, N open"), message box, log.
 - **One transaction per unit** in a `TransactionGroup` (one undo):
   failures are processed at each commit, so a refused unit takes only
   itself; checked against the model after its commit. `EQUIPFAILURES`

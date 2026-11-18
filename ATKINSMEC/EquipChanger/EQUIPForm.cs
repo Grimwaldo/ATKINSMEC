@@ -353,6 +353,7 @@ namespace ATKINSMEC
                 // has to do something about
                 var lines = new List<string>(outcome.LeftOpen);
 
+                lines.AddRange(outcome.Notes);
                 lines.AddRange(outcome.Branches);
 
                 row.Cells[4].Value = outcome.Changed
@@ -402,6 +403,14 @@ namespace ATKINSMEC
         private static string Told(EQUIPCHANGE.Result result)
         {
             string said = result.Changed + " element(s) changed.";
+
+            if (result.Moved > 0)
+            {
+                said += Environment.NewLine + Environment.NewLine +
+                        result.Moved + " of them were moved onto their duct, " +
+                        "or had their pipework carried over to the new " +
+                        "connections. The table says what moved.";
+            }
 
             if (result.Open > 0)
             {

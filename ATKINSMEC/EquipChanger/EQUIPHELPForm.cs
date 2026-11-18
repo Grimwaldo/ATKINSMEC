@@ -99,12 +99,22 @@ namespace ATKINSMEC
                 "It will not bend a duct or pipe, or stretch one past its " +
                 "far end. A run is only slid along its own line, and only " +
                 "while some of it is left; one with nothing on its far end " +
-                "is moved whole. If the new connector is to the side, past " +
-                "the far end or facing another way, THAT CONNECTION IS " +
-                "LEFT OPEN: the unit is still changed, the table says " +
-                "\"yes, 1 open\" and names the duct or pipe, and you join " +
-                "it by hand. Joining it anyway is what makes Revit throw " +
-                "the whole change out.");
+                "is moved whole.");
+            Body(
+                "A BIGGER UNIT MOVES ITS CONNECTIONS. When its main duct " +
+                "connection lands to the side of the duct, the UNIT is " +
+                "moved sideways until it is back on the duct's line. When " +
+                "a pipe connection lands away from the elbow or pipe on " +
+                "it, that elbow - and the pipework behind it - is carried " +
+                "over, as far as a straight pipe lying the way it moved, " +
+                "which stretches to follow. Never another unit, a " +
+                "terminal, a tap on a main, or anything pinned.");
+            Body(
+                "What cannot be reached that way is LEFT OPEN: the unit is " +
+                "still changed, the table says \"yes, 1 open\" and names " +
+                "the duct or pipe, and you join it by hand. If Revit " +
+                "refuses the moves, it is done again moving nothing. " +
+                "Ctrl+Z puts everything back.");
 
             Heading("If something goes wrong");
             Body(

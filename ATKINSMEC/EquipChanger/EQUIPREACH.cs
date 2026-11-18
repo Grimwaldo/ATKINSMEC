@@ -123,6 +123,45 @@ namespace ATKINSMEC
         // Why it was left open, for the report
         public string Why = string.Empty;
 
+        // Open because the new connection FACES another way - nothing
+        // moved sideways can mend that
+        public bool Turned;
+
+        // How far to move the UNIT so the run on `anchor` stays straight
+        // (user, 2026-11-18: FCU-10's supply spigot came out 327 mm to
+        // the side of a 42 mm stub, FCU-02's 890 mm spigot centred on a
+        // 1534 mm one). Only the sideways part, so the run still takes
+        // whatever it can along its own line; the whole offset when the
+        // run is too short to take that too. Zero when it reaches as it
+        // is.
+        //
+        // here - the run's end on the unit (the old connector), far - its
+        // other end, now - the new connector
+        public static EQUIPV Anchor(
+            EQUIPV here, EQUIPV far, EQUIPV now, double shortest)
+        {
+            EQUIPV run = far - here;
+
+            EQUIPV along = run.Unit;
+
+            EQUIPV move = now - here;
+
+            double ahead = move.Dot(along);
+
+            EQUIPV aside = move - along * ahead;
+
+            bool straight = aside.Length <= Straight;
+
+            bool room = run.Length - ahead >= shortest;
+
+            if (straight && room)
+                return new EQUIPV(0, 0, 0);
+
+            return room
+                ? aside * -1.0
+                : move * -1.0;
+        }
+
         // here   - the run's end on the unit (where the old connector was)
         // far    - its other end
         // to     - the new connector
@@ -166,6 +205,8 @@ namespace ATKINSMEC
                 if (turn < Square)
                 {
                     reach.Kind = EQUIPREACHKIND.Open;
+
+                    reach.Turned = true;
 
                     reach.Why = "the new connection faces another way (" +
                                 Degrees(turn) + " degrees round)";

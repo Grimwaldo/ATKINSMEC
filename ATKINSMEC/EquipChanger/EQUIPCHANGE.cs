@@ -45,6 +45,13 @@ namespace ATKINSMEC
             // line each. The unit IS changed.
             public List<string> LeftOpen = new List<string>();
 
+            // What was MOVED to reach the new connectors: the unit onto
+            // its duct, pipework carried over - one line each
+            public List<string> Notes = new List<string>();
+
+            // A go that moved something was thrown out at the commit
+            public bool Tried;
+
             public string Said = string.Empty;
         }
 
@@ -57,6 +64,9 @@ namespace ATKINSMEC
 
             // Changed, with a joint left open
             public int Open;
+
+            // Changed, with the unit or pipework moved to reach
+            public int Moved;
 
             // Changing a unit to the type it already has does nothing
             // and looks exactly like a broken button. Counted on its
@@ -203,6 +213,9 @@ namespace ATKINSMEC
 
                         if (outcome.LeftOpen.Count > 0)
                             result.Open++;
+
+                        if (outcome.Notes.Count > 0)
+                            result.Moved++;
                     }
                     else if (outcome.AlreadyThat)
                         result.Already++;
@@ -298,6 +311,45 @@ namespace ATKINSMEC
             {
             }
 
+            // FIRST moving what has to move - the unit onto its duct, the
+            // pipework over to the new connections - and if Revit throws
+            // THAT out at the commit, again moving nothing, so the swap
+            // still goes through with what cannot reach left open
+            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, true);
+
+            if (outcome.Changed || !atCommit || !outcome.Tried)
+                return outcome;
+
+            string first = outcome.Said;
+
+            EQUIPLOG.Say("   AGAIN, moving nothing - what cannot reach is left open");
+
+            outcome.Branches.Clear();
+            outcome.Said = string.Empty;
+
+            Attempt(doc, instance, symbol, resizeDucts, outcome, false);
+
+            if (outcome.Changed)
+            {
+                outcome.LeftOpen.Insert(0,
+                    "nothing was moved to reach them - Revit refused that (" +
+                    first + ")");
+            }
+
+            return outcome;
+        }
+
+        // One go at it, in the unit's own transaction. True when it was
+        // thrown out AT THE COMMIT, which a second go moving nothing may
+        // get past.
+        private static bool Attempt(
+            Document doc,
+            FamilyInstance instance,
+            FamilySymbol symbol,
+            bool resizeDucts,
+            Outcome outcome,
+            bool reach)
+        {
             // The unit's own transaction, so a refusal - before the
             // commit or AT it - takes this one element back to exactly
             // where it was and the rest of the run still goes through
@@ -323,7 +375,7 @@ namespace ATKINSMEC
 
                 try
                 {
-                    done = Change(doc, instance, symbol, resizeDucts, outcome);
+                    done = Change(doc, instance, symbol, resizeDucts, outcome, reach);
                 }
                 catch (Exception ex)
                 {
@@ -333,7 +385,7 @@ namespace ATKINSMEC
 
                     EQUIPLOG.Blew("changing " + outcome.Name, ex);
 
-                    return outcome;
+                    return false;
                 }
 
                 if (!done)
@@ -344,7 +396,7 @@ namespace ATKINSMEC
 
                     EQUIPLOG.Say("   rolled back - " + outcome.Said);
 
-                    return outcome;
+                    return false;
                 }
 
                 TransactionStatus status;
@@ -374,38 +426,49 @@ namespace ATKINSMEC
 
                     EQUIPLOG.Say("   rolled back at the commit - " + outcome.Said);
 
-                    return outcome;
+                    return true;
                 }
 
                 outcome.Changed = true;
 
                 EQUIPLOG.Say("   changed, " + outcome.Resized +
                              " element(s) resized" +
+                             (outcome.Notes.Count == 0
+                                 ? string.Empty
+                                 : ", " + outcome.Notes.Count + " move(s)") +
                              (outcome.LeftOpen.Count == 0
                                  ? string.Empty
                                  : ", " + outcome.LeftOpen.Count +
                                    " connection(s) LEFT OPEN"));
 
-                return outcome;
+                return false;
             }
         }
 
         // Nothing that was attempted is there any more
         private static void Undone(Outcome outcome, string said)
         {
+            // Whether this go MOVED anything is kept: it is what decides
+            // that a second go, moving nothing, is worth it
+            outcome.Tried = outcome.Notes.Count > 0;
+
             outcome.Changed = false;
             outcome.Resized = 0;
             outcome.LeftOpen.Clear();
+            outcome.Notes.Clear();
             outcome.Said = said ?? string.Empty;
         }
 
-        // The five steps, in the one order that works
+        // The five steps, in the one order that works. `reach`: move the
+        // unit onto its duct and carry pipework over where a straight
+        // run cannot reach (off on the second go).
         private static bool Change(
             Document doc,
             FamilyInstance instance,
             FamilySymbol symbol,
             bool resizeDucts,
-            Outcome outcome)
+            Outcome outcome,
+            bool reach)
         {
             // ---- 1. what is on it, and what follows -----------------
             List<Connector> ends = EQUIPWALK.EndsOf(instance);
@@ -574,19 +637,30 @@ namespace ATKINSMEC
                 doc.Regenerate();
             }
 
+            // ---- 4b. the unit onto its duct --------------------------
+            //
+            // User, 2026-11-18: FCU-10's supply spigot (1534 wide) came
+            // out 327 mm to the side of FCU-02's (890), on a 42 mm stub
+            // to a transition - no straight duct reaches that. So the
+            // UNIT moves sideways until its spigot is on the duct's line
+            // again, as it would be moved by hand. Only when the biggest
+            // duct connection cannot reach as it is.
+            if (reach)
+                OntoItsDuct(doc, instance, joins, map, outcome);
+
             // ---- 5. back together -----------------------------------
             //
             // A duct or pipe that cannot reach its new connector without
-            // bending or turning inside out is LEFT OPEN and said so:
-            // the swap is what was asked for, and re-routing a stub is a
-            // person's job. Joining it anyway is what Revit throws the
-            // whole change out for.
+            // bending or turning inside out is carried over when it can
+            // be (EQUIPJOINT.Carry) and otherwise LEFT OPEN and said so.
+            // Joining it anyway is what Revit throws the whole change
+            // out for.
             foreach (EQUIPJOINT joint in joins)
             {
                 int onto;
 
                 string why = map.TryGetValue(joint.MyIndex, out onto)
-                    ? joint.Redo(doc, onto)
+                    ? joint.Redo(doc, onto, reach, outcome.Notes)
                     : "the new type has no connection for it";
 
                 if (why == null)
@@ -600,6 +674,106 @@ namespace ATKINSMEC
             doc.Regenerate();
 
             return true;
+        }
+
+        // Move the unit so the run on its BIGGEST duct connection that
+        // cannot reach as it is, can (EQUIPREACH.Anchor)
+        private static void OntoItsDuct(
+            Document doc,
+            FamilyInstance instance,
+            List<EQUIPJOINT> joins,
+            Dictionary<int, int> map,
+            Outcome outcome)
+        {
+            EQUIPJOINT anchor = null;
+
+            EQUIPV best = new EQUIPV(0, 0, 0);
+
+            double biggest = -1.0;
+
+            double shortest = EQUIPJOINT.Shortest(doc);
+
+            foreach (EQUIPJOINT joint in joins)
+            {
+                if (joint.Pipe)
+                    continue;
+
+                int onto;
+
+                if (!map.TryGetValue(joint.MyIndex, out onto))
+                    continue;
+
+                Connector mine = QADUCTS.Lookup(doc, outcome.Id, onto);
+
+                if (mine == null || joint.TurnedOn(mine))
+                    continue;
+
+                XYZ here, far;
+
+                if (!joint.Run(doc, out here, out far))
+                    continue;
+
+                EQUIPV move = EQUIPREACH.Anchor(
+                    EQUIPWALK.V(here), EQUIPWALK.V(far),
+                    EQUIPWALK.V(mine.Origin), shortest);
+
+                if (move.Length < EQUIPREACH.Coincident)
+                    continue;
+
+                double size = Area(EQUIPWALK.SizeOf(mine));
+
+                if (size > biggest)
+                {
+                    biggest = size;
+                    best = move;
+                    anchor = joint;
+                }
+            }
+
+            if (anchor == null)
+                return;
+
+            var by = new XYZ(best.X, best.Y, best.Z);
+
+            try
+            {
+                if (instance.Pinned)
+                {
+                    EQUIPLOG.Say("   the unit is pinned - not moved onto " +
+                                 "its duct");
+
+                    return;
+                }
+
+                ElementTransformUtils.MoveElement(doc, instance.Id, by);
+
+                doc.Regenerate();
+            }
+            catch (Exception ex)
+            {
+                EQUIPLOG.Blew("moving the unit onto its duct", ex);
+
+                return;
+            }
+
+            string said = "moved the unit " + EQUIPREACH.Mm(by.GetLength()) +
+                          " mm to keep " + anchor.Called + " on its duct";
+
+            outcome.Notes.Add(said);
+
+            EQUIPLOG.Say("   " + said + " (" + EQUIPREACH.Mm(by.X) + ", " +
+                         EQUIPREACH.Mm(by.Y) + ", " + EQUIPREACH.Mm(by.Z) +
+                         " mm)");
+        }
+
+        private static double Area(EQUIPSIZE size)
+        {
+            if (size == null || !size.Known)
+                return 0.0;
+
+            return size.Round
+                ? Math.PI * size.Diameter * size.Diameter / 4.0
+                : size.Width * size.Height;
         }
 
         private static bool SameFamily(FamilyInstance instance, FamilySymbol symbol)
