@@ -74,7 +74,8 @@ namespace ATKINSMEC
         //     nobody ticked gives only the rooms inside an apartment
         //     (VENTAPARTMENTS.Map.Takes) - the export does the same;
         //   - an apartment with rooms inside is not a row, its rooms are;
-        //   - a room below every level of this model is in no band.
+        //   - a room below every level of this model, or a storey or more
+        //     over its top one, is in no band.
         //
         // A link not in roomsOf has not been read yet, and gives nothing.
         // The rooms handed back are COPIES, so marking one with its

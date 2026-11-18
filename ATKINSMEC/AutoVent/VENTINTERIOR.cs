@@ -114,7 +114,8 @@ namespace ATKINSMEC
                 {
                     int storey = VENTLEVELMAP.StoreyOf(storeys, floor);
 
-                    // Below every level of this model: on no storey
+                    // Below every level of this model, or a storey or more
+                    // over its top one: on no storey
                     if (storey < 0)
                         continue;
 

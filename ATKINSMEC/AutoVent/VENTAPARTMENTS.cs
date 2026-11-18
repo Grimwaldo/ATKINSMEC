@@ -151,7 +151,7 @@ namespace ATKINSMEC
                 searched.Add(linkId);
 
                 var tallies = new SortedDictionary<int, Tally>();
-                int below = 0, failed = 0;
+                int below = 0, above = 0, failed = 0;
 
                 foreach (Room room in new FilteredElementCollector(linked)
                              .OfCategory(BuiltInCategory.OST_Rooms)
@@ -174,7 +174,11 @@ namespace ATKINSMEC
 
                     if (seen.Storey < 0)
                     {
-                        below++;
+                        if (seen.Storey == VENTLEVELMAP.Above)
+                            above++;
+                        else
+                            below++;
+
                         continue;
                     }
 
@@ -192,7 +196,7 @@ namespace ATKINSMEC
                         probes.Add(new Probe { Storey = seen.Storey, Placement = linkId, Points = seen.HostPoints });
                 }
 
-                LogPlacement(map, doc, link, label, tallies, below, failed);
+                LogPlacement(map, doc, link, label, tallies, below, above, failed);
             }
 
             VENTAPTLOG.Head("Not searched");
@@ -446,8 +450,9 @@ namespace ATKINSMEC
 
             seen.Storey = VENTLEVELMAP.StoreyOf(map.Storeys, seen.Floor);
 
-            // Below every level of this model: in no band, so in no
-            // apartment either - the export leaves it out anyway
+            // Below every level of this model, or a storey or more over
+            // its top one: in no band, so in no apartment either - the
+            // export leaves it out anyway
             if (seen.Storey < 0)
                 return seen;
 
@@ -675,7 +680,9 @@ namespace ATKINSMEC
 
             VENTAPTLOG.Say(source.Rooms.Count + " room(s). By this model's levels:");
 
-            foreach (IGrouping<int, Footprint> storey in source.Rooms.GroupBy(r => r.Storey).OrderBy(g => g.Key))
+            // Up the building: below every level first, above the top last
+            foreach (IGrouping<int, Footprint> storey in source.Rooms.GroupBy(r => r.Storey)
+                         .OrderBy(g => g.Key == VENTLEVELMAP.Above ? int.MaxValue : g.Key))
             {
                 string names = string.Join(", ", storey
                     .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
@@ -779,7 +786,7 @@ namespace ATKINSMEC
 
         private static void LogPlacement(
             Map map, Document doc, RevitLinkInstance link, string label,
-            SortedDictionary<int, Tally> tallies, int below, int failed)
+            SortedDictionary<int, Tally> tallies, int below, int above, int failed)
         {
             VENTAPTLOG.Head("Interior placement " + label + " [" + link.Id.ToValue() + "]");
 
@@ -824,13 +831,16 @@ namespace ATKINSMEC
             if (below > 0)
                 VENTAPTLOG.Say("   " + below + " room(s) below every level of this model - in no band.");
 
+            if (above > 0)
+                VENTAPTLOG.Say("   " + above + " room(s) a storey or more above this model's top level - in no band.");
+
             if (failed > 0)
                 VENTAPTLOG.Say("   " + failed + " room(s) could not be placed at all.");
         }
 
         private static string StoreyName(Map map, int storey)
         {
-            return storey >= 0 && storey < map.Storeys.Count ? map.Storeys[storey].Name : "below every level";
+            return storey >= 0 && storey < map.Storeys.Count ? map.Storeys[storey].Name : VENTLEVELMAP.NoLevel(storey);
         }
 
         private static string Where(XYZ p)

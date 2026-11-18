@@ -199,8 +199,8 @@ namespace ATKINSMEC
         // test to one cheap question per level.
         //
         // The rooms are still read, for the count and for how many fall
-        // below every level of this model - what AUTOVENT will skip. Only
-        // AUTOVENT asks.
+        // below every level of this model or a storey or more over its top
+        // one - what AUTOVENT will skip. Only AUTOVENT asks.
         public static string LevelSpan(
             Document doc, long linkId, List<VENTLEVELMAP.Storey> storeys)
         {
@@ -213,9 +213,11 @@ namespace ATKINSMEC
             if (linked == null || storeys == null || storeys.Count == 0)
                 return string.Empty;
 
-            // ---- the rooms: counted, and how many are below every level
+            // ---- the rooms: counted, and how many are on no level - below
+            // every one, or a storey or more over the top one
             int rooms = 0;
             int below = 0;
+            int above = 0;
 
             var placed = new FilteredElementCollector(linked)
                 .OfCategory(BuiltInCategory.OST_Rooms)
@@ -227,7 +229,11 @@ namespace ATKINSMEC
             {
                 rooms++;
 
-                if (VENTLEVELMAP.StoreyOf(storeys, HostElevationOf(link, linked, room)) < 0)
+                int on = VENTLEVELMAP.StoreyOf(storeys, HostElevationOf(link, linked, room));
+
+                if (on == VENTLEVELMAP.Above)
+                    above++;
+                else if (on < 0)
                     below++;
             }
 
@@ -266,37 +272,54 @@ namespace ATKINSMEC
             int first = levels.FindIndex(l => carries(l));
 
             if (first < 0)
-                return "nothing modelled on its levels   -   " + Counted(rooms, below, false);
+                return "nothing modelled on its levels   -   " + Counted(rooms, below, above, false);
 
             int last = levels.FindLastIndex(l => carries(l));
 
             int low = VENTLEVELMAP.StoreyOf(storeys, levels[first].Value);
             int high = VENTLEVELMAP.StoreyOf(storeys, levels[last].Value);
 
-            string span = high < 0
-                ? "all below this model's lowest level"
-                : low < 0
-                    ? "below " + storeys[0].Name + "  to  " + storeys[high].Name
-                    : Span(storeys, low, high);
+            // Either end may be on no level: below the lowest, or a storey
+            // or more over the top (VENTLEVELMAP.Above). The list is lowest
+            // first (GetHostLevels).
+            string from = low < 0 ? "below " + storeys[0].Name : storeys[low].Name;
+            string to = high < 0 ? "above " + storeys[storeys.Count - 1].Name : storeys[high].Name;
 
-            return span + "   -   " + Counted(rooms, below, low < 0);
+            string span = high == VENTLEVELMAP.Below
+                ? "all below this model's lowest level"
+                : low == VENTLEVELMAP.Above
+                    ? "all above this model's top level"
+                    : low >= 0 && high >= 0
+                        ? Span(storeys, low, high)
+                        : from + "  to  " + to;
+
+            return span + "   -   " + Counted(rooms, below, above, low < 0 || high < 0);
         }
 
         // "412 room(s)", and how many will be skipped for standing below
-        // every level of this model. Short where the span has just said
-        // "below B1_BASEMENT": the two usually come together - rooms down
-        // there stand on a slab down there - and the long form ran off
-        // the end of the row at 100% scaling.
-        private static string Counted(int rooms, int below, bool spanSaysBelow)
+        // every level of this model or a storey or more over its top one.
+        // Short where the span has just said "below B1_BASEMENT" or "above
+        // L17": the two usually come together - rooms down there stand on a
+        // slab down there - and the long form ran off the end of the row at
+        // 100% scaling.
+        private static string Counted(int rooms, int below, int above, bool spanSaysSo)
         {
             if (rooms == 0)
                 return "no rooms";
 
-            if (below == 0)
+            var outside = new List<string>();
+
+            if (below > 0)
+                outside.Add(below + " below");
+
+            if (above > 0)
+                outside.Add(above + " above");
+
+            if (outside.Count == 0)
                 return rooms + " room(s)";
 
-            return rooms + " room(s), " + below +
-                   (spanSaysBelow ? " below" : " below this model's levels");
+            return rooms + " room(s), " + string.Join(", ", outside) +
+                   (spanSaysSo ? string.Empty : " this model's levels");
         }
 
         // WHAT COUNTS AS THE LINK'S CONTENT: every MODEL category it has,

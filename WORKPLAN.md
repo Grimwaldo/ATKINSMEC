@@ -70,6 +70,26 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## AUTOVENT: rooms over the top level left out; Interior models multi-select - 2026-11-18
+
+User, Revit 2024, Tower A HVAC model (HVC-000100): "level 17a is showing
+over 2000 rooms". The model's levels stop at LEVEL 17A (84.62 m); its arch
+and interior links run to 154.62 m, and the band rule had no top, so all
+21 floors (~2,130 rooms, from the redundant-rooms log) landed on 17A.
+Offered "add the levels" or "leave them out"; the user chose the second.
+
+- `VENTLEVELMAP.StoreyOf`: the top band is one storey tall
+  (`StoreyHeight`, median gap, gaps under 2 m left out - Tower A: 3.5 m,
+  its 5.4 m plant floor does not count). Over it = `Above` (-2), counted
+  apart from `Below` (-1) in the run log, export report, redundant-rooms
+  log and the links list's span ("L03 to above L17A", "516 above").
+- Interior models...: a ListBox, Extended, as the Fixtures dialog (box on
+  a picked row ticks the picks, Space, Ctrl+A; headings never picked).
+- Tests: ventleveltest (Tower A's levels, 20 of 21 floors Above; storey
+  height; RoomsOn), fixturedialogtest (19 interior checks). Mutations
+  caught. Rendered at 1x and 1.5x.
+- NOT run in Revit - the open session still has the old DLL; restart it.
+
 ## AUTOVENT: Levels and rooms - headings when scrolled, drop-down cells, the calculation only - 2026-10-28
 
 User, in Revit: "many columns are empty without headers"; "the occupancy

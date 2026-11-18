@@ -295,7 +295,14 @@ plain status lines.
   for telling a person only.
 - **Band rule** (`VENTLEVELMAP.StoreyOf`): a room belongs to the highest
   level at or under its floor, with a 300 mm allowance below. Below every
-  level = in no band, left out and counted.
+  level = in no band (`Below`, -1), left out and counted. **The top
+  level's band is one storey tall** (user, 2026-11-18: Tower A's HVAC
+  model stops at LEVEL 17A, its links run 21 floors higher, and ~2,130
+  rooms landed on 17A): a floor where the next level would be (top +
+  `StoreyHeight` - the median gap between levels, gaps under 2 m left
+  out - less the 300 mm) or higher is `Above` (-2), left out and counted
+  like `Below`; every log and the links list say which. A model with one
+  level has no storey to measure and keeps the old rule.
 - Link span (`LevelSpan`): lowest/highest linked level something modelled
   stands on (allow-list `Content`, shafts and rooms excluded);
   `ElementLevelFilter` is slow, so walk inwards from each end.
@@ -576,7 +583,8 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   any one; each a WORD of the label - ≥3 letters starts a word, 1–2 must
   be one, so "ID" is never GRID/SIDE: `VENTINTERIOR.Named`) or ticked
   level by level in **Interior models...** (`VENTINTERIOR`; picks per
-  level name). A keyword the user typed is saved per model; the default
+  level name; **several rows picked at once** as in Fixtures - user,
+  2026-11-18; level headings never picked; test: `fixturedialogtest`). A keyword the user typed is saved per model; the default
   is saved as null, so models that never changed it follow a new default.
 - `VENTAPARTMENTS.Build` asks every apartments model which room stands at
   each interior room (`GetRoomAtPoint` at 150 mm, 1.0 m, 1.5 m above its

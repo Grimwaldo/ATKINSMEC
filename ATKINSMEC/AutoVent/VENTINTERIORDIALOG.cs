@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace ATKINSMEC
@@ -20,8 +22,30 @@ namespace ATKINSMEC
     // NOTHING CHANGES BY OPENING IT: everything found arrives ticked unless
     // a choice was made before, and OK keeps "follow the keyword" whenever
     // the ticks still say everything found.
+    //
+    // SEVERAL ROWS PICKED AT ONCE (user, 2026-11-18: "make the linked
+    // models in the interior models window can be multi selected"), as in
+    // the Fixtures dialog: a ListBox, Extended - click, Ctrl, Shift,
+    // Ctrl+A. The name picks the row, the box ticks it; a box on a PICKED
+    // row ticks every picked row; Space ticks the picks. Level headings
+    // are rows of the list that can never be picked. Test:
+    // fixturedialogtest (the interior half).
     public class VENTINTERIORDIALOG : Window
     {
+        // One placement on one level
+        private class Row
+        {
+            public VENTINTERIOR.Found Found;
+            public CheckBox Box;
+            public ListBoxItem Item;
+
+            public bool On
+            {
+                get { return Box.IsChecked == true; }
+                set { Box.IsChecked = value; }
+            }
+        }
+
         private readonly List<KeyValuePair<long, string>> _links;
         private readonly IDictionary<long, List<double>> _floors;
         private readonly IList<VENTLEVELMAP.Storey> _storeys;
@@ -36,10 +60,19 @@ namespace ATKINSMEC
             new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         private readonly TextBox _keyword;
-        private readonly StackPanel _list = new StackPanel();
         private readonly TextBlock _found;
 
         private List<VENTINTERIOR.Found> _shown = new List<VENTINTERIOR.Found>();
+        private readonly List<Row> _rows = new List<Row>();
+
+        // The list - for tests/fixturedialogtest
+        public ListBox ModelList { get; private set; }
+
+        public string Keyword
+        {
+            get { return _keyword.Text; }
+            set { _keyword.Text = value ?? string.Empty; }
+        }
 
         private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x33));
         private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(0x6B, 0x77, 0x85));
@@ -95,7 +128,8 @@ namespace ATKINSMEC
             Add(grid, 1, Hint(
                 "Rooms of an interior (IND) model are written as units under the redundant room they stand in. " +
                 "Every linked model whose name holds one of the keywords is listed under each level of THIS " +
-                "model where it has rooms - tick the ones to use on that level."));
+                "model where it has rooms - tick the ones to use on that level. " +
+                "Ctrl or Shift picks several rows; ticking one ticks them all."));
 
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
 
@@ -132,18 +166,49 @@ namespace ATKINSMEC
 
             Add(grid, 2, row);
 
-            Add(grid, 3, new Border
+            ModelList = new ListBox
             {
+                SelectionMode = SelectionMode.Extended,
                 BorderBrush = Hairline,
                 BorderThickness = new Thickness(1),
                 Background = Brushes.White,
-                Child = new ScrollViewer
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(4, 2, 4, 4)
+            };
+
+            ScrollViewer.SetHorizontalScrollBarVisibility(ModelList, ScrollBarVisibility.Disabled);
+
+            // A level heading is never picked - Ctrl+A or a Shift range
+            // across one would otherwise light it up
+            ModelList.SelectionChanged += (s, e) =>
+            {
+                foreach (ListBoxItem heading in e.AddedItems.OfType<ListBoxItem>()
+                             .Where(i => !(i.Tag is Row)).ToList())
                 {
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = _list,
-                    Padding = new Thickness(8, 4, 8, 6)
+                    ModelList.SelectedItems.Remove(heading);
                 }
-            });
+            };
+
+            // Space ticks the picked rows - all on, unless all are on already
+            ModelList.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key != Key.Space)
+                    return;
+
+                List<Row> picked = Picked();
+
+                if (picked.Count == 0)
+                    return;
+
+                bool on = !picked.All(r => r.On);
+
+                foreach (Row row in picked)
+                    row.On = on;
+
+                e.Handled = true;
+            };
+
+            Add(grid, 3, ModelList);
 
             _found = Hint(string.Empty);
             _found.Margin = new Thickness(0, 8, 0, 0);
@@ -225,7 +290,9 @@ namespace ATKINSMEC
         // this model that has a candidate, the candidates under it
         private void Fill()
         {
-            _list.Children.Clear();
+            _rows.Clear();
+
+            var items = new List<ListBoxItem>();
 
             _shown = VENTINTERIOR.Find(_links, _floors, _storeys, _keyword.Text, _exclude);
 
@@ -237,50 +304,121 @@ namespace ATKINSMEC
                 {
                     storey = f.Storey;
 
-                    _list.Children.Add(new TextBlock
+                    items.Add(new ListBoxItem
                     {
-                        Text = f.StoreyName,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = Ink,
-                        Margin = new Thickness(0, _list.Children.Count == 0 ? 2 : 10, 0, 2)
+                        Content = new TextBlock
+                        {
+                            Text = f.StoreyName,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = Ink
+                        },
+                        Focusable = false,
+                        IsHitTestVisible = false,
+                        Padding = new Thickness(2, items.Count == 0 ? 3 : 10, 2, 2)
                     });
                 }
 
-                string key = KeyOf(f);
+                Row row = MakeRow(f);
 
-                bool on;
-
-                if (!_state.TryGetValue(key, out on))
-                    on = StartsTicked(f);
-
-                // A TextBlock inside, never Content: an underscore in
-                // Content is an access key, and level and model names are
-                // full of them
-                var tick = new CheckBox
-                {
-                    Content = new TextBlock
-                    {
-                        Text = f.Label + "     (" + f.Rooms + " room(s) on this level)",
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    },
-                    IsChecked = on,
-                    Tag = f,
-                    Margin = new Thickness(14, 3, 2, 3),
-                    ToolTip = f.Label
-                };
-
-                tick.Checked += (s, e) => { _state[key] = true; Count(); };
-                tick.Unchecked += (s, e) => { _state[key] = false; Count(); };
-
-                _list.Children.Add(tick);
+                _rows.Add(row);
+                items.Add(row.Item);
             }
+
+            ModelList.ItemsSource = items;
 
             Count();
         }
 
+        // The box and the name side by side, not the name as the box's
+        // content: clicking the NAME picks the row, clicking the BOX ticks
+        // it. A TextBlock, never Content - an underscore in Content is an
+        // access key, and level and model names are full of them.
+        private Row MakeRow(VENTINTERIOR.Found f)
+        {
+            string key = KeyOf(f);
+
+            bool on;
+
+            if (!_state.TryGetValue(key, out on))
+                on = StartsTicked(f);
+
+            var row = new Row { Found = f };
+
+            row.Box = new CheckBox
+            {
+                IsChecked = on,
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 8, 0)
+            };
+
+            AutomationProperties.SetName(row.Box, f.Label ?? string.Empty);
+
+            var name = new TextBlock
+            {
+                Text = f.Label ?? string.Empty,
+                Foreground = Ink,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = f.Label
+            };
+
+            var side = new TextBlock
+            {
+                Text = f.Rooms + " room(s)",
+                Foreground = Muted,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 4, 0)
+            };
+
+            var line = new Grid();
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Grid.SetColumn(name, 1);
+            Grid.SetColumn(side, 2);
+
+            line.Children.Add(row.Box);
+            line.Children.Add(name);
+            line.Children.Add(side);
+
+            row.Item = new ListBoxItem { Content = line, Tag = row, Padding = new Thickness(14, 3, 2, 3) };
+
+            // Every change of a tick, however made - a click, Space, Tick
+            // all, a picked row following another - is kept and counted
+            row.Box.Checked += (s, e) => { _state[key] = true; Count(); };
+            row.Box.Unchecked += (s, e) => { _state[key] = false; Count(); };
+
+            row.Box.Click += (s, e) => Clicked(row);
+
+            return row;
+        }
+
+        // The picked rows, from the list's own SelectedItems
+        private List<Row> Picked()
+        {
+            var picked = new HashSet<object>(ModelList.SelectedItems.Cast<object>());
+
+            return _rows.Where(r => picked.Contains(r.Item)).ToList();
+        }
+
+        // A box clicked: a picked row takes every picked row with it
+        private void Clicked(Row row)
+        {
+            List<Row> picked = Picked();
+
+            if (!picked.Contains(row))
+                return;
+
+            foreach (Row other in picked)
+                other.On = row.On;
+        }
+
         private IEnumerable<CheckBox> Ticks()
         {
-            return _list.Children.OfType<CheckBox>();
+            return _rows.Select(r => r.Box);
         }
 
         private void TickShown(bool on)
@@ -313,10 +451,9 @@ namespace ATKINSMEC
         // still tick everything found (VENTINTERIOR.Choice)
         private void Keep()
         {
-            var ticked = Ticks()
-                .Where(t => t.IsChecked == true)
-                .Select(t => (VENTINTERIOR.Found)t.Tag)
-                .Select(f => new KeyValuePair<string, long>(f.StoreyName, f.LinkId))
+            var ticked = _rows
+                .Where(r => r.On)
+                .Select(r => new KeyValuePair<string, long>(r.Found.StoreyName, r.Found.LinkId))
                 .ToList();
 
             Dictionary<string, HashSet<long>> choice = VENTINTERIOR.Choice(_shown, ticked);
