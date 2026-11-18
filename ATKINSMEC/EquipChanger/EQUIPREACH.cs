@@ -162,6 +162,30 @@ namespace ATKINSMEC
                 : move * -1.0;
         }
 
+        // A slanted move as its parts along three directions (the unit's
+        // sides, or the model's axes), dropping any that are less than a
+        // coincidence. User, 2026-11-18: 322 mm out and 55 mm down is no
+        // single pipe's direction, but each part is one.
+        public static List<EQUIPV> Parts(EQUIPV move, EQUIPV[] axes)
+        {
+            var parts = new List<EQUIPV>();
+
+            if (axes == null)
+                return parts;
+
+            foreach (EQUIPV axis in axes)
+            {
+                EQUIPV unit = axis.Unit;
+
+                double k = move.Dot(unit);
+
+                if (Math.Abs(k) >= Coincident)
+                    parts.Add(unit * k);
+            }
+
+            return parts;
+        }
+
         // here   - the run's end on the unit (where the old connector was)
         // far    - its other end
         // to     - the new connector

@@ -206,6 +206,60 @@ internal static class Program
             shortest, "duct");
         Check("moved onto its duct, the stub joins as it is",
             r.Kind == EQUIPREACHKIND.There);
+
+        // --- a slanted carry, in parts --------------------------------
+        //
+        // The user's next run: with the unit on its duct, each CHW
+        // elbow was 322 mm out and 55 mm down from its connection
+        EQUIPV slant = P(0, 322, -55);
+
+        var sides = new[]
+        {
+            new EQUIPV(1, 0, 0), new EQUIPV(0, 1, 0), new EQUIPV(0, 0, 1)
+        };
+
+        var parts = EQUIPREACH.Parts(slant, sides);
+
+        Check("322 out and 55 down is two parts, one along each side",
+            parts.Count == 2 &&
+            Near(parts[0].Y, 322) && Near(parts[0].X, 0) && Near(parts[0].Z, 0) &&
+            Near(parts[1].Z, -55) && Near(parts[1].X, 0) && Near(parts[1].Y, 0));
+
+        // The drop takes the 55, the branch the 322 - neither takes the
+        // whole slant
+        EQUIPV elbow = P(0, 0, 0);
+
+        r = EQUIPREACH.Decide(elbow, P(0, 0, 400), elbow + slant, null, null,
+            false, shortest, "pipe");
+        Check("a 400 mm drop cannot take the whole slant",
+            r.Kind == EQUIPREACHKIND.Open);
+
+        r = EQUIPREACH.Decide(elbow, P(0, 0, 400), elbow + parts[1], null,
+            null, false, shortest, "pipe");
+        Check("...but takes its 55 mm down part",
+            r.Kind == EQUIPREACHKIND.Stretch && Near(r.Left, 455));
+
+        r = EQUIPREACH.Decide(elbow, P(0, 1500, 0), elbow + parts[0], null,
+            null, false, shortest, "pipe");
+        Check("...and a branch along the unit takes the 322 mm",
+            r.Kind == EQUIPREACHKIND.Stretch && Near(r.Left, 1178));
+
+        // A building turned 30 degrees: split along the unit's own sides
+        double c = Math.Cos(Math.PI / 6), s = Math.Sin(Math.PI / 6);
+
+        var turned = new[]
+        {
+            new EQUIPV(c, s, 0), new EQUIPV(-s, c, 0), new EQUIPV(0, 0, 1)
+        };
+
+        parts = EQUIPREACH.Parts(new EQUIPV(-s, c, 0) * M(322) +
+                                 new EQUIPV(0, 0, 1) * M(-55), turned);
+        Check("a unit turned 30 degrees splits along its own sides",
+            parts.Count == 2 && Near(parts[0].Length, 322) &&
+            Near(parts[1].Length, 55));
+
+        Check("a move along one side is one part",
+            EQUIPREACH.Parts(P(0, 322, 0), sides).Count == 1);
     }
 
     // --- which new connector each joint belongs to --------------------

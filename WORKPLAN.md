@@ -70,6 +70,37 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## EQUIPMENT CHANGER: a slanted carry in parts; three goes - 2026-11-18 (evening)
+
+Run by the user after the change below: "the pipes are still
+disconnected". The duct joined (the unit "moved 327 mm ... (0, -322,
+-55 mm)"), but each CHW connection was then "322 out, 55 across" of its
+elbow - the unit had also dropped 55 mm to centre its taller spigot - and
+the carry, one rigid move, met no straight pipe lying along that slant
+and walked past 12 pieces.
+
+- **Parts** (`EQUIPREACH.Parts`, Revit-free): the move whole, else split
+  along the unit's own sides (`GetTransform`), else the model's axes;
+  every part carried in turn, each try one `SubTransaction`.
+- **No dragging**: each carry part plans the walk, unhooks the runs that
+  take it up (`Taker`), `MoveElements` the rest, rewrites the takers'
+  near ends (direction kept) and rejoins them. A taker reached from two
+  moving pieces moves whole.
+- **Three goes**: everything → the unit moved, nothing carried (so a
+  carry Revit refuses does not cost the duct its joint) → nothing moved.
+- The log lists what each carry met ("walked: ... moves (55 mm across
+  it); ... takes it (400 -> 455 mm)").
+- The user asked whether it will work on ANY FCU change and pipe
+  layout. Told: nothing is tuned to this unit; it is left open (named)
+  when the new connection faces another way (handed coils), when it
+  would move another unit / terminal / a tap on a main / anything
+  pinned / > 12 pieces, when no straight pipe lies each part's way, or
+  when Revit refuses (borrowed elements, model groups). Pipes are not
+  resized.
+- Tests: equiptest +6 (parts, the user's drop and branch, a turned
+  building).
+- NOT run in Revit yet.
+
 ## EQUIPMENT CHANGER: the unit moved onto its duct, pipework carried - 2026-11-18 (later)
 
 The fix below, run by the user: "it changed the fcu type but now its

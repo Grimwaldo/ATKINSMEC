@@ -107,13 +107,17 @@ namespace ATKINSMEC
                 "a pipe connection lands away from the elbow or pipe on " +
                 "it, that elbow - and the pipework behind it - is carried " +
                 "over, as far as a straight pipe lying the way it moved, " +
-                "which stretches to follow. Never another unit, a " +
-                "terminal, a tap on a main, or anything pinned.");
+                "which stretches to follow. A slanted move is done in " +
+                "parts along the unit's sides - the drop takes the part " +
+                "down, the branch the part along. Never another unit, a " +
+                "terminal, a tap on a main, anything pinned, or more than " +
+                "12 pieces.");
             Body(
                 "What cannot be reached that way is LEFT OPEN: the unit is " +
                 "still changed, the table says \"yes, 1 open\" and names " +
                 "the duct or pipe, and you join it by hand. If Revit " +
-                "refuses the moves, it is done again moving nothing. " +
+                "refuses the moves, it is done again with the unit moved " +
+                "but no pipework carried, and then moving nothing. " +
                 "Ctrl+Z puts everything back.");
 
             Heading("If something goes wrong");

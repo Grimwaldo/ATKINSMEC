@@ -401,13 +401,23 @@ namespace ATKINSMEC
         // CARRY the pipework over to the new connector: move `first` -
         // the fitting or run that was on the unit - by `move`, and with
         // it everything joined beyond it, out along every way until each
-        // meets a STRAIGHT RUN LYING THE WAY IT MOVES, which Revit then
-        // stretches or shortens to follow (EQUIPREACH says whether it
+        // meets a STRAIGHT RUN LYING THE WAY IT MOVES, which is
+        // stretched or shortened to follow (EQUIPREACH says whether it
         // can without turning inside out). An open end needs nothing.
         //
         // User, 2026-11-18: FCU-10's CHW connections came out 644 and
         // 653 mm from the elbows sitting on FCU-02's. By hand: drag the
         // elbows over, the pipes behind them follow.
+        //
+        // A SLANTED MOVE IS DONE IN PARTS. Once the unit had moved onto
+        // its duct the elbows were 322 mm out AND 55 mm down from their
+        // connections; no straight pipe lies along that, so one rigid
+        // move walked the whole CHW network and gave up (same day). So:
+        // the whole move at once, else split along the unit's own sides,
+        // else along the model's axes - each part taken up by the run
+        // lying its way (the drop takes the 55, the branch the 322).
+        // Each try is a SubTransaction: a part that fails takes the
+        // parts before it back with it.
         //
         // Refused - and the joint left open, saying why - when it would
         // move another unit or terminal, slide something tapped into a
@@ -417,183 +427,435 @@ namespace ATKINSMEC
             Document doc, Element first, int cameIn, XYZ move,
             List<string> notes)
         {
+            long firstId = first.Id.ToValue();
+
+            var tries = new List<KeyValuePair<string, List<XYZ>>>();
+
+            tries.Add(new KeyValuePair<string, List<XYZ>>(
+                "in one move", new List<XYZ> { move }));
+
+            XYZ[] sides = UnitAxes(doc);
+
+            if (sides != null)
+            {
+                tries.Add(new KeyValuePair<string, List<XYZ>>(
+                    "along the unit's sides", Split(move, sides)));
+            }
+
+            tries.Add(new KeyValuePair<string, List<XYZ>>(
+                "along the model's axes",
+                Split(move, new[] { XYZ.BasisX, XYZ.BasisY, XYZ.BasisZ })));
+
+            string told = null;
+
+            var done = new List<List<XYZ>>();
+
+            foreach (KeyValuePair<string, List<XYZ>> attempt in tries)
+            {
+                if (attempt.Value.Count == 0 || Repeats(done, attempt.Value))
+                    continue;
+
+                done.Add(attempt.Value);
+
+                var moved = new HashSet<long>();
+                var stretched = new List<string>();
+
+                string why = null;
+
+                using (var step = new SubTransaction(doc))
+                {
+                    step.Start();
+
+                    try
+                    {
+                        foreach (XYZ part in attempt.Value)
+                        {
+                            why = CarryOnce(doc, firstId, cameIn, part,
+                                moved, stretched);
+
+                            if (why != null)
+                                break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        EQUIPLOG.Blew("carrying " + Called + " over", ex);
+
+                        why = "failed: " + EQUIPCHANGE.Short(ex);
+                    }
+
+                    if (why != null)
+                    {
+                        step.RollBack();
+
+                        EQUIPLOG.Say("   carrying " + Called + " " +
+                                     attempt.Key + ": " + why);
+
+                        // The unit's sides are the likeliest way round,
+                        // so theirs is the reason given
+                        if (told == null || attempt.Key.StartsWith("along the unit"))
+                            told = why;
+
+                        continue;
+                    }
+
+                    step.Commit();
+                }
+
+                string said = "carried " + moved.Count + " piece(s) of " +
+                              Noun + "work " +
+                              EQUIPREACH.Mm(move.GetLength()) + " mm to " +
+                              Called + " (" + attempt.Key + ")";
+
+                EQUIPLOG.Say("   " + said +
+                             (stretched.Count == 0
+                                 ? string.Empty
+                                 : "; stretched " +
+                                   string.Join(", ", stretched.ToArray())));
+
+                var ids = new List<string>();
+
+                foreach (long id in moved)
+                    ids.Add(id.ToString());
+
+                EQUIPLOG.Say("      moved: " + string.Join(", ", ids.ToArray()));
+
+                if (notes != null)
+                    notes.Add(said);
+
+                return null;
+            }
+
+            return told ?? "nothing could be moved";
+        }
+
+        // One rigid move `move` of `firstId` and what is beyond it: plan
+        // the walk, then unhook the runs that take it up, move the rest,
+        // stretch those runs' ends along their own lines to meet, and
+        // join them again. Not left to Revit's dragging: that turns a
+        // run whenever the move is not along it.
+        private string CarryOnce(
+            Document doc, long firstId, int cameIn, XYZ move,
+            HashSet<long> moved, List<string> stretched)
+        {
             double shortest = Shortest(doc);
+
+            Element first = doc.GetElement(REVITCOMPAT.NewId(firstId));
+
+            if (first == null)
+                return "what was on it could not be found again";
+
+            if (first.Pinned)
+                return "it is pinned";
 
             var moving = new List<ElementId> { first.Id };
 
-            var seen = new HashSet<long> { first.Id.ToValue() };
+            var seen = new HashSet<long> { firstId };
+
+            // The runs that take the move up: run id -> its joint to the
+            // piece that moves
+            var takers = new Dictionary<long, Taker>();
 
             var queue = new Queue<KeyValuePair<Element, int>>();
 
             queue.Enqueue(new KeyValuePair<Element, int>(first, cameIn));
 
-            var stretched = new List<string>();
+            var walked = new List<string>();
 
-            try
+            while (queue.Count > 0)
             {
-                if (first.Pinned)
-                    return "it is pinned";
+                KeyValuePair<Element, int> item = queue.Dequeue();
 
-                while (queue.Count > 0)
+                ConnectorManager manager = QADUCTS.Manager(item.Key);
+
+                if (manager == null)
+                    return "the connectors of " + EQUIPWALK.Describe(item.Key) +
+                           " could not be read";
+
+                foreach (Connector connector in manager.Connectors)
                 {
-                    KeyValuePair<Element, int> item = queue.Dequeue();
+                    if (connector.Id == item.Value)
+                        continue;
 
-                    ConnectorManager manager = QADUCTS.Manager(item.Key);
+                    if (connector.Domain != Autodesk.Revit.DB.Domain.DomainHvac &&
+                        connector.Domain != Autodesk.Revit.DB.Domain.DomainPiping)
+                        continue;
 
-                    if (manager == null)
-                        return "its connectors could not be read";
-
-                    foreach (Connector connector in manager.Connectors)
+                    foreach (Connector other in connector.AllRefs)
                     {
-                        if (connector.Id == item.Value)
+                        Element next = other.Owner;
+
+                        if (next == null)
                             continue;
 
-                        if (connector.Domain != Autodesk.Revit.DB.Domain.DomainHvac &&
-                            connector.Domain != Autodesk.Revit.DB.Domain.DomainPiping)
+                        long id = next.Id.ToValue();
+
+                        if (id == item.Key.Id.ToValue() || id == OwnerId)
                             continue;
 
-                        foreach (Connector other in connector.AllRefs)
+                        // Sleeves and anything that is not pipe or duct
+                        // network, by category
+                        if (!EQUIPWALK.Ductwork(next) && !EQUIPWALK.Pipework(next))
+                            continue;
+
+                        if (seen.Contains(id))
                         {
-                            Element next = other.Owner;
+                            // Reached again from another moving piece: a
+                            // run with BOTH ends moving moves whole
+                            Taker both;
 
-                            if (next == null)
-                                continue;
-
-                            long id = next.Id.ToValue();
-
-                            if (id == item.Key.Id.ToValue() || id == OwnerId)
-                                continue;
-
-                            // Sleeves and anything that is not pipe or
-                            // duct network, by category
-                            if (!EQUIPWALK.Ductwork(next) &&
-                                !EQUIPWALK.Pipework(next))
-                                continue;
-
-                            if (seen.Contains(id))
-                                continue;
-
-                            seen.Add(id);
-
-                            string named = EQUIPWALK.Describe(next) + " " + id;
-
-                            if (Fixed(next))
-                                return "would move " + named;
-
-                            if (next.Pinned)
-                                return "would move " + named + ", which is pinned";
-
-                            var run = next as MEPCurve;
-
-                            if (run != null)
+                            if (takers.TryGetValue(id, out both))
                             {
-                                if (other.ConnectorType != ConnectorType.End)
-                                    return "would slide something tapped " +
-                                           "into " + named;
+                                takers.Remove(id);
 
-                                var located = run.Location as LocationCurve;
-
-                                var line = located == null
-                                    ? null
-                                    : located.Curve as Line;
-
-                                if (line == null)
-                                {
-                                    // Flex bends to follow
-                                    stretched.Add(named);
-
-                                    continue;
-                                }
-
-                                XYZ here = other.Origin;
-
-                                XYZ a = line.GetEndPoint(0);
-                                XYZ b = line.GetEndPoint(1);
-
-                                XYZ far = a.DistanceTo(here) <= b.DistanceTo(here)
-                                    ? b
-                                    : a;
-
-                                bool free = FreeBeyond(run, other.Id);
-
-                                EQUIPREACH takes = EQUIPREACH.Decide(
-                                    EQUIPWALK.V(here), EQUIPWALK.V(far),
-                                    EQUIPWALK.V(here + move), null, null,
-                                    free, shortest, Noun);
-
-                                if (takes.Kind == EQUIPREACHKIND.Stretch ||
-                                    takes.Kind == EQUIPREACHKIND.There)
-                                {
-                                    // Lies the way it moves, and is long
-                                    // enough: Revit drags its end along
-                                    stretched.Add(named + " (" +
-                                                  EQUIPREACH.Mm(takes.Length) +
-                                                  " -> " +
-                                                  EQUIPREACH.Mm(takes.Left) +
-                                                  " mm)");
-
-                                    continue;
-                                }
-
-                                // Across the move, or too short to take
-                                // it: it moves whole, and what is beyond
-                                // it must take it instead
                                 moving.Add(next.Id);
 
-                                if (takes.Kind != EQUIPREACHKIND.Shift)
-                                {
-                                    queue.Enqueue(
-                                        new KeyValuePair<Element, int>(next, other.Id));
-                                }
-                            }
-                            else
-                            {
-                                moving.Add(next.Id);
-
-                                queue.Enqueue(
-                                    new KeyValuePair<Element, int>(next, other.Id));
+                                walked.Add(EQUIPWALK.Describe(next) + " " + id +
+                                           " moves (both ends)");
                             }
 
-                            if (moving.Count > CarryLimit)
-                                return "would move more than " + CarryLimit +
-                                       " pieces of " + Noun + "work";
+                            continue;
                         }
+
+                        seen.Add(id);
+
+                        string named = EQUIPWALK.Describe(next) + " " + id;
+
+                        if (Fixed(next))
+                            return Trail(walked, "would move " + named);
+
+                        if (next.Pinned)
+                            return Trail(walked, "would move " + named +
+                                                 ", which is pinned");
+
+                        var run = next as MEPCurve;
+
+                        if (run == null)
+                        {
+                            moving.Add(next.Id);
+
+                            walked.Add(named + " moves");
+
+                            queue.Enqueue(new KeyValuePair<Element, int>(next, other.Id));
+                        }
+                        else
+                        {
+                            if (other.ConnectorType != ConnectorType.End)
+                                return Trail(walked, "would slide something " +
+                                                     "tapped into " + named);
+
+                            var located = run.Location as LocationCurve;
+
+                            var line = located == null ? null : located.Curve as Line;
+
+                            if (line == null)
+                            {
+                                // Flex bends to follow: left joined, Revit
+                                // brings its end along
+                                stretched.Add(named);
+
+                                walked.Add(named + " bends");
+
+                                continue;
+                            }
+
+                            XYZ here = other.Origin;
+
+                            XYZ a = line.GetEndPoint(0);
+                            XYZ b = line.GetEndPoint(1);
+
+                            bool nearIsStart = a.DistanceTo(here) <= b.DistanceTo(here);
+
+                            XYZ far = nearIsStart ? b : a;
+
+                            bool free = FreeBeyond(run, other.Id);
+
+                            EQUIPREACH takes = EQUIPREACH.Decide(
+                                EQUIPWALK.V(here), EQUIPWALK.V(far),
+                                EQUIPWALK.V(here + move), null, null,
+                                free, shortest, Noun);
+
+                            if (takes.Kind == EQUIPREACHKIND.Stretch ||
+                                takes.Kind == EQUIPREACHKIND.There)
+                            {
+                                takers[id] = new Taker
+                                {
+                                    RunId = id,
+                                    RunEnd = other.Id,
+                                    PieceId = item.Key.Id.ToValue(),
+                                    PieceEnd = connector.Id,
+                                    NearIsStart = nearIsStart,
+                                    Named = named + " " +
+                                            EQUIPREACH.Mm(takes.Length) + " -> " +
+                                            EQUIPREACH.Mm(takes.Left) + " mm"
+                                };
+
+                                walked.Add(named + " takes it (" +
+                                           EQUIPREACH.Mm(takes.Length) + " -> " +
+                                           EQUIPREACH.Mm(takes.Left) + " mm)");
+
+                                continue;
+                            }
+
+                            // Across the move, or too short to take it: it
+                            // moves whole, and what is beyond it must
+                            // take it instead
+                            moving.Add(next.Id);
+
+                            walked.Add(named + " moves (" +
+                                       (takes.Kind == EQUIPREACHKIND.Shift
+                                           ? "nothing beyond it"
+                                           : EQUIPREACH.Mm(takes.Aside) +
+                                             " mm across it") + ")");
+
+                            if (takes.Kind != EQUIPREACHKIND.Shift)
+                                queue.Enqueue(new KeyValuePair<Element, int>(next, other.Id));
+                        }
+
+                        if (moving.Count > CarryLimit)
+                            return Trail(walked, "would move more than " +
+                                                 CarryLimit + " pieces of " +
+                                                 Noun + "work");
                     }
                 }
-
-                ElementTransformUtils.MoveElements(doc, moving, move);
             }
-            catch (Exception ex)
+
+            // ---- doing it ----------------------------------------------
+            foreach (Taker taker in takers.Values)
             {
-                EQUIPLOG.Blew("carrying " + Called + " over", ex);
+                Connector theirs = QADUCTS.Lookup(doc, taker.RunId, taker.RunEnd);
+                Connector piece = QADUCTS.Lookup(doc, taker.PieceId, taker.PieceEnd);
 
-                return "failed: " + EQUIPCHANGE.Short(ex);
+                if (theirs != null && piece != null && theirs.IsConnectedTo(piece))
+                    theirs.DisconnectFrom(piece);
             }
 
-            string said = "carried " + moving.Count + " piece(s) of " + Noun +
-                          "work " + EQUIPREACH.Mm(move.GetLength()) +
-                          " mm over to " + Called +
-                          (stretched.Count == 0
-                              ? string.Empty
-                              : "; stretched " + string.Join(", ", stretched.ToArray()));
-
-            EQUIPLOG.Say("   " + said);
-
-            var ids = new List<string>();
+            ElementTransformUtils.MoveElements(doc, moving, move);
 
             foreach (ElementId id in moving)
-                ids.Add(id.ToValue().ToString());
+                moved.Add(id.ToValue());
 
-            EQUIPLOG.Say("      moved: " + string.Join(", ", ids.ToArray()));
-
-            if (notes != null)
+            foreach (Taker taker in takers.Values)
             {
-                notes.Add("carried " + moving.Count + " piece(s) of " + Noun +
-                          "work " + EQUIPREACH.Mm(move.GetLength()) +
-                          " mm to " + Called);
+                var run = doc.GetElement(REVITCOMPAT.NewId(taker.RunId)) as MEPCurve;
+
+                var located = run == null ? null : run.Location as LocationCurve;
+
+                var line = located == null ? null : located.Curve as Line;
+
+                if (line == null)
+                    return "pipe " + taker.RunId + " could not be read again";
+
+                XYZ a = line.GetEndPoint(0);
+                XYZ b = line.GetEndPoint(1);
+
+                // KEEPING ITS DIRECTION - EQUIPLINE
+                located.Curve = taker.NearIsStart
+                    ? Line.CreateBound(a + move, b)
+                    : Line.CreateBound(a, b + move);
+
+                stretched.Add(taker.Named);
             }
 
+            doc.Regenerate();
+
+            foreach (Taker taker in takers.Values)
+            {
+                Connector theirs = QADUCTS.Lookup(doc, taker.RunId, taker.RunEnd);
+                Connector piece = QADUCTS.Lookup(doc, taker.PieceId, taker.PieceEnd);
+
+                if (theirs == null || piece == null)
+                    return "pipe " + taker.RunId + " could not be joined again";
+
+                if (!theirs.IsConnectedTo(piece))
+                    theirs.ConnectTo(piece);
+            }
+
+            EQUIPLOG.Say("      " + EQUIPREACH.Mm(move.GetLength()) + " mm: " +
+                         string.Join("; ", walked.ToArray()));
+
             return null;
+        }
+
+        // A run that takes a carry up, and the joint it is unhooked at
+        private class Taker
+        {
+            public long RunId;
+            public int RunEnd;
+            public long PieceId;
+            public int PieceEnd;
+            public bool NearIsStart;
+            public string Named = string.Empty;
+        }
+
+        // The reason, with what was walked to get there, for the log
+        private string Trail(List<string> walked, string why)
+        {
+            if (walked.Count > 0)
+                EQUIPLOG.Say("      walked: " + string.Join("; ", walked.ToArray()));
+
+            return why;
+        }
+
+        // The unit's own three directions, or null
+        private XYZ[] UnitAxes(Document doc)
+        {
+            try
+            {
+                var unit = doc.GetElement(REVITCOMPAT.NewId(OwnerId)) as FamilyInstance;
+
+                if (unit == null)
+                    return null;
+
+                Transform placed = unit.GetTransform();
+
+                return new[]
+                {
+                    placed.BasisX.Normalize(),
+                    placed.BasisY.Normalize(),
+                    placed.BasisZ.Normalize()
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // `move` as its parts along three directions (EQUIPREACH.Parts)
+        private static List<XYZ> Split(XYZ move, XYZ[] axes)
+        {
+            var along = new EQUIPV[axes.Length];
+
+            for (int i = 0; i < axes.Length; i++)
+                along[i] = EQUIPWALK.V(axes[i]);
+
+            var parts = new List<XYZ>();
+
+            foreach (EQUIPV part in EQUIPREACH.Parts(EQUIPWALK.V(move), along))
+                parts.Add(new XYZ(part.X, part.Y, part.Z));
+
+            return parts;
+        }
+
+        // The same parts as a try already made
+        private static bool Repeats(List<List<XYZ>> done, List<XYZ> parts)
+        {
+            foreach (List<XYZ> one in done)
+            {
+                if (one.Count != parts.Count)
+                    continue;
+
+                bool same = true;
+
+                for (int i = 0; i < one.Count && same; i++)
+                    same = one[i].IsAlmostEqualTo(parts[i]);
+
+                if (same)
+                    return true;
+            }
+
+            return false;
         }
 
         // What a carry must never move

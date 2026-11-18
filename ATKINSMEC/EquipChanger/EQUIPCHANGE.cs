@@ -49,8 +49,10 @@ namespace ATKINSMEC
             // its duct, pipework carried over - one line each
             public List<string> Notes = new List<string>();
 
-            // A go that moved something was thrown out at the commit
+            // A go that moved something was thrown out at the commit,
+            // and whether that something included carried pipework
             public bool Tried;
+            public bool Carried;
 
             public string Said = string.Empty;
         }
@@ -312,32 +314,54 @@ namespace ATKINSMEC
             }
 
             // FIRST moving what has to move - the unit onto its duct, the
-            // pipework over to the new connections - and if Revit throws
-            // THAT out at the commit, again moving nothing, so the swap
-            // still goes through with what cannot reach left open
-            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, true);
+            // pipework over to the new connections. If Revit throws THAT
+            // out at the commit: again with the unit moved but no
+            // pipework carried (so a carry Revit will not take does not
+            // cost the duct its joint), and then again moving nothing -
+            // the swap still goes through with what cannot reach left
+            // open.
+            int level = Everything;
 
-            if (outcome.Changed || !atCommit || !outcome.Tried)
-                return outcome;
+            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level);
 
-            string first = outcome.Said;
+            string first = string.Empty;
 
-            EQUIPLOG.Say("   AGAIN, moving nothing - what cannot reach is left open");
+            while (!outcome.Changed && atCommit && outcome.Tried && level > Nothing)
+            {
+                if (first.Length == 0)
+                    first = outcome.Said;
 
-            outcome.Branches.Clear();
-            outcome.Said = string.Empty;
+                // Nothing was carried: the unit's own move was refused
+                level = level == Everything && outcome.Carried
+                    ? UnitOnly
+                    : Nothing;
 
-            Attempt(doc, instance, symbol, resizeDucts, outcome, false);
+                EQUIPLOG.Say(level == UnitOnly
+                    ? "   AGAIN, moving the unit but carrying no pipework"
+                    : "   AGAIN, moving nothing - what cannot reach is left open");
 
-            if (outcome.Changed)
+                outcome.Branches.Clear();
+                outcome.Said = string.Empty;
+
+                atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level);
+            }
+
+            if (outcome.Changed && first.Length > 0)
             {
                 outcome.LeftOpen.Insert(0,
-                    "nothing was moved to reach them - Revit refused that (" +
-                    first + ")");
+                    (level == UnitOnly
+                        ? "no pipework was carried over"
+                        : "nothing was moved to reach them") +
+                    " - Revit refused that (" + first + ")");
             }
 
             return outcome;
         }
+
+        // How much a go may move to reach the new connectors
+        private const int Nothing = 0;
+        private const int UnitOnly = 1;
+        private const int Everything = 2;
 
         // One go at it, in the unit's own transaction. True when it was
         // thrown out AT THE COMMIT, which a second go moving nothing may
@@ -348,7 +372,7 @@ namespace ATKINSMEC
             FamilySymbol symbol,
             bool resizeDucts,
             Outcome outcome,
-            bool reach)
+            int level)
         {
             // The unit's own transaction, so a refusal - before the
             // commit or AT it - takes this one element back to exactly
@@ -375,7 +399,7 @@ namespace ATKINSMEC
 
                 try
                 {
-                    done = Change(doc, instance, symbol, resizeDucts, outcome, reach);
+                    done = Change(doc, instance, symbol, resizeDucts, outcome, level);
                 }
                 catch (Exception ex)
                 {
@@ -452,6 +476,14 @@ namespace ATKINSMEC
             // that a second go, moving nothing, is worth it
             outcome.Tried = outcome.Notes.Count > 0;
 
+            outcome.Carried = false;
+
+            foreach (string note in outcome.Notes)
+            {
+                if (note.StartsWith("carried"))
+                    outcome.Carried = true;
+            }
+
             outcome.Changed = false;
             outcome.Resized = 0;
             outcome.LeftOpen.Clear();
@@ -468,7 +500,7 @@ namespace ATKINSMEC
             FamilySymbol symbol,
             bool resizeDucts,
             Outcome outcome,
-            bool reach)
+            int level)
         {
             // ---- 1. what is on it, and what follows -----------------
             List<Connector> ends = EQUIPWALK.EndsOf(instance);
@@ -645,7 +677,7 @@ namespace ATKINSMEC
             // UNIT moves sideways until its spigot is on the duct's line
             // again, as it would be moved by hand. Only when the biggest
             // duct connection cannot reach as it is.
-            if (reach)
+            if (level >= UnitOnly)
                 OntoItsDuct(doc, instance, joins, map, outcome);
 
             // ---- 5. back together -----------------------------------
@@ -660,7 +692,7 @@ namespace ATKINSMEC
                 int onto;
 
                 string why = map.TryGetValue(joint.MyIndex, out onto)
-                    ? joint.Redo(doc, onto, reach, outcome.Notes)
+                    ? joint.Redo(doc, onto, level >= Everything, outcome.Notes)
                     : "the new type has no connection for it";
 
                 if (why == null)

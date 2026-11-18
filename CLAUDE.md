@@ -900,9 +900,16 @@ reducer/tap/tee/terminal/equipment. Shape changes refused.
   `OntoItsDuct`); a fitting or run still off is CARRIED over with what
   is beyond it until a straight run lying the way it moved stretches to
   follow (`EQUIPJOINT.Carry`; never equipment, a terminal, a tap on a
-  main, a pinned element, > 12 pieces). Thrown out at the commit → a
-  second go moving nothing. Still off = **left open**, unit changed,
-  named in the table ("yes, N open"), message box, log.
+  main, a pinned element, > 12 pieces). **A slanted move is carried in
+  parts** (`EQUIPREACH.Parts`: whole, else along the unit's sides, else
+  the model's axes; each try a SubTransaction): the user's next run had
+  the CHW elbows 322 mm out AND 55 mm down, which no single pipe lies
+  along. The runs that take it up are unhooked, stretched explicitly
+  (keeping direction) and rejoined - not left to Revit's dragging.
+  Thrown out at the commit → again with the unit moved but nothing
+  carried → again moving nothing. Still off = **left open**, unit
+  changed, named in the table ("yes, N open"), message box, log (with
+  what the walk met).
 - **One transaction per unit** in a `TransactionGroup` (one undo):
   failures are processed at each commit, so a refused unit takes only
   itself; checked against the model after its commit. `EQUIPFAILURES`
