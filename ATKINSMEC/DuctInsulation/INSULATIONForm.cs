@@ -1,234 +1,305 @@
-using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Mechanical;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
 
 namespace ATKINSMEC
 {
-    public partial class INSULATIONForm : System.Windows.Forms.Form
+    // THE INSULATOR WINDOW: two tabs, Ducts and Pipes, each with its own
+    // on/off tick, an accessories tick and a thickness + insulation type
+    // per system type. Revit-free, built in code: INSULATIONCommand hands
+    // in this model's system types and insulation types.
+    public class INSULATIONForm : Form
     {
-        private readonly Document _doc;
-
-        private List<string> _insulationTypeNames = new List<string>();
-
-        public INSULATIONForm(Document doc)
+        // What the model has, for one tab
+        public class Model
         {
-            InitializeComponent();
+            public List<string> SystemTypes = new List<string>();
+            public List<string> InsulationTypes = new List<string>();
+        }
+
+        private class Side
+        {
+            public INSULATIONSETTINGS Settings;
+            public Model Model;
+            public string Plural;      // "ducts"
+            public TabPage Page;
+            public CheckBox Enabled, Accessories;
+            public DataGridView Grid;
+        }
+
+        private readonly Side _ducts, _pipes;
+        private TabControl _tabs;
+
+        // A message box unless tests\insulatortest answers instead
+        public Action<string> Say = text => MessageBox.Show(text, "INSULATOR");
+
+        public INSULATIONForm(Model ducts, Model pipes)
+        {
+            INSULATIONSETTINGS.Ducts.Reload();
+            INSULATIONSETTINGS.Pipes.Reload();
+
+            _ducts = new Side { Settings = INSULATIONSETTINGS.Ducts, Model = ducts ?? new Model(), Plural = "ducts" };
+            _pipes = new Side { Settings = INSULATIONSETTINGS.Pipes, Model = pipes ?? new Model(), Plural = "pipes" };
+
+            Build();
 
             FORMSIZE.Remember(this);
-
-            _doc = doc;
         }
 
-        private void INSULATIONForm_Load(object sender, EventArgs e)
+        private void Build()
         {
-            INSULATIONSETTINGS.Reload();
+            SuspendLayout();
 
-            chkEnabled.Checked = INSULATIONSETTINGS.Enabled;
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            Font = new Font("Segoe UI", 9F);
+            Text = "INSULATOR";
+            ClientSize = new Size(720, 520);
+            MinimumSize = new Size(560, 420);
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
+            MinimizeBox = true;
 
-            LoadInsulationTypes();
-            LoadSystemTypes();
+            _tabs = new TabControl { Dock = DockStyle.Fill };
+            _tabs.TabPages.Add(Page(_ducts, "Ducts", "duct"));
+            _tabs.TabPages.Add(Page(_pipes, "Pipes", "pipe"));
 
-            lblPath.Text = "Rules file:\r\n" + INSULATIONSETTINGS.SettingsPath;
-        }
+            var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, ColumnCount = 3, RowCount = 1, Padding = new Padding(6) };
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        private void LoadInsulationTypes()
-        {
-            _insulationTypeNames =
-                new FilteredElementCollector(_doc)
-                .OfClass(typeof(DuctInsulationType))
-                .Cast<DuctInsulationType>()
-                .Select(t => t.Name)
-                .OrderBy(name => name)
-                .ToList();
-
-            if (_insulationTypeNames.Count == 0)
+            bottom.Controls.Add(new Label
             {
-                chkEnabled.Checked = false;
-                chkEnabled.Enabled = false;
+                AutoSize = true,
+                ForeColor = SystemColors.GrayText,
+                Margin = new Padding(3, 6, 3, 0),
+                Text = "Rules: " + INSULATIONSETTINGS.Folder
+            }, 0, 0);
 
-                MessageBox.Show(
-                    "This model has no duct insulation types, so insulation " +
-                    "cannot be created.\r\n\r\nLoad or create one first.",
-                    "DUCT INSULATION");
-            }
+            var save = new Button { Text = "Save rules", Width = 120, Height = 30 };
+            save.Click += (s, e) => SaveRules();
+            bottom.Controls.Add(save, 1, 0);
+
+            var close = new Button { Text = "Close", Width = 90, Height = 30, DialogResult = DialogResult.Cancel };
+            close.Click += (s, e) => Close();
+            bottom.Controls.Add(close, 2, 0);
+
+            CancelButton = close;
+
+            Controls.Add(_tabs);
+            Controls.Add(bottom);
+
+            ResumeLayout(false);
+            PerformLayout();
         }
 
-        private void LoadSystemTypes()
+        private TabPage Page(Side side, string title, string noun)
         {
-            var systemTypes =
-                new FilteredElementCollector(_doc)
-                .OfClass(typeof(MechanicalSystemType))
-                .Cast<MechanicalSystemType>()
-                .OrderBy(t => t.Name)
-                .ToList();
+            side.Page = new TabPage(title) { Padding = new Padding(8), UseVisualStyleBackColor = true };
 
-            // The type column offers the model's insulation types, plus a
-            // blank for system types that are drawn bare
-            colInsulationType.Items.Clear();
-            colInsulationType.Items.Add(string.Empty);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
 
-            foreach (string name in _insulationTypeNames)
-                colInsulationType.Items.Add(name);
+            // Without it the one column takes the width of its widest
+            // control - the note's single line - and the grid runs off
+            // the tab
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            // Saved names that are not in this model must still be valid
-            // values for the cell, or the grid rejects them
-            foreach (var saved in INSULATIONSETTINGS.RulesBySystemType)
+            side.Enabled = new CheckBox
             {
-                string name = saved.Value.InsulationTypeName;
+                AutoSize = true,
+                Text = "Insulate " + side.Plural + " and " + noun + " fittings as they are drawn",
+                Checked = side.Settings.Enabled
+            };
 
-                if (!string.IsNullOrEmpty(name) &&
-                    !colInsulationType.Items.Contains(name))
-                {
-                    colInsulationType.Items.Add(name);
-                }
+            side.Accessories = new CheckBox
+            {
+                AutoSize = true,
+                Margin = new Padding(21, 3, 3, 6),
+                Text = "Also insulate " + noun + " accessories",
+                Checked = side.Settings.Accessories
+            };
+
+            side.Enabled.CheckedChanged += (s, e) => side.Accessories.Enabled = side.Enabled.Checked;
+            side.Accessories.Enabled = side.Enabled.Checked;
+
+            side.Grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
+                MultiSelect = false,
+                EditMode = DataGridViewEditMode.EditOnEnter,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = SystemColors.Window,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
+            };
+
+            side.Grid.DataError += (s, e) => e.ThrowException = false;
+
+            side.Grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = char.ToUpper(noun[0]) + noun.Substring(1) + " system type", ReadOnly = true, FillWeight = 45 });
+            side.Grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Thickness (mm)", FillWeight = 18 });
+
+            var types = new DataGridViewComboBoxColumn { HeaderText = "Insulation type", FillWeight = 37, DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox };
+            types.Items.Add(string.Empty);
+
+            foreach (string name in side.Model.InsulationTypes)
+                types.Items.Add(name);
+
+            // Saved names not in this model must still be valid values
+            foreach (INSULATIONSETTINGS.Rule rule in side.Settings.RulesBySystemType.Values)
+            {
+                if (!string.IsNullOrEmpty(rule.InsulationTypeName) && !types.Items.Contains(rule.InsulationTypeName))
+                    types.Items.Add(rule.InsulationTypeName);
             }
 
-            dgvRules.Rows.Clear();
+            side.Grid.Columns.Add(types);
 
-            foreach (MechanicalSystemType systemType in systemTypes)
-                AddRule(systemType.Name, false);
+            foreach (string systemType in side.Model.SystemTypes)
+                AddRow(side, systemType, false);
 
-            // Rules saved for system types that this model does not have
-            // are kept, so switching projects does not lose them
-            foreach (var pair in INSULATIONSETTINGS.RulesBySystemType)
+            // Rules saved for system types this model has not got are kept
+            foreach (string saved in side.Settings.RulesBySystemType.Keys.ToList())
             {
-                bool present = systemTypes.Any(
-                    t => string.Equals(
-                        t.Name,
-                        pair.Key,
-                        StringComparison.OrdinalIgnoreCase));
-
-                if (!present)
-                    AddRule(pair.Key, true);
+                if (!side.Model.SystemTypes.Any(t => string.Equals(t, saved, StringComparison.OrdinalIgnoreCase)))
+                    AddRow(side, saved, true);
             }
 
-            lblRulesInfo.Text =
-                $"{systemTypes.Count} system type(s) in this model. " +
-                "A system type is insulated only when it has both a " +
-                "thickness above 0 and an insulation type. " +
-                "Greyed rows are saved rules for system types not in this model.";
+            string note = side.Model.SystemTypes.Count + " " + noun + " system type(s) in this model. " +
+                          "Insulated when it has a thickness above 0 and an insulation type. Grey: saved, not in this model.";
+
+            // No insulation types: nothing can be insulated here, and the
+            // saved on/off is left as it was rather than switched off for
+            // every model
+            if (side.Model.InsulationTypes.Count == 0)
+            {
+                side.Enabled.Enabled = false;
+                side.Accessories.Enabled = false;
+                note = "This model has no " + noun + " insulation types - load or create one first. " + note;
+            }
+
+            layout.Controls.Add(side.Enabled, 0, 0);
+            layout.Controls.Add(side.Accessories, 0, 1);
+            layout.Controls.Add(side.Grid, 0, 2);
+            // Anchored both sides, an AutoSize label wraps to the column
+            layout.Controls.Add(new Label { AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0), Text = note }, 0, 3);
+
+            side.Page.Controls.Add(layout);
+
+            return side.Page;
         }
 
-        private void AddRule(string systemTypeName, bool greyed)
+        private static void AddRow(Side side, string systemType, bool greyed)
         {
-            INSULATIONSETTINGS.Rule rule =
-                INSULATIONSETTINGS.RuleFor(systemTypeName);
+            INSULATIONSETTINGS.Rule rule = side.Settings.RuleFor(systemType);
 
-            double thickness = rule == null ? 0 : rule.ThicknessMm;
-
-            string insulationType = rule == null
-                ? string.Empty
-                : (rule.InsulationTypeName ?? string.Empty);
-
-            int row = dgvRules.Rows.Add(
-                systemTypeName,
-                thickness.ToString(CultureInfo.InvariantCulture),
-                insulationType);
+            int row = side.Grid.Rows.Add(
+                systemType,
+                (rule == null ? 0 : rule.ThicknessMm).ToString(CultureInfo.InvariantCulture),
+                rule == null ? string.Empty : (rule.InsulationTypeName ?? string.Empty));
 
             if (greyed)
-            {
-                dgvRules.Rows[row].DefaultCellStyle.ForeColor =
-                    System.Drawing.SystemColors.GrayText;
-            }
+                side.Grid.Rows[row].DefaultCellStyle.ForeColor = SystemColors.GrayText;
         }
 
-        private void btnSave_Click(object sender, EventArgs e)
+        // Reads one tab's grid; null (and the tab shown) when a row is wrong
+        private Dictionary<string, INSULATIONSETTINGS.Rule> Read(Side side)
         {
-            var rules =
-                new Dictionary<string, INSULATIONSETTINGS.Rule>(
-                    StringComparer.OrdinalIgnoreCase);
+            side.Grid.EndEdit();
 
-            foreach (DataGridViewRow row in dgvRules.Rows)
+            var rules = new Dictionary<string, INSULATIONSETTINGS.Rule>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (DataGridViewRow row in side.Grid.Rows)
             {
-                string systemType = Convert.ToString(row.Cells[0].Value);
+                string systemType = (Convert.ToString(row.Cells[0].Value) ?? string.Empty).Trim();
 
-                if (string.IsNullOrEmpty(systemType))
+                if (systemType.Length == 0)
                     continue;
 
-                string text = Convert.ToString(row.Cells[1].Value);
+                string text = (Convert.ToString(row.Cells[1].Value) ?? string.Empty).Trim();
+                string type = (Convert.ToString(row.Cells[2].Value) ?? string.Empty).Trim();
 
-                double thickness;
+                double thickness = 0;
 
-                if (string.IsNullOrEmpty(text))
+                string problem = null;
+
+                if (text.Length > 0 && !double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out thickness))
+                    problem = "\"" + text + "\" is not a valid thickness for " + systemType + ".";
+                else if (thickness < 0)
+                    problem = "The thickness for " + systemType + " cannot be negative.";
+                else if (thickness > 0 && type.Length == 0)
+                    problem = systemType + " has a thickness but no insulation type.\r\n\r\nPick a type, or set the thickness to 0.";
+
+                if (problem != null)
                 {
-                    thickness = 0;
-                }
-                else if (!double.TryParse(
-                             text.Trim(),
-                             NumberStyles.Any,
-                             CultureInfo.InvariantCulture,
-                             out thickness))
-                {
-                    MessageBox.Show(
-                        $"\"{text}\" is not a valid thickness for " +
-                        $"{systemType}.",
-                        "DUCT INSULATION");
-
-                    return;
-                }
-
-                if (thickness < 0)
-                {
-                    MessageBox.Show(
-                        $"The thickness for {systemType} cannot be negative.",
-                        "DUCT INSULATION");
-
-                    return;
+                    _tabs.SelectedTab = side.Page;
+                    side.Grid.CurrentCell = row.Cells[problem.Contains("no insulation type") ? 2 : 1];
+                    Say(problem);
+                    return null;
                 }
 
-                string insulationType =
-                    (Convert.ToString(row.Cells[2].Value) ?? string.Empty).Trim();
-
-                // A thickness with no type would silently insulate nothing
-                if (thickness > 0 && insulationType.Length == 0)
-                {
-                    MessageBox.Show(
-                        $"{systemType} has a thickness but no insulation " +
-                        "type.\r\n\r\nPick a type for it, or set the " +
-                        "thickness to 0 to leave that system type bare.",
-                        "DUCT INSULATION");
-
-                    return;
-                }
-
-                rules[systemType.Trim()] = new INSULATIONSETTINGS.Rule
-                {
-                    ThicknessMm = thickness,
-                    InsulationTypeName = insulationType
-                };
+                rules[systemType] = new INSULATIONSETTINGS.Rule { ThicknessMm = thickness, InsulationTypeName = type };
             }
 
-            INSULATIONSETTINGS.RulesBySystemType = rules;
-            INSULATIONSETTINGS.Enabled = chkEnabled.Checked;
+            return rules;
+        }
+
+        public bool SaveRules()
+        {
+            Dictionary<string, INSULATIONSETTINGS.Rule> ducts = Read(_ducts);
+
+            if (ducts == null)
+                return false;
+
+            Dictionary<string, INSULATIONSETTINGS.Rule> pipes = Read(_pipes);
+
+            if (pipes == null)
+                return false;
 
             try
             {
-                INSULATIONSETTINGS.Save();
-
-                int active = rules.Count(r => r.Value.ThicknessMm > 0);
-
-                MessageBox.Show(
-                    chkEnabled.Checked
-                        ? $"Saved. New ducts on {active} system type(s) will " +
-                          "be insulated as they are drawn."
-                        : "Saved. Automatic insulation is switched off.",
-                    "DUCT INSULATION");
+                Store(_ducts, ducts);
+                Store(_pipes, pipes);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    "Could not save the rules:\r\n\r\n" + ex.Message,
-                    "DUCT INSULATION");
+                Say("Could not save the rules:\r\n\r\n" + ex.Message);
+                return false;
             }
+
+            Say("Saved.\r\n\r\nDucts: " + Summary(_ducts) + "\r\nPipes: " + Summary(_pipes));
+
+            return true;
         }
 
-        private void btnClose_Click(object sender, EventArgs e)
+        private static void Store(Side side, Dictionary<string, INSULATIONSETTINGS.Rule> rules)
         {
-            this.Close();
+            side.Settings.RulesBySystemType = rules;
+            side.Settings.Enabled = side.Enabled.Checked;
+            side.Settings.Accessories = side.Accessories.Checked;
+            side.Settings.Save();
+        }
+
+        private static string Summary(Side side)
+        {
+            if (!side.Settings.Enabled)
+                return "off";
+
+            int active = side.Settings.RulesBySystemType.Values.Count(r => r.ThicknessMm > 0 && !string.IsNullOrEmpty(r.InsulationTypeName));
+
+            return "insulated as drawn on " + active + " system type(s)" +
+                   (side.Settings.Accessories ? ", accessories too" : ", not accessories");
         }
     }
 }

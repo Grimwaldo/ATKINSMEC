@@ -25,7 +25,7 @@ models — `QAAVF`'s style name and schema. Never rename those.
 |---|---|---|
 | AUTOVENT | `Command.cs` | Excel ventilation sheet → airflows on air terminals; exports model rooms back into the sheet. |
 | CHW VOLUME | `CHWCommand.cs` | Water volume of two piping system types across the model and its links. Excel export. |
-| DUCT INSULATION | `INSULATIONCommand.cs` | Insulates ducts/fittings/accessories as they are drawn, by system type. |
+| INSULATOR | `INSULATIONCommand.cs` | Insulates ducts and pipes, their fittings and (ticked) accessories as they are drawn, by system type. Ducts / Pipes tabs. |
 | SPRINKLERS | `SPRINKLERCommand.cs` | Pendent heads per NFPA 13 across rooms of a linked arch model. |
 | ALIGN TERMINALS | `ALIGNCommand.cs` | Moves air terminals onto the nearest linked-model terminal, in plan. |
 | AUTOSYNC | `SYNCCommand.cs` | Saves and syncs every open model on a timer (≥5 min). |
@@ -108,7 +108,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-installer.ps1    # ins
 ## Files
 
 One folder per add-in under `ATKINSMEC\` (`AutoVent`, `ChwVolume`,
-`DuctInsulation`, `Sprinklers`, `AlignTerminals`, `SheetQA`, `AutoSync`,
+`DuctInsulation` (INSULATOR), `Sprinklers`, `AlignTerminals`, `SheetQA`, `AutoSync`,
 `NwcExport`, `EquipChanger`, `EspCalc`, `RoomTags`) plus `Shared\`. **The namespace
 is flat (`ATKINSMEC`) everywhere** — folders are for finding, not
 scoping. The SDK globs `**\*.cs`.
@@ -294,7 +294,14 @@ plain status lines.
   for telling a person only.
 - **Band rule** (`VENTLEVELMAP.StoreyOf`): a room belongs to the highest
   level at or under its floor, with a 300 mm allowance below. Below every
-  level = in no band, left out and counted.
+  level = in no band (`Below`, -1), left out and counted. **The top
+  level's band is one storey tall** (user, 2026-11-18: Tower A's HVAC
+  model stops at LEVEL 17A, its links run 21 floors higher, and ~2,130
+  rooms landed on 17A): a floor where the next level would be (top +
+  `StoreyHeight` - the median gap between levels, gaps under 2 m left
+  out - less the 300 mm) or higher is `Above` (-2), left out and counted
+  like `Below`; every log and the links list say which. A model with one
+  level has no storey to measure and keeps the old rule.
 - Link span (`LevelSpan`): lowest/highest linked level something modelled
   stands on (allow-list `Content`, shafts and rooms excluded);
   `ElementLevelFilter` is slow, so walk inwards from each end.
@@ -575,7 +582,8 @@ Revit's US families). Room found by `GetRoomAtPoint` at the box middle,
   any one; each a WORD of the label - ≥3 letters starts a word, 1–2 must
   be one, so "ID" is never GRID/SIDE: `VENTINTERIOR.Named`) or ticked
   level by level in **Interior models...** (`VENTINTERIOR`; picks per
-  level name). A keyword the user typed is saved per model; the default
+  level name; **several rows picked at once** as in Fixtures - user,
+  2026-11-18; level headings never picked; test: `fixturedialogtest`). A keyword the user typed is saved per model; the default
   is saved as null, so models that never changed it follow a new default.
 - `VENTAPARTMENTS.Build` asks every apartments model which room stands at
   each interior room (`GetRoomAtPoint` at 150 mm, 1.0 m, 1.5 m above its
@@ -774,9 +782,23 @@ Modal; runs with **no model open**. `CHWVOLUME` measures, `CHWEXPORT`
   above it + the open model); Tick all / Untick all act on the rows
   showing.
 
-## DUCT INSULATION
-`DUCTINSULATIONUPDATER` (`IUpdater`) — **must never throw**; it would
-abort the user's own transaction.
+## INSULATOR (was DUCT INSULATION)
+User, 2026-11-18: "should be called insulator ... also work for pipes
+... two tabs ... a checkbox ... to insulate duct accessory and same in
+pipe". Folder `DuctInsulation\`, classes `INSULATION*` - code names kept.
+- `INSULATIONUPDATER` (`IUpdater`, the old GUID) — **must never throw**;
+  it would abort the user's own transaction. Triggered by ducts, pipes,
+  their fittings and BOTH accessory categories always; `Covers(accessory)`
+  decides at run time, so a tick needs no restart. Never passes
+  `InvalidElementId` as the type (= the document's default).
+- `INSULATIONSETTINGS.Ducts` / `.Pipes` (Revit-free): `duct_insulation.txt`
+  (DUCT INSULATION's own file, read unchanged) and `pipe_insulation.txt`.
+  `accessories=` line; none = ducts ON (as the old tool did), pipes OFF.
+- `INSULATIONForm`: Revit-free, built in code, two tabs; the command hands
+  in the system type and insulation type names. A model with no
+  insulation types of a kind greys that tab's ticks and SAVES THEM AS
+  THEY WERE (the files are per PC, not per model). Test: `insulatortest`
+  (+ `insulatortest preview <folder> [1.5]`).
 
 ## SPRINKLERS
 `SPRINKLERPLAN` (rooms, ceilings, placement), `SPRINKLERLAYOUT`
@@ -870,14 +892,82 @@ Close, Cancel, Yes/No last), clears warnings only, `Stop` in `finally`.
 `CheckedListBox` cannot multi-select; `Unpick` after filling a grid.
 
 ## EQUIPMENT CHANGER
-Modeless, acts on the selection. **Five steps in order**: walk and record
+**Pick → Finish → a type → OK** (user, 2026-11-18: "instead of using a
+big window ... select the element ... after pressing finish it will give
+a list of the types of the family ... resize the ductwork checkbox to be
+removed ... very simple with ok and cancel"). One modal command:
+`PickObjects` (mechanical equipment + air terminals, `EQUIPFILTER`, the
+current selection pre-picked), then `EQUIPPICK` (Revit-free, built in
+code, docked, resizable; the picked units' family's types, current ones
+marked; several families = "Family : Type", only the chosen type's family
+changed), then a TaskDialog (details expanded, log in the footer); the
+changed units left selected. Always resizes. The modeless window, its
+event, help and LOOK are gone. **Five steps in order**: walk and record
 joints → disconnect → swap type → resize (ducts, then fittings, read
-back) → reconnect by position. `EQUIPSTOP` (Revit-free) stops at
-reducer/tap/tee/terminal/equipment. Connectors matched by position.
-Shape changes refused. `Verify` reads the model after commit (failures
-are processed at commit). Rewrite curves keeping direction
-(`EQUIPLINE.MovingIsStart`). `EQUIPFAILURES` never resolves an error.
-Reach 40. `ATKINSMEC_equip_log.txt`.
+back) → reconnect. `EQUIPSTOP` (Revit-free) stops at
+reducer/tap/tee/terminal/equipment - and, **walking back from an air
+terminal, at a duct with a tap-off on its side** (`Tapped`; grille 227,
+2026-11-18: its walk shrank such a duct and the 80-degree transition
+beyond turned FCU 89's 25 mm stub inside out); where the resized part
+meets that duct a transition goes in (`EQUIPSIZER.Bridge`,
+`NewTransitionFitting`). The swap goes in up to three goes: everything →
+without moving the unit → **without resizing** (the type still changes;
+the table says to resize by hand). Shape changes refused.
+- **PIPES are taken off and put back too** (not resized; user,
+  2026-11-18: FCU-02 → FCU-10 refused - the CHW stubs stayed joined and
+  Revit dragged them inside out). Every HVAC + piping end connector.
+- **Matched by the family's OWN connector** (`EQUIPMATCH`, Revit-free,
+  test `equiptest`): same family = same connector id; another family =
+  domain, system, then distance, supply never to return. Never "nearest
+  to where it was" - a bigger unit moves them all.
+- **Never backwards, never bent** (`EQUIPREACH.Decide`): slid along its
+  own line only, ≥ 5 mm left; nothing joined beyond = moved whole.
+  Rewrite curves keeping direction (`EQUIPLINE.MovingIsStart`).
+- **What cannot reach is MOVED, as by hand** (user, 2026-11-18: FCU-10
+  "changed but now its disconnected from the duct and pipes" - spigot
+  327 mm aside of a 42 mm stub, CHW 650 mm from the elbows on it). The
+  UNIT moves sideways onto its biggest duct's line (`EQUIPREACH.Anchor`,
+  `OntoItsDuct`); a fitting or run still off is CARRIED over with what
+  is beyond it until a straight run lying the way it moved stretches to
+  follow (`EQUIPJOINT.Carry`; never equipment, a terminal, a tap on a
+  main, a pinned element, > 12 pieces). **A slanted move is carried in
+  parts** (`EQUIPREACH.Parts`: whole, else along the unit's sides, else
+  the model's axes; each try a SubTransaction): the user's next run had
+  the CHW elbows 322 mm out AND 55 mm down, which no single pipe lies
+  along. The runs that take it up are unhooked, stretched explicitly
+  (keeping direction) and rejoined - not left to Revit's dragging; a run
+  with a tap on its side is never shortened past it (`TapsStay`).
+- **A step nothing can stretch to is MADE** (pipes only): an offset of
+  three new pipes and two elbows of the run's own type, system, level,
+  size and insulation (`EQUIPDOGLEG.Plan` Revit-free, `EQUIPOFFSET.Build`;
+  square, 45, then 30 degrees, each a SubTransaction, read back). No room
+  out from the unit → the pipework is first carried straight out to make
+  it. FCU-01..06 are 300 high, 07..14 390-410: across that line the CHW
+  connections change height and nothing else fits.
+- **A pipe that touches the unit but was never joined is joined**
+  (`EQUIPJOINT.Loose`: open end ≤ 300 mm, same system, facing it, in
+  front of the face, nearest, each once; unit 164).
+- **The type swap commits first, then ONE TRANSACTION PER JOINT**
+  (`Rejoin`): a joint Revit refuses at its commit is tried again straight
+  only, then left open - it no longer takes the others with it. Still
+  off = **left open**, unit changed, named in the result ("N with a
+  connection left open", details expanded),
+  message box, log (with what the walk met). Connectors are re-read by
+  id after any tried-and-rolled-back carry (a dead `Connector` read as
+  "will not say which way it faces").
+- **Tried on the real model without a restart**: `tools/equiplab-revit`
+  (Add-In Manager → EquipLab.dll → Lab) compiles the changer's own files
+  (+ a QADUCTS mirror, `QADUCTSLAB.cs` - keep in step), runs
+  `%AppData%\ATKINSMEC\equiplab.txt` ("<unit id> <type>" lines) inside a
+  TransactionGroup that is always rolled back and writes
+  `ATKINSMEC_equiplab.txt`. `tools/equipprobe-revit` dumps a selected
+  unit's connectors, pipework and every type's connector layout.
+- **One transaction per unit** in a `TransactionGroup` (one undo):
+  failures are processed at each commit, so a refused unit takes only
+  itself; checked against the model after its commit. `EQUIPFAILURES`
+  never resolves an error. Reach 40. `ATKINSMEC_equip_log.txt`; when the
+  log says every step worked and the commit failed, Revit's journal
+  names the elements (`FaultyAtomsCheck`, "acquired element").
 
 ## DUCT ESP
 Its own calculation across this model and ticked links (`ESPCOLLECT`
@@ -961,7 +1051,7 @@ touching a layout.
 
 ## Conventions and traps
 - **Modal vs modeless.** Modeless windows (AUTOVENT, SPRINKLERS, ALIGN,
-  SHEET QA, EQUIPMENT CHANGER) route every API call through their
+  SHEET QA) route every API call through their
   external event, keep form/handler/event in statics, clear them in
   `OnFormClosed`. A request raised inside a handler arrives empty — do
   follow-up work inline.

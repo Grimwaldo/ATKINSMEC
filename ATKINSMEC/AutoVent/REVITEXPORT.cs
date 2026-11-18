@@ -133,6 +133,7 @@ namespace ATKINSMEC
             int heightsFromBoundingBox;
             int ceilingsFound;
             int belowEveryLevel;
+            int aboveTopLevel;
             int unticked;
             VENTFIXTURES.Tally fixtures;
             VENTAPARTMENTS.Map apartments;
@@ -146,6 +147,7 @@ namespace ATKINSMEC
                 out heightsFromBoundingBox,
                 out ceilingsFound,
                 out belowEveryLevel,
+                out aboveTopLevel,
                 out unticked,
                 out fixtures,
                 out apartments,
@@ -163,6 +165,10 @@ namespace ATKINSMEC
                     (belowEveryLevel > 0
                         ? " " + belowEveryLevel + " room(s) sit below this " +
                           "model's lowest level, so no level of it holds them."
+                        : string.Empty) +
+                    (aboveTopLevel > 0
+                        ? " " + aboveTopLevel + " room(s) sit a storey or " +
+                          "more above its top level."
                         : string.Empty));
 
             ExcelPackage.License.SetNonCommercialPersonal("Mohamad Hamza");
@@ -181,6 +187,16 @@ namespace ATKINSMEC
                     "\r\n\r\n" + belowEveryLevel + " room(s) in the linked " +
                     "model(s) sit below this model's lowest level, so no " +
                     "level holds them - they were left out.";
+            }
+
+            // ...and so is one a storey or more over the top level, which
+            // the top level used to take, all of it (VENTLEVELMAP.Above)
+            if (aboveTopLevel > 0)
+            {
+                heights +=
+                    "\r\n\r\n" + aboveTopLevel + " room(s) in the linked " +
+                    "model(s) sit a storey or more above this model's top " +
+                    "level, so no level holds them - they were left out.";
             }
 
             if (unticked > 0)
@@ -513,6 +529,7 @@ namespace ATKINSMEC
             out int heightsFromBoundingBox,
             out int ceilingsFound,
             out int belowEveryLevel,
+            out int aboveTopLevel,
             out int unticked,
             out VENTFIXTURES.Tally fixtures,
             out VENTAPARTMENTS.Map apartments,
@@ -522,6 +539,7 @@ namespace ATKINSMEC
             heightsFromBoundingBox = 0;
             ceilingsFound = 0;
             belowEveryLevel = 0;
+            aboveTopLevel = 0;
             unticked = 0;
 
             // Which room stands in which apartment, when the window names
@@ -598,11 +616,16 @@ namespace ATKINSMEC
                     // stands in - see VENTLEVELMAP.StoreyOf
                     int at = VENTLEVELMAP.StoreyOf(storeys, roomZ);
 
-                    // Below every level of this model (or it has none):
-                    // nowhere to put it, and a heading is not invented
+                    // Below every level of this model (or it has none), or
+                    // a storey or more over its top one: nowhere to put
+                    // it, and a heading is not invented
                     if (at < 0)
                     {
-                        belowEveryLevel++;
+                        if (at == VENTLEVELMAP.Above)
+                            aboveTopLevel++;
+                        else
+                            belowEveryLevel++;
+
                         continue;
                     }
 

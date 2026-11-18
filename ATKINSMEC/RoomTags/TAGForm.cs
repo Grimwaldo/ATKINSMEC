@@ -15,7 +15,7 @@ namespace ATKINSMEC
     // that takes the work into an API context, later. On its own (the
     // tests, the preview) it is a window again and the work runs at once.
     //
-    // Revit-free all the same: TAGCommand hands in the reads as callbacks,
+    // Revit-free all the same: QAForm hands in the reads as callbacks,
     // and the window deals only in TAGPLAN objects. Built in code, in table
     // panels, as ESPForm is.
     public class TAGForm : Form

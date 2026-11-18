@@ -70,6 +70,226 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## INSULATOR: DUCT INSULATION renamed, pipes added - 2026-11-18 (night)
+
+User: "the duct insulation addin should be called insulator, and it
+should also work for pipes aswell, it should have two tabs, one for ducts
+and one for pipes, and have a checkbox in duct that gives option to
+insulate duct accessory and same in pipe". Targets Revit 2024 and 2025.
+
+- Ribbon button, window, .addin description and installer text say
+  INSULATOR; folder, class names, the updater GUID and
+  `duct_insulation.txt` kept, so saved duct rules carry over.
+- Two tabs, each: "Insulate <ducts|pipes> and fittings as they are
+  drawn", "Also insulate <duct|pipe> accessories" (greyed while off), the
+  rules grid. Duct accessories stay ON for an old file (no
+  `accessories=` line); pipe accessories OFF until ticked (my default -
+  not asked). Pipe rules in `pipe_insulation.txt`.
+- One updater for both (`INSULATIONUPDATER`, `PipeInsulation.Create`,
+  system type from `RBS_PIPING_SYSTEM_TYPE_PARAM`, else connectors in the
+  piping domain, else a neighbour - insulation skipped in `AllRefs`).
+- Window Revit-free and built in code (the designer file is gone);
+  `insulatortest` 46 checks, mutation-checked; previews at 1x / 1.5x
+  looked at.
+- **NOT run in Revit.** To try: switch Pipes on, give Chilled Water
+  Supply a thickness and a pipe insulation type, Save, draw a pipe with
+  an elbow - both insulated; a valve only with the accessories tick.
+  Then draw a duct to check nothing changed there.
+- Thickness is one per system type; pipe insulation by pipe SIZE (as
+  most specs give it) would be the next step if wanted.
+
+## EQUIPMENT CHANGER: pick → Finish → a type; grille 227 - 2026-11-18 (night, later)
+
+- **New UI** (user: "instead of using a big window ... select the
+  element ... after pressing finish ... a list of the types of the
+  family ... resize the ductwork checkbox to be removed ... very simple
+  with ok and cancel", resizable): `EQUIPCommand` = `PickObjects` with
+  `EQUIPFILTER` (current selection pre-picked) → `EQUIPPICK` (Revit-free
+  WinForm in code, docked, resizable, rendered at three sizes) → run →
+  TaskDialog (details expanded, log in the footer); changed units left
+  selected. Deleted: `EQUIPForm`, `EQUIPEVENT`, `EQUIPHELPForm`,
+  `EQUIPROW`. Ribbon tooltip rewritten. NOT run in Revit (a command
+  cannot be dry-run through the lab).
+- **Grille 227 refused** (SG-36 800x200 → SG-15 500x250, Revit 2024): its
+  branch is FCU 89's supply - 10 mm duct, damper, 230 mm duct, 80-degree
+  transition, 25 mm stub to the FCU. Resizing up to the transition made
+  the transition longer and it turned the stub inside out. Now:
+  - the swap goes in up to four goes: everything → without moving the
+    unit → **resized SHORT** (up to the last duct before the stop, a new
+    transition there - `EQUIPSIZER.Bridge`, `NewTransitionFitting` whose
+    connector1 MUST be a duct's) → not resized (type changed, "resize by
+    hand" in the result);
+  - walking back from an air terminal, a duct with a tap-off on its side
+    stops the resize (`EQUIPNODE.Tapped`) and is bridged the same way.
+  - Dry runs: → SG-15 resized short + transition, all joined; → SG-09 the
+    400-to-800 transition does not fit in 230 mm, so not resized; 231 →
+    FCU-10 still fully joined.
+
+## EQUIPMENT CHANGER: offsets, never-joined pipes, one transaction a joint - tested on the real model - 2026-11-18 (night)
+
+The user, third time: "the pipes still disconnect" (and asked whether it
+would work on ANY FCU change). Stopped guessing and looked:
+
+- **`tools/equipprobe-revit`** (read-only, Add-In Manager) on units 231
+  and 164: every connector and what it is joined to, the pipework behind
+  it, ends within 600 mm, and where ALL 14 types put their connectors
+  (in a transaction that is rolled back). Findings:
+  - The family `ATR_ME_MEQ_FCU` grows from its origin end; CHW on the far
+    end face (local x = length), supply z 50, return z = height - 50;
+    spigot at mid-length, half-height. FCU-01..06 are 300 high,
+    07..14 are 390-410 - across that line the return CHW rises 110 and
+    the spigot 55, so a unit kept on its duct needs a 55 mm vertical step
+    in each CHW pipe, and both of 231's run horizontally for pieces.
+  - **Unit 164's CHW pipes were never joined** - they end 100 mm off
+    FCU-04's connections, supply and return heights swapped.
+- **`tools/equiplab-revit`**: the changer's own files run on the model
+  inside a group that is rolled back, five swaps per Run, no restart.
+  Run 1: 3 of 5 joined. Run 2 (after the fixes below): 4 of 5 -
+  231 → FCU-10 (carried out 455 mm + two 45-degree offsets), 164 →
+  FCU-03 (never-joined pipes joined), 89 → FCU-06, 231 → FCU-05; 89 →
+  FCU-10 joins both pipes (90-degree offsets) and leaves its supply duct
+  open: 205 mm deeper, and the duct runs to an air terminal.
+- Fixes: the offset (`EQUIPDOGLEG`, `EQUIPOFFSET`); never-joined pipes
+  (`EQUIPJOINT.Loose`); connectors re-read by id after a rolled-back
+  carry (they were dead - "will not say which way they face"); taps on a
+  taker (`TapsStay` - shortening 89's duct took a tap off, "The Tap must
+  be attached to duct", and the commit threw out the pipes too); the swap
+  commits first and every joint rejoins in its own transaction
+  (`Rejoin`); the equip log keeps earlier runs (~400 KB).
+- Seen, not changed: unit 89's return stub is 1443 wide into a 250 x 250
+  main through a tap; resizing it to 1534 x 360 raises "The Tap must be
+  attached to duct" as a WARNING, which the changer deletes. Worth a look.
+- Tests: equiptest +6 (offsets: 231's 55 mm step, 164's 100 mm, room).
+
+## EQUIPMENT CHANGER: a slanted carry in parts; three goes - 2026-11-18 (evening)
+
+Run by the user after the change below: "the pipes are still
+disconnected". The duct joined (the unit "moved 327 mm ... (0, -322,
+-55 mm)"), but each CHW connection was then "322 out, 55 across" of its
+elbow - the unit had also dropped 55 mm to centre its taller spigot - and
+the carry, one rigid move, met no straight pipe lying along that slant
+and walked past 12 pieces.
+
+- **Parts** (`EQUIPREACH.Parts`, Revit-free): the move whole, else split
+  along the unit's own sides (`GetTransform`), else the model's axes;
+  every part carried in turn, each try one `SubTransaction`.
+- **No dragging**: each carry part plans the walk, unhooks the runs that
+  take it up (`Taker`), `MoveElements` the rest, rewrites the takers'
+  near ends (direction kept) and rejoins them. A taker reached from two
+  moving pieces moves whole.
+- **Three goes**: everything → the unit moved, nothing carried (so a
+  carry Revit refuses does not cost the duct its joint) → nothing moved.
+- The log lists what each carry met ("walked: ... moves (55 mm across
+  it); ... takes it (400 -> 455 mm)").
+- The user asked whether it will work on ANY FCU change and pipe
+  layout. Told: nothing is tuned to this unit; it is left open (named)
+  when the new connection faces another way (handed coils), when it
+  would move another unit / terminal / a tap on a main / anything
+  pinned / > 12 pieces, when no straight pipe lies each part's way, or
+  when Revit refuses (borrowed elements, model groups). Pipes are not
+  resized.
+- Tests: equiptest +6 (parts, the user's drop and branch, a turned
+  building).
+- NOT run in Revit yet.
+
+## EQUIPMENT CHANGER: the unit moved onto its duct, pipework carried - 2026-11-18 (later)
+
+The fix below, run by the user: "it changed the fcu type but now its
+disconnected from the duct and pipes". The log said exactly why:
+supply spigot "moved 327 mm (0 along, 327 aside); duct 3854610 is
+42 mm" (half of FCU-10's ~650 mm extra width - the family grows from
+one end), and the two CHW connections 644 / 653 mm from the elbows
+(`Pipe Fittings - Standard` 3858126 / 3858129) sitting straight on them.
+All three were left open, by design - and that was not what anybody
+wanted.
+
+- **The unit moves onto its duct** (`EQUIPREACH.Anchor`, Revit-free;
+  `EQUIPCHANGE.OntoItsDuct`): the biggest duct connection that cannot
+  reach as it is decides; the unit moves by the sideways part, or the
+  whole offset when the run cannot take the rest along its line. Not if
+  pinned, not for a stub with nothing beyond it (that moves itself).
+- **Pipework is carried** (`EQUIPJOINT.Carry`): the elbow (or run) on the
+  connection moves by the offset with everything joined beyond it, out
+  every way until a straight run lying along the move (and long enough -
+  `Decide`) takes it, or an open end. `MoveElements` once; Revit drags
+  the stretching runs' ends. Refused: equipment, terminals, plumbing
+  fixtures, sprinklers, a tap into a run, pinned, more than 12 pieces.
+- **A second go**: if the commit throws out a go that moved anything,
+  the unit is done again moving nothing (left open as before), and says
+  Revit refused the moves.
+- The log now gives a fitting-on-connector offset as out / across.
+- Tests: equiptest +9 (anchor, turned); a mutation caught.
+- NOT run in Revit. Unknown: where the user's CHW elbows lead (the carry
+  succeeds only if a straight pipe lying across the unit's width is
+  behind them within 12 pieces); whether Revit drags a stretched run's
+  end on `MoveElements` as it does on a drag.
+
+## EQUIPMENT CHANGER: pipes taken off too; never stretched backwards - 2026-11-18
+
+User, Revit 2024, Tower A HVAC model: FCU-02 -> FCU-10 (same family
+`ATR_ME_MEQ_FCU`, unit 3547444) refused - "The duct/pipe has been
+modified to be in the opposite direction" and "can no longer keep the
+connectivity" at the commit. The log said every step succeeded; Revit's
+journal (`journal.0071.txt`) named the culprits as two PIPES, 3854673 and
+3854703 (`FaultyAtomsCheck ... RbsPipeCurve`), CHW, in the ducts workset.
+
+- **Cause: only the HVAC connectors were taken apart.** The CHW pipes
+  stayed joined through `instance.Symbol = symbol`; FCU-10's bigger body
+  put their connections further out and Revit dragged the short stubs
+  inside out. Now every HVAC AND PIPING end connector is unhooked and
+  put back (`EQUIPWALK.PipeEndsOf`, `Pipework` by category - pipe
+  insulation is an MEPCurve too). Pipes are not resized.
+- **Matched by the family's own connector** (`EQUIPMATCH`, Revit-free):
+  same family = same connector id; another family = same domain, same
+  system before a silent one, nearest first, each once, supply never to
+  return. "Nearest to where it was" - the old rule - is a guess between
+  CHW flow and return 100 mm apart once the unit grows 600 mm. Resizing
+  uses the matched connector too (it went by list position).
+- **Never backwards, never bent** (`EQUIPREACH.Decide`, Revit-free): a
+  run is slid along its own line only while 5 mm (or the short-curve
+  tolerance) is left; a run with nothing joined beyond the unit (far end
+  or a tap on its side) is moved whole; a new connection to the side
+  (> 1 mm), past the far end or facing another way (> 2 degrees) is LEFT
+  OPEN - the unit still changes, the table says "yes, N open" in orange,
+  the message box and log name the duct or pipe and the millimetres. A
+  fitting straight on the unit is joined again only if the connector is
+  still on it. Flex is joined and left to bend.
+- **One transaction per unit** inside a `TransactionGroup` (one undo):
+  failures are read at each unit's commit, so one refused unit no longer
+  takes the whole run with it (the help said it did not; it did).
+  `Verify` is gone - each commit is checked against the model.
+- The log now says how far each connection moved (along / aside), the
+  run's length, and if the unit is in a model group. The journal also
+  showed "Extending changes to Group "Array Group 1/2" to 12 instances"
+  during the swap - the typical floors 04-15 are array groups; whether
+  the FCU itself is a member is not known (it was picked directly).
+- Tests: equiptest +25 (reach 16, match 9), the user's numbers;
+  mutations caught (length left, aside, same-family id). Builds
+  2022/2024/2025/2027.
+- NOT run in Revit: 2024 and 2025 were open with the add-in locked.
+  Unknowns: whether FCU-10's connections land on the stubs' lines (if
+  not, they are left open - by design); `MoveElement` on a free stub.
+
+## AUTOVENT: rooms over the top level left out; Interior models multi-select - 2026-11-18
+
+User, Revit 2024, Tower A HVAC model (HVC-000100): "level 17a is showing
+over 2000 rooms". The model's levels stop at LEVEL 17A (84.62 m); its arch
+and interior links run to 154.62 m, and the band rule had no top, so all
+21 floors (~2,130 rooms, from the redundant-rooms log) landed on 17A.
+Offered "add the levels" or "leave them out"; the user chose the second.
+
+- `VENTLEVELMAP.StoreyOf`: the top band is one storey tall
+  (`StoreyHeight`, median gap, gaps under 2 m left out - Tower A: 3.5 m,
+  its 5.4 m plant floor does not count). Over it = `Above` (-2), counted
+  apart from `Below` (-1) in the run log, export report, redundant-rooms
+  log and the links list's span ("L03 to above L17A", "516 above").
+- Interior models...: a ListBox, Extended, as the Fixtures dialog (box on
+  a picked row ticks the picks, Space, Ctrl+A; headings never picked).
+- Tests: ventleveltest (Tower A's levels, 20 of 21 floors Above; storey
+  height; RoomsOn), fixturedialogtest (19 interior checks). Mutations
+  caught. Rendered at 1x and 1.5x.
+- NOT run in Revit - the open session still has the old DLL; restart it.
+
 ## ROOM TAGS becomes a tab of SHEET QA - 2026-11-10
 
 User: "lets add the room tags addin as a new tab in the QAcheck addin

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Read-only probe, loaded through the Add-In Manager (Revit 2024):
+       what is joined to the selected units, the pipework behind them, and
+       where every type of their family puts its connectors (read inside a
+       transaction that is always rolled back). -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>EquipProbe</AssemblyName>
+    <RootNamespace>EquipProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.60" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.60" />
+  </ItemGroup>
+</Project>

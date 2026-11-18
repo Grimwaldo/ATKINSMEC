@@ -399,6 +399,8 @@ internal static class Program
 
         Check("ticks equal to the room links' models go back to following them", VENTSETTINGS.FixtureSources.Count == 0);
 
+        Interior();
+
         Console.WriteLine();
         Console.WriteLine(_failed == 0
             ? "all checks passed"
@@ -407,5 +409,243 @@ internal static class Program
         app.Shutdown();
 
         return _failed == 0 ? 0 : 1;
+    }
+
+    // ==================================================================
+    // THE INTERIOR MODELS DIALOG, several rows picked at once (user,
+    // 2026-11-18: "make the linked models in the interior models window
+    // can be multi selected") - the same picks as above, under level
+    // headings that are never picked.
+    // ==================================================================
+
+    private const string IndA = "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 1";
+    private const string IndB = "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 2";
+    private const string IndC = "5232535-ATR-TWR-ZZZ-3DM-IND-000030.rvt : 3";
+
+    private static readonly List<VENTLEVELMAP.Storey> Storeys = new List<VENTLEVELMAP.Storey>
+    {
+        new VENTLEVELMAP.Storey { Name = "GR", Elevation = 0 },
+        new VENTLEVELMAP.Storey { Name = "L01", Elevation = 4000 / 304.8 },
+        new VENTLEVELMAP.Storey { Name = "L02", Elevation = 8000 / 304.8 }
+    };
+
+    // IndA has rooms on L01 and L02, IndB on L01, IndC on L02; the
+    // architect's model (11) holds the apartments and is never offered
+    private static readonly List<KeyValuePair<long, string>> Links = new List<KeyValuePair<long, string>>
+    {
+        new KeyValuePair<long, string>(11, Arc20 + " : 1 : Tower A"),
+        new KeyValuePair<long, string>(21, IndA),
+        new KeyValuePair<long, string>(22, IndB),
+        new KeyValuePair<long, string>(23, IndC)
+    };
+
+    private static Dictionary<long, List<double>> Floors()
+    {
+        double l1 = 4000 / 304.8, l2 = 8000 / 304.8;
+
+        return new Dictionary<long, List<double>>
+        {
+            [11] = new List<double> { 0, l1, l2 },
+            [21] = Enumerable.Repeat(l1, 12).Concat(Enumerable.Repeat(l2, 8)).ToList(),
+            [22] = Enumerable.Repeat(l1, 14).ToList(),
+            [23] = Enumerable.Repeat(l2, 10).ToList()
+        };
+    }
+
+    private static void ResetInterior()
+    {
+        VENTSETTINGS.InteriorKeyword = "IND";
+        VENTSETTINGS.InteriorChosen = false;
+        VENTSETTINGS.InteriorPicks.Clear();
+    }
+
+    private static void RunInterior(Action<VENTINTERIORDIALOG> body, bool ok)
+    {
+        var dialog = new VENTINTERIORDIALOG(Links, Floors(), Storeys, new long[] { 11 })
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -4000,
+            Top = -4000,
+            ShowActivated = false
+        };
+
+        dialog.Loaded += (s, e) => dialog.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                body(dialog);
+            }
+            catch (Exception ex)
+            {
+                Check("no exception: " + ex, false);
+            }
+
+            if (ok)
+                typeof(VENTINTERIORDIALOG).GetMethod("Keep", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(dialog, null);
+            else
+                dialog.Close();
+        }), DispatcherPriority.ContextIdle);
+
+        dialog.ShowDialog();
+    }
+
+    // Every item, headings too
+    private static List<ListBoxItem> Items(ListBox list)
+    {
+        return ((IEnumerable<ListBoxItem>)list.ItemsSource).ToList();
+    }
+
+    private static bool IsHeading(ListBoxItem item)
+    {
+        return item.Content is TextBlock;
+    }
+
+    // A placement's row under a level heading
+    private static ListBoxItem RowOn(ListBox list, string level, string label)
+    {
+        string under = null;
+
+        foreach (ListBoxItem item in Items(list))
+        {
+            if (IsHeading(item))
+                under = ((TextBlock)item.Content).Text;
+            else if (under == level && Name(item) == label)
+                return item;
+        }
+
+        return null;
+    }
+
+    private static bool OnAt(ListBox list, string level, string label)
+    {
+        ListBoxItem row = RowOn(list, level, label);
+
+        return row != null && Box(row).IsChecked == true;
+    }
+
+    private static void ClickAt(ListBox list, string level, string label)
+    {
+        typeof(ToggleButton)
+            .GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance)
+            .Invoke(Box(RowOn(list, level, label)), null);
+    }
+
+    private static void PickAt(ListBox list, params string[] levelAndLabel)
+    {
+        list.SelectedItems.Clear();
+
+        for (int i = 0; i + 1 < levelAndLabel.Length; i += 2)
+            list.SelectedItems.Add(RowOn(list, levelAndLabel[i], levelAndLabel[i + 1]));
+    }
+
+    private static void Interior()
+    {
+        Console.WriteLine();
+        Console.WriteLine("AUTOVENT - the Interior models dialog: several rows picked at once");
+        Console.WriteLine();
+
+        // ---- opened, nothing chosen --------------------------------
+        ResetInterior();
+
+        RunInterior(d =>
+        {
+            List<ListBoxItem> items = Items(d.ModelList);
+
+            Check("a heading per level with candidates, the placements under it",
+                items.Count == 6 && IsHeading(items[0]) && ((TextBlock)items[0].Content).Text == "L01"
+                && IsHeading(items[3]) && ((TextBlock)items[3].Content).Text == "L02"
+                && RowOn(d.ModelList, "L01", IndA) != null && RowOn(d.ModelList, "L01", IndB) != null
+                && RowOn(d.ModelList, "L02", IndA) != null && RowOn(d.ModelList, "L02", IndC) != null);
+
+            Check("the architect's model is never offered", items.Where(i => !IsHeading(i)).All(i => !Name(i).StartsWith(Arc20)));
+
+            Check("the list picks several rows", d.ModelList.SelectionMode == SelectionMode.Extended);
+
+            Check("everything found arrives ticked",
+                OnAt(d.ModelList, "L01", IndA) && OnAt(d.ModelList, "L01", IndB)
+                && OnAt(d.ModelList, "L02", IndA) && OnAt(d.ModelList, "L02", IndC));
+
+            Check("a row says its rooms on that level",
+                Aside(RowOn(d.ModelList, "L01", IndA)) == "12 room(s)" && Aside(RowOn(d.ModelList, "L02", IndA)) == "8 room(s)");
+
+            d.ModelList.SelectAll();
+            Settle(d);
+
+            Check("Ctrl+A picks every placement and no heading",
+                d.ModelList.SelectedItems.Count == 4
+                && d.ModelList.SelectedItems.Cast<ListBoxItem>().All(i => !IsHeading(i)));
+        }, true);
+
+        Check("OK with nothing changed still follows the keyword", !VENTSETTINGS.InteriorChosen && VENTSETTINGS.InteriorPicks.Count == 0);
+
+        // ---- a box on a picked row ---------------------------------
+        ResetInterior();
+
+        RunInterior(d =>
+        {
+            PickAt(d.ModelList, "L01", IndA, "L02", IndC);
+            ClickAt(d.ModelList, "L02", IndC);
+
+            Check("unticking a picked row unticks every picked row",
+                !OnAt(d.ModelList, "L01", IndA) && !OnAt(d.ModelList, "L02", IndC));
+
+            Check("rows not picked are left alone - the same model on another level too",
+                OnAt(d.ModelList, "L01", IndB) && OnAt(d.ModelList, "L02", IndA));
+        }, true);
+
+        Check("OK keeps exactly what is ticked, level by level",
+            VENTSETTINGS.InteriorChosen
+            && VENTSETTINGS.InteriorPicks.Count == 2
+            && Same(VENTSETTINGS.InteriorPicks["L01"], 22)
+            && Same(VENTSETTINGS.InteriorPicks["L02"], 21));
+
+        // ---- a box on a row NOT picked -----------------------------
+        ResetInterior();
+
+        RunInterior(d =>
+        {
+            PickAt(d.ModelList, "L01", IndA, "L01", IndB);
+            ClickAt(d.ModelList, "L02", IndC);
+
+            Check("only the clicked row changes", !OnAt(d.ModelList, "L02", IndC));
+            Check("the picked rows are not touched", OnAt(d.ModelList, "L01", IndA) && OnAt(d.ModelList, "L01", IndB));
+        }, false);
+
+        Check("Cancel changes nothing", !VENTSETTINGS.InteriorChosen && VENTSETTINGS.InteriorPicks.Count == 0);
+
+        // ---- Space, and ticks kept through a keyword change --------
+        ResetInterior();
+
+        RunInterior(d =>
+        {
+            PickAt(d.ModelList, "L01", IndA, "L01", IndB, "L02", IndA);
+            Space(d.ModelList);
+
+            Check("Space unticks the picked rows when all are ticked",
+                !OnAt(d.ModelList, "L01", IndA) && !OnAt(d.ModelList, "L01", IndB) && !OnAt(d.ModelList, "L02", IndA));
+            Check("...and leaves the rest", OnAt(d.ModelList, "L02", IndC));
+
+            PickAt(d.ModelList, "L01", IndA, "L02", IndC);
+            Space(d.ModelList);
+
+            Check("some ticked: Space ticks them all", OnAt(d.ModelList, "L01", IndA) && OnAt(d.ModelList, "L02", IndC));
+
+            d.Keyword = "MEP";
+            Settle(d);
+            Check("a keyword that finds nothing empties the list", Items(d.ModelList).Count == 0);
+
+            d.Keyword = "IND";
+            Settle(d);
+            Check("the keyword back: every row is back with the tick it was left with",
+                OnAt(d.ModelList, "L01", IndA) && !OnAt(d.ModelList, "L01", IndB)
+                && !OnAt(d.ModelList, "L02", IndA) && OnAt(d.ModelList, "L02", IndC));
+        }, true);
+
+        Check("OK keeps those ticks",
+            VENTSETTINGS.InteriorChosen
+            && Same(VENTSETTINGS.InteriorPicks["L01"], 21)
+            && Same(VENTSETTINGS.InteriorPicks["L02"], 23));
+
+        ResetInterior();
     }
 }

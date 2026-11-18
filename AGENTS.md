@@ -13,7 +13,7 @@ Six Revit add-ins in one project, one assembly, one ribbon panel
 |---|---|---|
 | AUTOVENT | `Command.cs` | Reads an Excel ventilation sheet and writes fresh/extract airflows onto air terminals; also exports model rooms back into the sheet. |
 | CHW VOLUME | `CHWCommand.cs` | Water volume held by the pipes and fittings of two chosen piping system types, across the model and its links. Exports to Excel. |
-| DUCT INSULATION | `INSULATIONCommand.cs` | Insulates ducts, fittings and accessories automatically as they are drawn, by system type. |
+| INSULATOR | `INSULATIONCommand.cs` | Insulates ducts and pipes, their fittings and (when ticked) accessories automatically as they are drawn, by system type. Ducts / Pipes tabs. |
 | SPRINKLERS | `SPRINKLERCommand.cs` | Distributes pendent sprinklers per NFPA 13 across rooms of a linked architectural model. |
 | ALIGN TERMINALS | `ALIGNCommand.cs` | Moves this model's air terminals onto the nearest air terminal in a linked arch model, in plan and at the same height. |
 | SHEET QA | `QACommand.cs` | QA/QC before an issue, on four tabs at the top of one window - flowrate (tags reading zero), grids (against a link, ragged ends, bubble ends), duct disconnections (hanging taps, branches never tapped in, ends that meet but are not joined) and FCU flowrates (against an Excel schedule). Each tab is a whole page: its own scope, checks, Run and findings. Grids, ducts and FCUs can also put what they found right. Can mark findings red, live. |
@@ -128,7 +128,7 @@ plus `Shared\`. The project root keeps only `ATKINSMEC.csproj`,
 | `Shared\` | used by more than one |
 | `AutoVent\` | AUTOVENT |
 | `ChwVolume\` | CHW VOLUME |
-| `DuctInsulation\` | DUCT INSULATION |
+| `DuctInsulation\` | INSULATOR |
 | `Sprinklers\` | SPRINKLERS |
 | `AlignTerminals\` | ALIGN TERMINALS |
 | `SheetQA\` | SHEET QA |
@@ -176,8 +176,8 @@ measured through a background open and closed again, never shown in the
 window; picked from Revit's collaboration cache, typed only as a
 fallback). This is the one button that runs with **no model open**.
 
-**DUCT INSULATION** — `INSULATIONCommand.cs`, `INSULATIONForm*.cs`,
-`INSULATIONSETTINGS.cs`, `DUCTINSULATIONUPDATER.cs` (`IUpdater`).
+**INSULATOR** (was DUCT INSULATION) — `INSULATIONCommand.cs`, `INSULATIONForm.cs`,
+`INSULATIONSETTINGS.cs`, `INSULATIONUPDATER.cs` (`IUpdater`).
 
 **SPRINKLERS** — `SPRINKLERCommand.cs`, `SPRINKLERForm*.cs`,
 `SPRINKLEREVENT.cs` (external event), `SPRINKLERPLAN.cs` (rooms,
@@ -380,7 +380,7 @@ the person installing, not for us. `installer/payload/`,
 
 ## Conventions and traps
 
-- **Modal vs modeless.** CHW VOLUME and DUCT INSULATION are modal
+- **Modal vs modeless.** CHW VOLUME and INSULATOR are modal
   dialogs shown from the command, so they run inside a valid API context
   and can open a transaction directly. AUTOVENT, SPRINKLERS and ALIGN
   TERMINALS are **modeless** and must route every Revit API call through
@@ -405,7 +405,7 @@ the person installing, not for us. `installer/payload/`,
   into `SPRINKLERLAYOUT.RoomShape` while the API context is valid, so
   later recalculation is pure arithmetic and needs no Revit access.
 - **Never let an `IUpdater` throw** — it would abort the user's own
-  drawing transaction. `DUCTINSULATIONUPDATER` swallows everything.
+  drawing transaction. `INSULATIONUPDATER` swallows everything.
 - **Bash heredocs mangle C#.** Writing C# through `python - <<'PY'` in
   the Bash tool corrupts `\r\n`, `\t` and `' '` char literals. Use the
   Write/Edit tools for C# containing those, or verify afterwards.

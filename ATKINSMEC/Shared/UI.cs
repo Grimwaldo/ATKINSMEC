@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -83,7 +83,7 @@ namespace ATKINSMEC
             public Result OnShutdown(UIControlledApplication application)
             {
 #if !AUTOVENT_ONLY
-                DUCTINSULATIONUPDATER.Unregister();
+                INSULATIONUPDATER.Unregister();
 
                 // A timer left running while Revit tears itself down
                 // would raise an external event into a dead application
@@ -100,8 +100,8 @@ namespace ATKINSMEC
 
 #if !AUTOVENT_ONLY
             // Watches for new ducts and insulates them; does nothing
-            // until the rules are switched on in the DUCT INSULATION window
-            DUCTINSULATIONUPDATER.Register(application.ActiveAddInId);
+            // until the rules are switched on in the INSULATOR window
+            INSULATIONUPDATER.Register(application.ActiveAddInId);
 
             // AutoSync asks whether to run, but NOT here: OnStartup is
             // too early to put a dialog in front of somebody, and
@@ -200,9 +200,9 @@ namespace ATKINSMEC
                 chwbuttondata.AvailabilityClassName = "ATKINSMEC.CHWAvailability";
                 PushButton chwbutton = panel.AddItem(chwbuttondata) as PushButton;
 
-                PushButtonData insbuttondata = new PushButtonData("Tool3", "DUCT INSULATION", path, "ATKINSMEC.INSULATIONCommand");
+                PushButtonData insbuttondata = new PushButtonData("Tool3", "INSULATOR", path, "ATKINSMEC.INSULATIONCommand");
                 Dress(insbuttondata, "ductinsulation");
-                insbuttondata.ToolTip = "Insulation thickness per duct system type, applied automatically to ducts as they are drawn.";
+                insbuttondata.ToolTip = "Insulation per duct and pipe system type, added automatically to ducts, pipes and their fittings as they are drawn; accessories when ticked.";
                 PushButton insbutton = panel.AddItem(insbuttondata) as PushButton;
 
                 PushButtonData sprbuttondata = new PushButtonData("Tool4", "SPRINKLERS", path, "ATKINSMEC.SPRINKLERCommand");
@@ -239,7 +239,7 @@ namespace ATKINSMEC
 
                 PushButtonData equipbuttondata = new PushButtonData("Tool9", "EQUIPMENT CHANGER", path, "ATKINSMEC.EQUIPCommand");
                 Dress(equipbuttondata, "equipchanger");
-                equipbuttondata.ToolTip = "Changes the type of the selected mechanical equipment or air terminals and resizes the ductwork on them - the ducts, fittings and accessories - as far as the first reducer, tap-off, tee or air terminal.";
+                equipbuttondata.ToolTip = "Pick mechanical equipment or air terminals, press Finish, choose a type of their family. The ductwork on them is resized as far as the first reducer, tap-off, tee or air terminal, and the ducts and pipes are joined back up.";
                 // Available with a model open but nothing selected, so
                 // the command itself can say what to select rather than
                 // the button being mysteriously grey

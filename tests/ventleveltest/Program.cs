@@ -110,17 +110,118 @@ internal static class Program
             Math.Abs(VENTLEVELMAP.Allowance * 304.8 - 300) < 1e-9);
 
         // ---- past the ends -----------------------------------------
-        Check("above everything is in the highest level's band",
-            VENTLEVELMAP.NameAt(storeys, Mm(40000)) == "P3_PODIUM 3");
+        //
+        // THE TOP LEVEL'S BAND IS ONE STOREY TALL (user, 2026-11-18). It
+        // had no top, and Tower A's HVAC model, levels up to LEVEL 17A
+        // only, put 21 floors of rooms on LEVEL 17A. This model's storey
+        // is 4.5 m (the median of 4.0, 4.5, 4.5, 4.5), so the band of P3 at
+        // 13.5 m ends where a level at 18.0 m would start: 17.7 m.
+        Check("a storey here is 4.5 m - the median gap between the levels",
+            Math.Abs(VENTLEVELMAP.StoreyHeight(storeys) - Mm(4500)) < 1e-9);
+
+        Check("on the top level, and most of a storey over it, is the top level's band",
+            VENTLEVELMAP.NameAt(storeys, Mm(13500)) == "P3_PODIUM 3"
+            && VENTLEVELMAP.NameAt(storeys, Mm(17000)) == "P3_PODIUM 3");
+
+        Check("a storey over the top level - where the next level would be - is in NO band: Above",
+            VENTLEVELMAP.StoreyOf(storeys, Mm(18000)) == VENTLEVELMAP.Above);
+
+        Check("...with the allowance a real level gives: 299 mm under it is out, 301 mm under it the top",
+            VENTLEVELMAP.StoreyOf(storeys, Mm(17701)) == VENTLEVELMAP.Above
+            && VENTLEVELMAP.NameAt(storeys, Mm(17699)) == "P3_PODIUM 3");
+
+        Check("far above everything is in no band, and names nothing (it was the highest level's)",
+            VENTLEVELMAP.StoreyOf(storeys, Mm(40000)) == VENTLEVELMAP.Above
+            && VENTLEVELMAP.NameAt(storeys, Mm(40000)).Length == 0);
+
+        Check("Above and Below are both under 0 - \"< 0\" still means on no level - and differ",
+            VENTLEVELMAP.Above < 0 && VENTLEVELMAP.Below < 0 && VENTLEVELMAP.Above != VENTLEVELMAP.Below);
+
+        Check("and the logs say which",
+            VENTLEVELMAP.NoLevel(VENTLEVELMAP.Above) == "above the top level"
+            && VENTLEVELMAP.NoLevel(VENTLEVELMAP.Below) == "below every level");
 
         Check("200 mm under the LOWEST level is still on it (allowance)",
             VENTLEVELMAP.NameAt(storeys, Mm(-4200)) == "B1_BASEMENT");
 
         Check("400 mm under the lowest level is in NO band - -1, not the lowest",
-            VENTLEVELMAP.StoreyOf(storeys, Mm(-4400)) == -1);
+            VENTLEVELMAP.StoreyOf(storeys, Mm(-4400)) == -1
+            && VENTLEVELMAP.StoreyOf(storeys, Mm(-4400)) == VENTLEVELMAP.Below);
 
         Check("and it names nothing rather than inventing a heading",
             VENTLEVELMAP.NameAt(storeys, Mm(-20000)).Length == 0);
+
+        // ---- TOWER A, from the redundant-rooms log (2026-11-18) ----------
+        //
+        // "level 17a is showing over 2000 rooms": this model's 15 levels,
+        // and interior placements on every floor from 84.62 m to 154.62 m,
+        // 3.5 m apart. Only LEVEL 17A's own floor is LEVEL 17A's.
+        {
+            var towerA = new List<VENTLEVELMAP.Storey>();
+
+            for (int i = 0; i < 13; i++)
+                towerA.Add(At(i == 0 ? "LEVEL 03" : "LEVEL " + (i + 3).ToString("00") + "A", 33.62 + 3.5 * i));
+
+            towerA.Add(At("SERVICE FLOOR LEVEL 16A", 79.22));
+            towerA.Add(At("LEVEL 17A", 84.62));
+
+            VENTLEVELMAP.InOrder(towerA);
+
+            Check("Tower A's storey is 3.5 m: one 5.4 m plant floor under 17A does not stretch it (median)",
+                Math.Abs(VENTLEVELMAP.StoreyHeight(towerA) - Mm(3500)) < 1e-9);
+
+            int onTop = 0, above = 0;
+
+            for (int floor = 0; floor <= 20; floor++)
+            {
+                int at = VENTLEVELMAP.StoreyOf(towerA, Mm((84.62 + 3.5 * floor) * 1000.0));
+
+                if (at >= 0 && towerA[at].Name == "LEVEL 17A")
+                    onTop++;
+                else if (at == VENTLEVELMAP.Above)
+                    above++;
+            }
+
+            Check("of the 21 floors from 84.62 m to 154.62 m, only 17A's own is on LEVEL 17A - 20 are Above",
+                onTop == 1 && above == 20);
+
+            Check("...and the floors under it are one level each, as before",
+                VENTLEVELMAP.NameAt(towerA, Mm(75620)) == "LEVEL 15A"
+                && VENTLEVELMAP.NameAt(towerA, Mm(79220)) == "SERVICE FLOOR LEVEL 16A"
+                && VENTLEVELMAP.NameAt(towerA, Mm(33620)) == "LEVEL 03"
+                && VENTLEVELMAP.NameAt(towerA, Mm(37120)) == "LEVEL 04A");
+        }
+
+        // ---- the storey height ----------------------------------------
+        {
+            Check("nothing, or one level, has no storey to measure - 0",
+                VENTLEVELMAP.StoreyHeight(null) == 0
+                && VENTLEVELMAP.StoreyHeight(new List<VENTLEVELMAP.Storey>()) == 0
+                && VENTLEVELMAP.StoreyHeight(new List<VENTLEVELMAP.Storey> { At("GR", 0.0) }) == 0);
+
+            var single = new List<VENTLEVELMAP.Storey> { At("GR", 0.0) };
+
+            Check("...so a model with one level keeps the old answer: it takes everything over it",
+                VENTLEVELMAP.NameAt(single, Mm(50000)) == "GR");
+
+            // A floor level and a slab level 150 mm apart on every floor:
+            // those gaps are not storeys
+            var paired = new List<VENTLEVELMAP.Storey>
+            {
+                At("L1 SSL", 0.0), At("L1 FFL", 0.15), At("L2 SSL", 3.5), At("L2 FFL", 3.65)
+            };
+
+            Check("a gap under 2 m (a slab level and a floor level) is not a storey",
+                Math.Abs(VENTLEVELMAP.StoreyHeight(paired) - Mm(3350)) < 1e-9);
+
+            Check("...and the floor above the top pair is Above, not L2 FFL",
+                VENTLEVELMAP.NameAt(paired, Mm(3650)) == "L2 FFL"
+                && VENTLEVELMAP.StoreyOf(paired, Mm(7000)) == VENTLEVELMAP.Above);
+
+            Check("a null entry and an unsorted list are measured the same",
+                Math.Abs(VENTLEVELMAP.StoreyHeight(new List<VENTLEVELMAP.Storey>
+                    { At("L2", 8.0), null, At("GR", 0.0), At("L1", 4.0) }) - Mm(4000)) < 1e-9);
+        }
 
         // ---- names play no part ------------------------------------
         {
@@ -518,7 +619,11 @@ internal static class Program
                     R(Arc, 1, "G-001", "LOBBY", 0.0),
                     R(Arc, 2, "G-002", "DRIVER/STAFF APT", 0.0),
                     R(Arc, 3, "B-001", "STORE", -4.0),
-                    R(Arc, 4, "101", "CORRIDOR", 4.0)
+                    R(Arc, 4, "101", "CORRIDOR", 4.0),
+
+                    // L02's own storey, and a storey over it (no L03 here)
+                    R(Arc, 6, "201", "PLANT", 9.0),
+                    R(Arc, 7, "301", "CORRIDOR", 12.0)
                 },
 
                 // The interior model, NOT ticked: two rooms inside the
@@ -551,6 +656,10 @@ internal static class Program
 
             Check("a room below every level of this model is in no level",
                 !on.Values.Any(l => l.Exists(r => r.RoomId == 3)));
+
+            Check("a room a storey over the top level is in no level either; one inside the top storey is on it",
+                !on.Values.Any(l => l.Exists(r => r.RoomId == 7))
+                && on.ContainsKey("L02") && on["L02"].Count == 1 && on["L02"][0].RoomId == 6);
 
             Check("an apartment with rooms inside is not a row - its rooms are",
                 !gr.Exists(r => r.LinkId == Arc && r.RoomId == 2) &&

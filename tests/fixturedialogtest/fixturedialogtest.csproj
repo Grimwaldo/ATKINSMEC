@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTFIXTUREDIALOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIORDIALOG.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTSETTINGS.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTLINKFILTER.cs" />
     <Compile Include="..\..\ATKINSMEC\AutoVent\VENTINTERIOR.cs" />

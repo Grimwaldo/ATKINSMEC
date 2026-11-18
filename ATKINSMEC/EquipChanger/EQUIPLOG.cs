@@ -13,7 +13,7 @@ namespace ATKINSMEC
     // one line per element; the log says which of the five steps it was
     // and what Revit said about it.
     //
-    // One file per run, overwritten each time.
+    // One file, each run added at the end (the last ~400 KB kept).
     public class EQUIPLOG
     {
         private const string FileName = "ATKINSMEC_equip_log.txt";
@@ -61,12 +61,28 @@ namespace ATKINSMEC
             return text.Replace("\r", " ").Replace("\n", " ").Trim();
         }
 
+        // The runs before this one are KEPT, newest last, up to about
+        // this much (user, 2026-11-18: three runs in two minutes, and the
+        // one that mattered was overwritten by the next)
+        private const int Keep = 400000;
+
         // Never allowed to break the change it is reporting on
         public static void Save()
         {
             try
             {
-                File.WriteAllText(Where, Lines.ToString());
+                string before = File.Exists(Where)
+                    ? File.ReadAllText(Where)
+                    : string.Empty;
+
+                if (before.Length > Keep)
+                    before = before.Substring(before.Length - Keep);
+
+                string gap = before.Length == 0
+                    ? string.Empty
+                    : Environment.NewLine + Environment.NewLine;
+
+                File.WriteAllText(Where, before + gap + Lines.ToString());
             }
             catch
             {

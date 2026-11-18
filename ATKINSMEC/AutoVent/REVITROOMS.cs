@@ -264,6 +264,7 @@ namespace ATKINSMEC
 
                 int skippedByLevel = 0;
                 int belowEveryLevel = 0;
+                int aboveTopLevel = 0;
                 int unticked = 0;
 
                 foreach (Room room in rooms)
@@ -278,13 +279,19 @@ namespace ATKINSMEC
 
                     // The level of THIS model whose band the room's floor
                     // stands in - the same rule the export writes with
-                    string levelName = VENTLEVELMAP.NameAt(storeys, hostFloor);
+                    int at = VENTLEVELMAP.StoreyOf(storeys, hostFloor);
 
-                    if (levelName.Length == 0)
+                    if (at < 0)
                     {
-                        belowEveryLevel++;
+                        if (at == VENTLEVELMAP.Above)
+                            aboveTopLevel++;
+                        else
+                            belowEveryLevel++;
+
                         continue;
                     }
+
+                    string levelName = storeys[at].Name ?? string.Empty;
 
                     // The window's read and write: every level, every room
                     // Arrange rooms... lists - the run, the ticked ones
@@ -344,7 +351,7 @@ namespace ATKINSMEC
 
                 linkGroups.Add(group);
 
-                L($"Link '{linkedDoc.Title}': {group.Rooms.Count} room(s) on selected levels, {skippedByLevel} skipped by level filter, {unticked} unticked in the list, {belowEveryLevel} below this model's lowest level");
+                L($"Link '{linkedDoc.Title}': {group.Rooms.Count} room(s) on selected levels, {skippedByLevel} skipped by level filter, {unticked} unticked in the list, {belowEveryLevel} below this model's lowest level, {aboveTopLevel} a storey or more above its top level");
             }
 
             List<FamilyInstance> allTerminals =
@@ -1722,10 +1729,10 @@ namespace ATKINSMEC
                     double here = total.OfPoint(
                         new XYZ(0, 0, RVTLINKSELECTION.InternalZ(level) + error)).Z;
 
-                    string onto = VENTLEVELMAP.NameAt(storeys, here);
+                    int onto = VENTLEVELMAP.StoreyOf(storeys, here);
 
                     L($"    {level.Name}: {Metres(level.Elevation)} -> {Metres(here)} -> " +
-                      (onto.Length == 0 ? "(below every level)" : onto));
+                      (onto < 0 ? "(" + VENTLEVELMAP.NoLevel(onto) + ")" : storeys[onto].Name));
                 }
 
                 Room sample = new FilteredElementCollector(linked)

@@ -1,7 +1,7 @@
 # Atkins MEP Toolkit — installing
 
 Ten Revit add-ins in one package: **AUTOVENT**, **CHW VOLUME**,
-**DUCT INSULATION**, **SPRINKLERS**, **ALIGN TERMINALS**, **AUTOSYNC**,
+**INSULATOR**, **SPRINKLERS**, **ALIGN TERMINALS**, **AUTOSYNC**,
 **NWC BATCH**, **EQUIPMENT CHANGER**, **DUCT ESP** and **SHEET QA**. They
 appear together on the **Atkins MEP Toolkit → Mechanical** ribbon panel.
 
@@ -55,7 +55,7 @@ uninstall reads `ATKINSMEC.files.txt` — the record written at install
 time — instead of clearing the folder.
 
 It then asks whether to remove your settings as well: the saved ACC model
-list and the duct insulation rules, in `%AppData%\ATKINSMEC\`. Answer
+list and the duct and pipe insulation rules, in `%AppData%\ATKINSMEC\`. Answer
 **No** to keep them for a later reinstall.
 
 ## AUTOVENT on its own
