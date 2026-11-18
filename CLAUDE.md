@@ -905,11 +905,32 @@ reducer/tap/tee/terminal/equipment. Shape changes refused.
   the model's axes; each try a SubTransaction): the user's next run had
   the CHW elbows 322 mm out AND 55 mm down, which no single pipe lies
   along. The runs that take it up are unhooked, stretched explicitly
-  (keeping direction) and rejoined - not left to Revit's dragging.
-  Thrown out at the commit → again with the unit moved but nothing
-  carried → again moving nothing. Still off = **left open**, unit
-  changed, named in the table ("yes, N open"), message box, log (with
-  what the walk met).
+  (keeping direction) and rejoined - not left to Revit's dragging; a run
+  with a tap on its side is never shortened past it (`TapsStay`).
+- **A step nothing can stretch to is MADE** (pipes only): an offset of
+  three new pipes and two elbows of the run's own type, system, level,
+  size and insulation (`EQUIPDOGLEG.Plan` Revit-free, `EQUIPOFFSET.Build`;
+  square, 45, then 30 degrees, each a SubTransaction, read back). No room
+  out from the unit → the pipework is first carried straight out to make
+  it. FCU-01..06 are 300 high, 07..14 390-410: across that line the CHW
+  connections change height and nothing else fits.
+- **A pipe that touches the unit but was never joined is joined**
+  (`EQUIPJOINT.Loose`: open end ≤ 300 mm, same system, facing it, in
+  front of the face, nearest, each once; unit 164).
+- **The type swap commits first, then ONE TRANSACTION PER JOINT**
+  (`Rejoin`): a joint Revit refuses at its commit is tried again straight
+  only, then left open - it no longer takes the others with it. Still
+  off = **left open**, unit changed, named in the table ("yes, N open"),
+  message box, log (with what the walk met). Connectors are re-read by
+  id after any tried-and-rolled-back carry (a dead `Connector` read as
+  "will not say which way it faces").
+- **Tried on the real model without a restart**: `tools/equiplab-revit`
+  (Add-In Manager → EquipLab.dll → Lab) compiles the changer's own files
+  (+ a QADUCTS mirror, `QADUCTSLAB.cs` - keep in step), runs
+  `%AppData%\ATKINSMEC\equiplab.txt` ("<unit id> <type>" lines) inside a
+  TransactionGroup that is always rolled back and writes
+  `ATKINSMEC_equiplab.txt`. `tools/equipprobe-revit` dumps a selected
+  unit's connectors, pipework and every type's connector layout.
 - **One transaction per unit** in a `TransactionGroup` (one undo):
   failures are processed at each commit, so a refused unit takes only
   itself; checked against the model after its commit. `EQUIPFAILURES`

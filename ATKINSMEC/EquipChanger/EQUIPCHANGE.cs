@@ -322,7 +322,9 @@ namespace ATKINSMEC
             // open.
             int level = Everything;
 
-            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level);
+            Pending pending;
+
+            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level, out pending);
 
             string first = string.Empty;
 
@@ -343,7 +345,7 @@ namespace ATKINSMEC
                 outcome.Branches.Clear();
                 outcome.Said = string.Empty;
 
-                atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level);
+                atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level, out pending);
             }
 
             if (outcome.Changed && first.Length > 0)
@@ -354,6 +356,23 @@ namespace ATKINSMEC
                         : "nothing was moved to reach them") +
                     " - Revit refused that (" + first + ")");
             }
+
+            if (!outcome.Changed || pending == null)
+                return outcome;
+
+            // ---- 5. back together, one joint at a time
+            foreach (EQUIPJOINT joint in pending.Joins)
+                Rejoin(doc, outcome, joint, pending);
+
+            EQUIPLOG.Say("   changed, " + outcome.Resized +
+                         " element(s) resized" +
+                         (outcome.Notes.Count == 0
+                             ? string.Empty
+                             : ", " + outcome.Notes.Count + " move(s)") +
+                         (outcome.LeftOpen.Count == 0
+                             ? string.Empty
+                             : ", " + outcome.LeftOpen.Count +
+                               " connection(s) LEFT OPEN"));
 
             return outcome;
         }
@@ -372,8 +391,11 @@ namespace ATKINSMEC
             FamilySymbol symbol,
             bool resizeDucts,
             Outcome outcome,
-            int level)
+            int level,
+            out Pending pending)
         {
+            pending = null;
+
             // The unit's own transaction, so a refusal - before the
             // commit or AT it - takes this one element back to exactly
             // where it was and the rest of the run still goes through
@@ -399,7 +421,7 @@ namespace ATKINSMEC
 
                 try
                 {
-                    done = Change(doc, instance, symbol, resizeDucts, outcome, level);
+                    done = Change(doc, instance, symbol, resizeDucts, outcome, level, out pending);
                 }
                 catch (Exception ex)
                 {
@@ -455,15 +477,7 @@ namespace ATKINSMEC
 
                 outcome.Changed = true;
 
-                EQUIPLOG.Say("   changed, " + outcome.Resized +
-                             " element(s) resized" +
-                             (outcome.Notes.Count == 0
-                                 ? string.Empty
-                                 : ", " + outcome.Notes.Count + " move(s)") +
-                             (outcome.LeftOpen.Count == 0
-                                 ? string.Empty
-                                 : ", " + outcome.LeftOpen.Count +
-                                   " connection(s) LEFT OPEN"));
+                EQUIPLOG.Say("   the type is changed; joining it back up");
 
                 return false;
             }
@@ -500,8 +514,11 @@ namespace ATKINSMEC
             FamilySymbol symbol,
             bool resizeDucts,
             Outcome outcome,
-            int level)
+            int level,
+            out Pending pending)
         {
+            pending = null;
+
             // ---- 1. what is on it, and what follows -----------------
             List<Connector> ends = EQUIPWALK.EndsOf(instance);
             List<Connector> pipes = EQUIPWALK.PipeEndsOf(instance);
@@ -700,32 +717,149 @@ namespace ATKINSMEC
             if (level >= UnitOnly)
                 OntoItsDuct(doc, instance, joins, map, outcome);
 
-            // ---- 5. back together -----------------------------------
-            //
-            // A duct or pipe that cannot reach its new connector without
-            // bending or turning inside out is carried over when it can
-            // be (EQUIPJOINT.Carry) and otherwise LEFT OPEN and said so.
-            // Joining it anyway is what Revit throws the whole change
-            // out for.
-            foreach (EQUIPJOINT joint in joins)
-            {
-                int onto;
-
-                string why = map.TryGetValue(joint.MyIndex, out onto)
-                    ? joint.Redo(doc, onto, level >= Everything, outcome.Notes)
-                    : "the new type has no connection for it";
-
-                if (why == null)
-                    continue;
-
-                outcome.LeftOpen.Add(joint.Called + " left open: " + why);
-
-                EQUIPLOG.Say("   " + joint.Called + " left open: " + why);
-            }
-
             doc.Regenerate();
 
+            // ---- 5. back together: AFTER this commits, one joint at a
+            // time (One -> Rejoin), each in its own transaction
+            pending = new Pending
+            {
+                Joins = joins,
+                Map = map,
+                Carry = level >= Everything
+            };
+
             return true;
+        }
+
+        // What step 5 needs, kept from the type swap's transaction
+        private class Pending
+        {
+            public List<EQUIPJOINT> Joins = new List<EQUIPJOINT>();
+            public Dictionary<int, int> Map = new Dictionary<int, int>();
+            public bool Carry;
+        }
+
+        // ---- 5. back together -----------------------------------
+        //
+        // ONE JOINT, ITS OWN TRANSACTION (dry run, 2026-11-18: carrying
+        // unit 89's supply duct took a tap off a duct, Revit threw the
+        // commit out, and the pipes - which had nothing to do with it -
+        // went with it). A duct or pipe that cannot reach its new
+        // connector without bending or turning inside out is carried over
+        // or offset when it can be (EQUIPJOINT.Redo) and otherwise LEFT
+        // OPEN and said so. Refused AT THE COMMIT: again, bringing it
+        // straight only; refused again: left open, saying what Revit said.
+        private static void Rejoin(
+            Document doc, Outcome outcome, EQUIPJOINT joint, Pending pending)
+        {
+            int onto;
+
+            if (!pending.Map.TryGetValue(joint.MyIndex, out onto))
+            {
+                Open(outcome, joint, "the new type has no connection for it");
+
+                return;
+            }
+
+            string refused = null;
+
+            foreach (bool carry in pending.Carry ? new[] { true, false } : new[] { false })
+            {
+                var notes = new List<string>();
+
+                using (var transaction = new Transaction(doc, "Change equipment type"))
+                {
+                    var quiet = new EQUIPFAILURES();
+
+                    transaction.Start();
+
+                    FailureHandlingOptions options =
+                        transaction.GetFailureHandlingOptions();
+
+                    options.SetFailuresPreprocessor(quiet);
+                    options.SetClearAfterRollback(true);
+
+                    transaction.SetFailureHandlingOptions(options);
+
+                    string why;
+
+                    try
+                    {
+                        why = joint.Redo(doc, onto, carry, notes);
+                    }
+                    catch (Exception ex)
+                    {
+                        why = Short(ex);
+                    }
+
+                    if (why != null)
+                    {
+                        transaction.RollBack();
+
+                        Open(outcome, joint, why + (refused == null
+                            ? string.Empty
+                            : " (Revit refused carrying it over: " + refused + ")"));
+
+                        return;
+                    }
+
+                    TransactionStatus status;
+
+                    try
+                    {
+                        status = transaction.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        EQUIPLOG.Blew("committing " + joint.Called, ex);
+
+                        status = TransactionStatus.Error;
+                    }
+
+                    if (status == TransactionStatus.Committed &&
+                        Joined(doc, outcome.Id, onto))
+                    {
+                        outcome.Notes.AddRange(notes);
+
+                        return;
+                    }
+
+                    if (transaction.HasStarted() && !transaction.HasEnded())
+                        transaction.RollBack();
+
+                    refused = string.IsNullOrEmpty(quiet.Said)
+                        ? "it did not hold"
+                        : quiet.Said;
+
+                    EQUIPLOG.Say("   " + joint.Called + ": Revit refused that at the " +
+                                 "commit - " + refused +
+                                 (carry ? "; AGAIN, bringing it straight only" : string.Empty));
+                }
+            }
+
+            Open(outcome, joint, "Revit refused joining it (" + refused + ")");
+        }
+
+        private static void Open(Outcome outcome, EQUIPJOINT joint, string why)
+        {
+            outcome.LeftOpen.Add(joint.Called + " left open: " + why);
+
+            EQUIPLOG.Say("   " + joint.Called + " left open: " + why);
+        }
+
+        // The unit's connector is joined to something now
+        private static bool Joined(Document doc, long unitId, int onto)
+        {
+            try
+            {
+                Connector mine = QADUCTS.Lookup(doc, unitId, onto);
+
+                return mine != null && mine.IsConnected;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // Move the unit so the run on its BIGGEST duct connection that

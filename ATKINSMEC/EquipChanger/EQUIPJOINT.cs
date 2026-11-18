@@ -375,6 +375,14 @@ namespace ATKINSMEC
                          curve.Id.ToValue() + " is " +
                          EQUIPREACH.Mm(reach.Length) + " mm");
 
+            if (reach.Kind == EQUIPREACHKIND.Stretch &&
+                !TapsStay(curve, here, far, to - here))
+            {
+                reach.Kind = EQUIPREACHKIND.Open;
+
+                reach.Why = "shortening it would take a tap off its side";
+            }
+
             switch (reach.Kind)
             {
                 case EQUIPREACHKIND.There:
@@ -713,6 +721,18 @@ namespace ATKINSMEC
                                 EQUIPWALK.V(here + move), null, null,
                                 free, shortest, Noun);
 
+                            // A tap on its side must still be on it after
+                            // (dry run, 2026-11-18: unit 89's supply duct
+                            // shortened 230 -> 25 mm, "The Tap must be
+                            // attached to duct", the commit thrown out)
+                            if (takes.Kind == EQUIPREACHKIND.Stretch &&
+                                !TapsStay(run, here, far, move))
+                            {
+                                takes.Kind = EQUIPREACHKIND.Open;
+
+                                walked.Add(named + " has a tap that would come off it");
+                            }
+
                             if (takes.Kind == EQUIPREACHKIND.Stretch ||
                                 takes.Kind == EQUIPREACHKIND.There)
                             {
@@ -926,9 +946,7 @@ namespace ATKINSMEC
             if (back.Normalize().DotProduct(facing) > -EQUIPREACH.Square)
                 return "the pipe's end does not face the unit";
 
-            double diameter = EQUIPWALK.SizeOf(end).Round
-                ? EQUIPWALK.SizeOf(end).Diameter
-                : 20.0 / 304.8;
+            double diameter = EQUIPOFFSET.SizeFor(doc, endOwner);
 
             EQUIPDOGLEG fit = EQUIPDOGLEG.Fitting(
                 EQUIPWALK.V(mine.Origin), EQUIPWALK.V(facing),
@@ -1083,6 +1101,38 @@ namespace ATKINSMEC
 
         // It was not joined when the change started (Loose)
         public bool WasLoose { get; set; }
+
+        // Every tap on the run's side still on it, 150 mm clear, once its
+        // near end has moved by `move`. Lengthening never takes one off.
+        private static bool TapsStay(MEPCurve run, XYZ here, XYZ far, XYZ move)
+        {
+            try
+            {
+                XYZ along = (far - here).Normalize();
+
+                double shift = move.DotProduct(along);
+
+                if (shift <= 0)
+                    return true;
+
+                foreach (Connector c in run.ConnectorManager.Connectors)
+                {
+                    if (c.ConnectorType != ConnectorType.Curve || !c.IsConnected)
+                        continue;
+
+                    double at = (c.Origin - here).DotProduct(along);
+
+                    if (at - shift < 150.0 / 304.8)
+                        return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         // What a carry must never move
         private static bool Fixed(Element element)

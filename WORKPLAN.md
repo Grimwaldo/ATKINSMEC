@@ -70,6 +70,42 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## EQUIPMENT CHANGER: offsets, never-joined pipes, one transaction a joint - tested on the real model - 2026-11-18 (night)
+
+The user, third time: "the pipes still disconnect" (and asked whether it
+would work on ANY FCU change). Stopped guessing and looked:
+
+- **`tools/equipprobe-revit`** (read-only, Add-In Manager) on units 231
+  and 164: every connector and what it is joined to, the pipework behind
+  it, ends within 600 mm, and where ALL 14 types put their connectors
+  (in a transaction that is rolled back). Findings:
+  - The family `ATR_ME_MEQ_FCU` grows from its origin end; CHW on the far
+    end face (local x = length), supply z 50, return z = height - 50;
+    spigot at mid-length, half-height. FCU-01..06 are 300 high,
+    07..14 are 390-410 - across that line the return CHW rises 110 and
+    the spigot 55, so a unit kept on its duct needs a 55 mm vertical step
+    in each CHW pipe, and both of 231's run horizontally for pieces.
+  - **Unit 164's CHW pipes were never joined** - they end 100 mm off
+    FCU-04's connections, supply and return heights swapped.
+- **`tools/equiplab-revit`**: the changer's own files run on the model
+  inside a group that is rolled back, five swaps per Run, no restart.
+  Run 1: 3 of 5 joined. Run 2 (after the fixes below): 4 of 5 -
+  231 → FCU-10 (carried out 455 mm + two 45-degree offsets), 164 →
+  FCU-03 (never-joined pipes joined), 89 → FCU-06, 231 → FCU-05; 89 →
+  FCU-10 joins both pipes (90-degree offsets) and leaves its supply duct
+  open: 205 mm deeper, and the duct runs to an air terminal.
+- Fixes: the offset (`EQUIPDOGLEG`, `EQUIPOFFSET`); never-joined pipes
+  (`EQUIPJOINT.Loose`); connectors re-read by id after a rolled-back
+  carry (they were dead - "will not say which way they face"); taps on a
+  taker (`TapsStay` - shortening 89's duct took a tap off, "The Tap must
+  be attached to duct", and the commit threw out the pipes too); the swap
+  commits first and every joint rejoins in its own transaction
+  (`Rejoin`); the equip log keeps earlier runs (~400 KB).
+- Seen, not changed: unit 89's return stub is 1443 wide into a 250 x 250
+  main through a tap; resizing it to 1534 x 360 raises "The Tap must be
+  attached to duct" as a WARNING, which the changer deletes. Worth a look.
+- Tests: equiptest +6 (offsets: 231's 55 mm step, 164's 100 mm, room).
+
 ## EQUIPMENT CHANGER: a slanted carry in parts; three goes - 2026-11-18 (evening)
 
 Run by the user after the change below: "the pipes are still

@@ -201,6 +201,24 @@ namespace ATKINSMEC
             return null;
         }
 
+        // The size the offset will be built in: the run's own pipe's.
+        // Asked by EQUIPJOINT.Offset for the room it must make, so the
+        // plan there and the build here agree (a reducer on the unit is
+        // the unit's size at its open end, not the run's).
+        public static double SizeFor(Document doc, long owner)
+        {
+            try
+            {
+                Pipe model = Model(doc, doc.GetElement(REVITCOMPAT.NewId(owner)));
+
+                return model == null ? 20.0 / 304.8 : Diameter(model);
+            }
+            catch
+            {
+                return 20.0 / 304.8;
+            }
+        }
+
         private static double Diameter(Pipe pipe)
         {
             Parameter p = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);

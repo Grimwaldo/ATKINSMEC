@@ -113,6 +113,16 @@ namespace ATKINSMEC
                 "terminal, a tap on a main, anything pinned, or more than " +
                 "12 pieces.");
             Body(
+                "A STEP NOTHING CAN STRETCH TO IS MADE. When a taller or " +
+                "wider unit puts a pipe connection off the pipe's line, a " +
+                "small offset is drawn - two elbows and a short pipe, of " +
+                "the pipe's own type, size and insulation - moving the " +
+                "pipework out first if there is no room for it.");
+            Body(
+                "A pipe that only TOUCHES the unit, never joined to it, " +
+                "is joined: its open end within 300 mm, on the same system, " +
+                "facing the unit.");
+            Body(
                 "What cannot be reached that way is LEFT OPEN: the unit is " +
                 "still changed, the table says \"yes, 1 open\" and names " +
                 "the duct or pipe, and you join it by hand. If Revit " +
