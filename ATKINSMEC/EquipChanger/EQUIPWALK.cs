@@ -481,6 +481,21 @@ namespace ATKINSMEC
         // in a stable order so a report can name "connector 1"
         public static List<Connector> EndsOf(Element element)
         {
+            return EndsOf(element, Domain.DomainHvac);
+        }
+
+        // Its PIPE end connectors - chilled water, condensate. Not
+        // resized, but taken off and put back with the ducts: left
+        // joined through a swap, Revit drags the pipes after the new
+        // connectors and turns short stubs inside out (user-reported,
+        // FCU-02 -> FCU-10, 2026-11-18).
+        public static List<Connector> PipeEndsOf(Element element)
+        {
+            return EndsOf(element, Domain.DomainPiping);
+        }
+
+        private static List<Connector> EndsOf(Element element, Domain domain)
+        {
             var ends = new List<Connector>();
 
             ConnectorManager manager = QADUCTS.Manager(element);
@@ -492,7 +507,7 @@ namespace ATKINSMEC
             {
                 foreach (Connector connector in manager.Connectors)
                 {
-                    if (connector.Domain == Domain.DomainHvac &&
+                    if (connector.Domain == domain &&
                         connector.ConnectorType == ConnectorType.End)
                         ends.Add(connector);
                 }
@@ -502,6 +517,129 @@ namespace ATKINSMEC
             }
 
             return ends;
+        }
+
+        // Every end a joint can be on, ducts and pipes
+        public static List<Connector> JointEndsOf(Element element)
+        {
+            var ends = EndsOf(element);
+
+            ends.AddRange(PipeEndsOf(element));
+
+            return ends;
+        }
+
+        // What a pipe joint may be made to - by CATEGORY, for the same
+        // reason as Ductwork: pipe insulation is an MEPCurve and is in
+        // AllRefs too
+        public static bool Pipework(Element element)
+        {
+            if (element == null || element.Category == null)
+                return false;
+
+            long id = element.Category.Id.ToValue();
+
+            return id == (long)BuiltInCategory.OST_PipeCurves
+                || id == (long)BuiltInCategory.OST_FlexPipeCurves
+                || id == (long)BuiltInCategory.OST_PipeFitting
+                || id == (long)BuiltInCategory.OST_PipeAccessory
+                || id == (long)BuiltInCategory.OST_MechanicalEquipment
+                || id == (long)BuiltInCategory.OST_PlumbingFixtures
+                || id == (long)BuiltInCategory.OST_Sprinklers;
+        }
+
+        // Is this a real joint on that connector's side of things?
+        public static bool Network(Connector connector, Element other)
+        {
+            try
+            {
+                return connector.Domain == Domain.DomainPiping
+                    ? Pipework(other)
+                    : Ductwork(other);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // The system classification as a number, -1 when it does not
+        // say. Undefined, Global and Fitting say nothing about which
+        // side of a unit a connector is on.
+        public static int SystemOf(Connector connector)
+        {
+            try
+            {
+                if (connector.Domain == Domain.DomainPiping)
+                {
+                    Autodesk.Revit.DB.Plumbing.PipeSystemType pipe =
+                        connector.PipeSystemType;
+
+                    if (pipe == Autodesk.Revit.DB.Plumbing.PipeSystemType.UndefinedSystemType ||
+                        pipe == Autodesk.Revit.DB.Plumbing.PipeSystemType.Global ||
+                        pipe == Autodesk.Revit.DB.Plumbing.PipeSystemType.Fitting)
+                        return -1;
+
+                    return (int)pipe;
+                }
+
+                if (connector.Domain == Domain.DomainHvac)
+                {
+                    DuctSystemType duct = connector.DuctSystemType;
+
+                    if (duct == DuctSystemType.UndefinedSystemType ||
+                        duct == DuctSystemType.Global ||
+                        duct == DuctSystemType.Fitting)
+                        return -1;
+
+                    return (int)duct;
+                }
+            }
+            catch
+            {
+            }
+
+            return -1;
+        }
+
+        // The same, in words, for the report
+        public static string SystemName(Connector connector)
+        {
+            try
+            {
+                if (SystemOf(connector) < 0)
+                    return string.Empty;
+
+                return connector.Domain == Domain.DomainPiping
+                    ? connector.PipeSystemType.ToString()
+                    : connector.DuctSystemType.ToString();
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        public static EQUIPV V(XYZ point)
+        {
+            return point == null
+                ? new EQUIPV(0, 0, 0)
+                : new EQUIPV(point.X, point.Y, point.Z);
+        }
+
+        // Which way a connector faces, or null when it will not say
+        public static XYZ Facing(Connector connector)
+        {
+            try
+            {
+                return connector.CoordinateSystem == null
+                    ? null
+                    : connector.CoordinateSystem.BasisZ;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

@@ -881,12 +881,26 @@ Close, Cancel, Yes/No last), clears warnings only, `Stop` in `finally`.
 ## EQUIPMENT CHANGER
 Modeless, acts on the selection. **Five steps in order**: walk and record
 joints → disconnect → swap type → resize (ducts, then fittings, read
-back) → reconnect by position. `EQUIPSTOP` (Revit-free) stops at
-reducer/tap/tee/terminal/equipment. Connectors matched by position.
-Shape changes refused. `Verify` reads the model after commit (failures
-are processed at commit). Rewrite curves keeping direction
-(`EQUIPLINE.MovingIsStart`). `EQUIPFAILURES` never resolves an error.
-Reach 40. `ATKINSMEC_equip_log.txt`.
+back) → reconnect. `EQUIPSTOP` (Revit-free) stops at
+reducer/tap/tee/terminal/equipment. Shape changes refused.
+- **PIPES are taken off and put back too** (not resized; user,
+  2026-11-18: FCU-02 → FCU-10 refused - the CHW stubs stayed joined and
+  Revit dragged them inside out). Every HVAC + piping end connector.
+- **Matched by the family's OWN connector** (`EQUIPMATCH`, Revit-free,
+  test `equiptest`): same family = same connector id; another family =
+  domain, system, then distance, supply never to return. Never "nearest
+  to where it was" - a bigger unit moves them all.
+- **Never backwards, never bent** (`EQUIPREACH.Decide`): slid along its
+  own line only, ≥ 5 mm left; nothing joined beyond = moved whole; to the
+  side, past the far end or turned = **left open**, the unit still
+  changed, named in the table ("yes, N open"), message box and log.
+  Rewrite curves keeping direction (`EQUIPLINE.MovingIsStart`).
+- **One transaction per unit** in a `TransactionGroup` (one undo):
+  failures are processed at each commit, so a refused unit takes only
+  itself; checked against the model after its commit. `EQUIPFAILURES`
+  never resolves an error. Reach 40. `ATKINSMEC_equip_log.txt`; when the
+  log says every step worked and the commit failed, Revit's journal
+  names the elements (`FaultyAtomsCheck`, "acquired element").
 
 ## DUCT ESP
 Its own calculation across this model and ticked links (`ESPCOLLECT`

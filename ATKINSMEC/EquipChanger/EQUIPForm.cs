@@ -348,19 +348,33 @@ namespace ATKINSMEC
                     ? "yes"
                     : (outcome.AlreadyThat ? "-" : "no");
                 row.Cells[3].Value = outcome.Resized;
+
+                // What was left open first: that is the part somebody
+                // has to do something about
+                var lines = new List<string>(outcome.LeftOpen);
+
+                lines.AddRange(outcome.Branches);
+
                 row.Cells[4].Value = outcome.Changed
-                    ? string.Join("   |   ", outcome.Branches.ToArray())
+                    ? string.Join("   |   ", lines.ToArray())
                     : outcome.Said;
 
                 row.Cells[4].ToolTipText = outcome.Changed
-                    ? string.Join(Environment.NewLine,
-                        outcome.Branches.ToArray())
+                    ? string.Join(Environment.NewLine, lines.ToArray())
                     : outcome.Said;
 
                 if (!outcome.Changed && !outcome.AlreadyThat)
                 {
                     row.Cells[2].Style.ForeColor =
                         System.Drawing.Color.Firebrick;
+                }
+                else if (outcome.Changed && outcome.LeftOpen.Count > 0)
+                {
+                    row.Cells[2].Value = "yes, " + outcome.LeftOpen.Count +
+                                         " open";
+
+                    row.Cells[2].Style.ForeColor =
+                        System.Drawing.Color.DarkOrange;
                 }
             }
 
@@ -388,6 +402,16 @@ namespace ATKINSMEC
         private static string Told(EQUIPCHANGE.Result result)
         {
             string said = result.Changed + " element(s) changed.";
+
+            if (result.Open > 0)
+            {
+                said += Environment.NewLine + Environment.NewLine +
+                        result.Open + " of them have a duct or pipe left " +
+                        "unconnected: it could not reach the new " +
+                        "connector without bending or being stretched " +
+                        "past its far end. The table says which - join " +
+                        "those by hand.";
+            }
 
             if (result.Already > 0)
             {

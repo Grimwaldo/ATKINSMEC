@@ -70,6 +70,52 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## EQUIPMENT CHANGER: pipes taken off too; never stretched backwards - 2026-11-18
+
+User, Revit 2024, Tower A HVAC model: FCU-02 -> FCU-10 (same family
+`ATR_ME_MEQ_FCU`, unit 3547444) refused - "The duct/pipe has been
+modified to be in the opposite direction" and "can no longer keep the
+connectivity" at the commit. The log said every step succeeded; Revit's
+journal (`journal.0071.txt`) named the culprits as two PIPES, 3854673 and
+3854703 (`FaultyAtomsCheck ... RbsPipeCurve`), CHW, in the ducts workset.
+
+- **Cause: only the HVAC connectors were taken apart.** The CHW pipes
+  stayed joined through `instance.Symbol = symbol`; FCU-10's bigger body
+  put their connections further out and Revit dragged the short stubs
+  inside out. Now every HVAC AND PIPING end connector is unhooked and
+  put back (`EQUIPWALK.PipeEndsOf`, `Pipework` by category - pipe
+  insulation is an MEPCurve too). Pipes are not resized.
+- **Matched by the family's own connector** (`EQUIPMATCH`, Revit-free):
+  same family = same connector id; another family = same domain, same
+  system before a silent one, nearest first, each once, supply never to
+  return. "Nearest to where it was" - the old rule - is a guess between
+  CHW flow and return 100 mm apart once the unit grows 600 mm. Resizing
+  uses the matched connector too (it went by list position).
+- **Never backwards, never bent** (`EQUIPREACH.Decide`, Revit-free): a
+  run is slid along its own line only while 5 mm (or the short-curve
+  tolerance) is left; a run with nothing joined beyond the unit (far end
+  or a tap on its side) is moved whole; a new connection to the side
+  (> 1 mm), past the far end or facing another way (> 2 degrees) is LEFT
+  OPEN - the unit still changes, the table says "yes, N open" in orange,
+  the message box and log name the duct or pipe and the millimetres. A
+  fitting straight on the unit is joined again only if the connector is
+  still on it. Flex is joined and left to bend.
+- **One transaction per unit** inside a `TransactionGroup` (one undo):
+  failures are read at each unit's commit, so one refused unit no longer
+  takes the whole run with it (the help said it did not; it did).
+  `Verify` is gone - each commit is checked against the model.
+- The log now says how far each connection moved (along / aside), the
+  run's length, and if the unit is in a model group. The journal also
+  showed "Extending changes to Group "Array Group 1/2" to 12 instances"
+  during the swap - the typical floors 04-15 are array groups; whether
+  the FCU itself is a member is not known (it was picked directly).
+- Tests: equiptest +25 (reach 16, match 9), the user's numbers;
+  mutations caught (length left, aside, same-family id). Builds
+  2022/2024/2025/2027.
+- NOT run in Revit: 2024 and 2025 were open with the add-in locked.
+  Unknowns: whether FCU-10's connections land on the stubs' lines (if
+  not, they are left open - by design); `MoveElement` on a free stub.
+
 ## AUTOVENT: rooms over the top level left out; Interior models multi-select - 2026-11-18
 
 User, Revit 2024, Tower A HVAC model (HVC-000100): "level 17a is showing

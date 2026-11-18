@@ -128,7 +128,7 @@ namespace ATKINSMEC
                         ? string.Empty
                         : element.Category.Name,
                     TypeNow = EQUIPCHANGE.TypeNameOf(element),
-                    Connectors = EQUIPWALK.EndsOf(element).Count,
+                    Connectors = EQUIPWALK.JointEndsOf(element).Count,
                     Follows = "(press Look)"
                 });
             }
@@ -202,7 +202,7 @@ namespace ATKINSMEC
                         ? string.Empty
                         : element.Category.Name,
                     TypeNow = outcome.WasType,
-                    Connectors = EQUIPWALK.EndsOf(element).Count,
+                    Connectors = EQUIPWALK.JointEndsOf(element).Count,
                     Follows = string.IsNullOrEmpty(outcome.Said)
                         ? string.Join("   |   ", outcome.Branches.ToArray())
                         : outcome.Said,

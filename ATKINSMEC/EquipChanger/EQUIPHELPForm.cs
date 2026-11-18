@@ -72,6 +72,14 @@ namespace ATKINSMEC
                 "and the duct ends moved to wherever the new connectors " +
                 "are. Revit is never asked to keep a connection through a " +
                 "change it cannot survive.");
+            Body(
+                "PIPES ON THE UNIT - chilled water, condensate - are taken " +
+                "off and put back the same way. They are not resized.");
+            Body(
+                "Each joint goes back on the SAME connector of the family. " +
+                "A bigger unit moves its connectors, so the nearest one " +
+                "could be the wrong side; only a change to another family " +
+                "matches by system (supply to supply) and then by distance.");
 
             Heading("What it will not do");
             Body(
@@ -88,16 +96,23 @@ namespace ATKINSMEC
                 "drawing and can be swapped by hand, and replacing it " +
                 "here would throw away whatever is written on it.");
             Body(
-                "It will not leave a duct too short to exist. If moving " +
-                "an end to meet a new connector would do that, it is " +
-                "refused instead.");
+                "It will not bend a duct or pipe, or stretch one past its " +
+                "far end. A run is only slid along its own line, and only " +
+                "while some of it is left; one with nothing on its far end " +
+                "is moved whole. If the new connector is to the side, past " +
+                "the far end or facing another way, THAT CONNECTION IS " +
+                "LEFT OPEN: the unit is still changed, the table says " +
+                "\"yes, 1 open\" and names the duct or pipe, and you join " +
+                "it by hand. Joining it anyway is what makes Revit throw " +
+                "the whole change out.");
 
             Heading("If something goes wrong");
             Body(
-                "EACH ELEMENT IS DONE ON ITS OWN. One that Revit refuses " +
-                "is put back exactly the way it was, and the rest still " +
-                "go through - so a single awkward unit does not cost you " +
-                "the whole selection.");
+                "EACH ELEMENT IS DONE ON ITS OWN, in its own transaction. " +
+                "One that Revit refuses - even at the very end - is put " +
+                "back exactly the way it was, and the rest still go " +
+                "through - so a single awkward unit does not cost you the " +
+                "whole selection.");
             Body(
                 "The whole run is one undo step: Ctrl+Z puts everything " +
                 "back.");
