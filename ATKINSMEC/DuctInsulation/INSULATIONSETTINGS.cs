@@ -6,44 +6,80 @@ using System.Text;
 
 namespace ATKINSMEC
 {
-    // Insulation rules per duct system type, kept in a small text file
-    // so they survive between sessions and can be shared with the team.
+    // INSULATOR's rules: one set for ducts, one for pipes, each in its own
+    // small text file so they survive between sessions and can be shared
+    // with the team. Revit-free (tests\insulatortest).
+    //
+    // The duct file is the one DUCT INSULATION always wrote
+    // (duct_insulation.txt) - saved rules carry straight over; a file
+    // without an "accessories=" line insulates duct accessories, as that
+    // tool always did. Pipe accessories are off until ticked.
     public class INSULATIONSETTINGS
     {
         public class Rule
         {
             public double ThicknessMm { get; set; }
 
-            // Blank means "use the default type below"
+            // Blank means the system type is not insulated
             public string InsulationTypeName { get; set; }
         }
 
-        public static bool Enabled { get; set; }
+        public static readonly INSULATIONSETTINGS Ducts =
+            new INSULATIONSETTINGS("duct_insulation.txt", "duct", true);
+
+        public static readonly INSULATIONSETTINGS Pipes =
+            new INSULATIONSETTINGS("pipe_insulation.txt", "pipe", false);
+
+        // %AppData%\ATKINSMEC; tests point it at a folder of their own
+        public static string Folder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "ATKINSMEC");
+
+        private readonly string _file;
+        private readonly bool _accessoriesByDefault;
+
+        // "duct" / "pipe" - for the file's own heading
+        public string Noun { get; private set; }
+
+        public bool Enabled { get; set; }
+
+        // Accessories insulated as well as the runs and fittings
+        public bool Accessories { get; set; }
 
         // Only read from older settings files, where one type applied to
         // every system type. It is folded into the rules on load and is
         // no longer written out.
-        public static string LegacyDefaultTypeName { get; set; }
+        public string LegacyDefaultTypeName { get; set; }
 
-        public static Dictionary<string, Rule> RulesBySystemType =
+        public Dictionary<string, Rule> RulesBySystemType =
             new Dictionary<string, Rule>(StringComparer.OrdinalIgnoreCase);
 
-        private static bool _loaded;
+        private bool _loaded;
 
-        public static string SettingsPath
+        private INSULATIONSETTINGS(string file, string noun, bool accessoriesByDefault)
         {
-            get
-            {
-                string folder = Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),
-                    "ATKINSMEC");
-
-                return Path.Combine(folder, "duct_insulation.txt");
-            }
+            _file = file;
+            Noun = noun;
+            _accessoriesByDefault = accessoriesByDefault;
+            Accessories = accessoriesByDefault;
+            LegacyDefaultTypeName = string.Empty;
         }
 
-        public static Rule RuleFor(string systemTypeName)
+        public string SettingsPath
+        {
+            get { return Path.Combine(Folder, _file); }
+        }
+
+        // Whether an element of this kind is insulated at all: the side is
+        // switched on, and an accessory only when accessories are ticked
+        public bool Covers(bool accessory)
+        {
+            Load();
+
+            return Enabled && (!accessory || Accessories);
+        }
+
+        public Rule RuleFor(string systemTypeName)
         {
             Load();
 
@@ -60,7 +96,7 @@ namespace ATKINSMEC
 
         // Each system type names its own insulation type; a blank one
         // means the system type is not insulated
-        public static string TypeNameFor(string systemTypeName)
+        public string TypeNameFor(string systemTypeName)
         {
             Rule rule = RuleFor(systemTypeName);
 
@@ -69,7 +105,7 @@ namespace ATKINSMEC
                 : (rule.InsulationTypeName ?? string.Empty);
         }
 
-        public static void Load()
+        public void Load()
         {
             if (_loaded)
                 return;
@@ -80,10 +116,13 @@ namespace ATKINSMEC
         }
 
         // Re-reads the file even when it has been read before
-        public static void Reload()
+        public void Reload()
         {
+            _loaded = true;
+
             RulesBySystemType.Clear();
             Enabled = false;
+            Accessories = _accessoriesByDefault;
             LegacyDefaultTypeName = string.Empty;
 
             try
@@ -101,6 +140,12 @@ namespace ATKINSMEC
                     if (text.StartsWith("enabled=", StringComparison.OrdinalIgnoreCase))
                     {
                         Enabled = text.Substring(8).Trim() == "1";
+                        continue;
+                    }
+
+                    if (text.StartsWith("accessories=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Accessories = text.Substring(12).Trim() == "1";
                         continue;
                     }
 
@@ -135,6 +180,7 @@ namespace ATKINSMEC
                             : string.Empty
                     };
                 }
+
                 // Files written before the type became per system type
                 // carried one default; bake it into the blank rules so
                 // nothing silently stops being insulated
@@ -153,7 +199,7 @@ namespace ATKINSMEC
             }
         }
 
-        public static void Save()
+        public void Save()
         {
             string folder = Path.GetDirectoryName(SettingsPath);
 
@@ -162,10 +208,11 @@ namespace ATKINSMEC
 
             var text = new StringBuilder();
 
-            text.AppendLine("# ATKINSMEC duct insulation rules");
+            text.AppendLine("# ATKINSMEC " + Noun + " insulation rules (INSULATOR)");
             text.AppendLine("# <system type><TAB><thickness mm><TAB><insulation type>");
             text.AppendLine("# a system type with no insulation type is not insulated");
             text.AppendLine("enabled=" + (Enabled ? "1" : "0"));
+            text.AppendLine("accessories=" + (Accessories ? "1" : "0"));
 
             foreach (var pair in RulesBySystemType)
             {
