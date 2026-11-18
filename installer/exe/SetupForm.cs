@@ -28,7 +28,7 @@ namespace ATKINSMEC.Setup
             Font = new Font("Segoe UI", 9f);
 
             _heading.SetBounds(16, 14, 528, 20);
-            _heading.Text = "AUTOVENT  |  CHW VOLUME  |  DUCT INSULATION  |  SPRINKLERS";
+            _heading.Text = "AUTOVENT  |  CHW VOLUME  |  INSULATOR  |  SPRINKLERS";
             _heading.Font = new Font(Font, FontStyle.Bold);
 
             _where.SetBounds(16, 38, 528, 34);

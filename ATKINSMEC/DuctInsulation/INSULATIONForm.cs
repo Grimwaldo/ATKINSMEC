@@ -103,6 +103,11 @@ namespace ATKINSMEC
             side.Page = new TabPage(title) { Padding = new Padding(8), UseVisualStyleBackColor = true };
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+
+            // Without it the one column takes the width of its widest
+            // control - the note's single line - and the grid runs off
+            // the tab
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -136,7 +141,9 @@ namespace ATKINSMEC
                 MultiSelect = false,
                 EditMode = DataGridViewEditMode.EditOnEnter,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                BackgroundColor = SystemColors.Window
+                BackgroundColor = SystemColors.Window,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
             };
 
             side.Grid.DataError += (s, e) => e.ThrowException = false;
@@ -185,7 +192,8 @@ namespace ATKINSMEC
             layout.Controls.Add(side.Enabled, 0, 0);
             layout.Controls.Add(side.Accessories, 0, 1);
             layout.Controls.Add(side.Grid, 0, 2);
-            layout.Controls.Add(new Label { AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0), Text = note }, 0, 3);
+            // Anchored both sides, an AutoSize label wraps to the column
+            layout.Controls.Add(new Label { AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0), Text = note }, 0, 3);
 
             side.Page.Controls.Add(layout);
 

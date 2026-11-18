@@ -70,6 +70,34 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## INSULATOR: DUCT INSULATION renamed, pipes added - 2026-11-18 (night)
+
+User: "the duct insulation addin should be called insulator, and it
+should also work for pipes aswell, it should have two tabs, one for ducts
+and one for pipes, and have a checkbox in duct that gives option to
+insulate duct accessory and same in pipe". Targets Revit 2024 and 2025.
+
+- Ribbon button, window, .addin description and installer text say
+  INSULATOR; folder, class names, the updater GUID and
+  `duct_insulation.txt` kept, so saved duct rules carry over.
+- Two tabs, each: "Insulate <ducts|pipes> and fittings as they are
+  drawn", "Also insulate <duct|pipe> accessories" (greyed while off), the
+  rules grid. Duct accessories stay ON for an old file (no
+  `accessories=` line); pipe accessories OFF until ticked (my default -
+  not asked). Pipe rules in `pipe_insulation.txt`.
+- One updater for both (`INSULATIONUPDATER`, `PipeInsulation.Create`,
+  system type from `RBS_PIPING_SYSTEM_TYPE_PARAM`, else connectors in the
+  piping domain, else a neighbour - insulation skipped in `AllRefs`).
+- Window Revit-free and built in code (the designer file is gone);
+  `insulatortest` 46 checks, mutation-checked; previews at 1x / 1.5x
+  looked at.
+- **NOT run in Revit.** To try: switch Pipes on, give Chilled Water
+  Supply a thickness and a pipe insulation type, Save, draw a pipe with
+  an elbow - both insulated; a valve only with the accessories tick.
+  Then draw a duct to check nothing changed there.
+- Thickness is one per system type; pipe insulation by pipe SIZE (as
+  most specs give it) would be the next step if wanted.
+
 ## EQUIPMENT CHANGER: pick → Finish → a type; grille 227 - 2026-11-18 (night, later)
 
 - **New UI** (user: "instead of using a big window ... select the

@@ -16,7 +16,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $tests = @(
     'aligntest', 'arrangeflowtest', 'chwjointtest', 'chwtreetest', 'chwsizetest', 'ducttest', 'equiptest',
-    'esptest', 'fittingtest', 'fixturedialogtest', 'icontest', 'levelrowtest', 'nwcsettingstest',
+    'esptest', 'fittingtest', 'fixturedialogtest', 'icontest', 'insulatortest', 'levelrowtest', 'nwcsettingstest',
     'officetest', 'roomtagtest', 'roomtest', 'runtest', 'sheettest', 'synctest',
     'toggletest', 'ventfcutest', 'ventleveltest', 'ventsettingstest', 'geomtest'
 )

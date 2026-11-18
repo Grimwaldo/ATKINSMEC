@@ -25,7 +25,7 @@ models — `QAAVF`'s style name and schema. Never rename those.
 |---|---|---|
 | AUTOVENT | `Command.cs` | Excel ventilation sheet → airflows on air terminals; exports model rooms back into the sheet. |
 | CHW VOLUME | `CHWCommand.cs` | Water volume of two piping system types across the model and its links. Excel export. |
-| DUCT INSULATION | `INSULATIONCommand.cs` | Insulates ducts/fittings/accessories as they are drawn, by system type. |
+| INSULATOR | `INSULATIONCommand.cs` | Insulates ducts and pipes, their fittings and (ticked) accessories as they are drawn, by system type. Ducts / Pipes tabs. |
 | SPRINKLERS | `SPRINKLERCommand.cs` | Pendent heads per NFPA 13 across rooms of a linked arch model. |
 | ALIGN TERMINALS | `ALIGNCommand.cs` | Moves air terminals onto the nearest linked-model terminal, in plan. |
 | AUTOSYNC | `SYNCCommand.cs` | Saves and syncs every open model on a timer (≥5 min). |
@@ -109,7 +109,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-installer.ps1    # ins
 ## Files
 
 One folder per add-in under `ATKINSMEC\` (`AutoVent`, `ChwVolume`,
-`DuctInsulation`, `Sprinklers`, `AlignTerminals`, `SheetQA`, `AutoSync`,
+`DuctInsulation` (INSULATOR), `Sprinklers`, `AlignTerminals`, `SheetQA`, `AutoSync`,
 `NwcExport`, `EquipChanger`, `EspCalc`, `RoomTags`) plus `Shared\`. **The namespace
 is flat (`ATKINSMEC`) everywhere** — folders are for finding, not
 scoping. The SDK globs `**\*.cs`.
@@ -783,9 +783,23 @@ Modal; runs with **no model open**. `CHWVOLUME` measures, `CHWEXPORT`
   above it + the open model); Tick all / Untick all act on the rows
   showing.
 
-## DUCT INSULATION
-`DUCTINSULATIONUPDATER` (`IUpdater`) — **must never throw**; it would
-abort the user's own transaction.
+## INSULATOR (was DUCT INSULATION)
+User, 2026-11-18: "should be called insulator ... also work for pipes
+... two tabs ... a checkbox ... to insulate duct accessory and same in
+pipe". Folder `DuctInsulation\`, classes `INSULATION*` - code names kept.
+- `INSULATIONUPDATER` (`IUpdater`, the old GUID) — **must never throw**;
+  it would abort the user's own transaction. Triggered by ducts, pipes,
+  their fittings and BOTH accessory categories always; `Covers(accessory)`
+  decides at run time, so a tick needs no restart. Never passes
+  `InvalidElementId` as the type (= the document's default).
+- `INSULATIONSETTINGS.Ducts` / `.Pipes` (Revit-free): `duct_insulation.txt`
+  (DUCT INSULATION's own file, read unchanged) and `pipe_insulation.txt`.
+  `accessories=` line; none = ducts ON (as the old tool did), pipes OFF.
+- `INSULATIONForm`: Revit-free, built in code, two tabs; the command hands
+  in the system type and insulation type names. A model with no
+  insulation types of a kind greys that tab's ticks and SAVES THEM AS
+  THEY WERE (the files are per PC, not per model). Test: `insulatortest`
+  (+ `insulatortest preview <folder> [1.5]`).
 
 ## SPRINKLERS
 `SPRINKLERPLAN` (rooms, ceilings, placement), `SPRINKLERLAYOUT`

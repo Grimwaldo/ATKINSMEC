@@ -154,7 +154,7 @@ function Remove-Version($version, [switch]$KeepFolder) {
 try {
     Write-Line ''
     Write-Line '  Atkins MEP Toolkit - Revit add-ins' 'White'
-    Write-Line '  AUTOVENT | CHW VOLUME | DUCT INSULATION | SPRINKLERS' 'DarkGray'
+    Write-Line '  AUTOVENT | CHW VOLUME | INSULATOR | SPRINKLERS' 'DarkGray'
     Write-Line ''
 
     Assert-RevitClosed
@@ -176,7 +176,7 @@ try {
         elseif (Test-Path $SettingsDir) {
             Write-Line ''
             Write-Line "  Settings kept in $SettingsDir" 'DarkGray'
-            Write-Line '  (ACC model list and duct insulation rules)' 'DarkGray'
+            Write-Line '  (ACC model list and insulation rules)' 'DarkGray'
             Write-Line '  Run with -RemoveSettings to delete them too.' 'DarkGray'
         }
 
