@@ -271,6 +271,13 @@ namespace ATKINSMEC
         {
             joined = false;
 
+            // By id: a carry that is tried and rolled back leaves these
+            // Connector objects dead (dry run, 2026-11-18: "the connectors
+            // will not say which way they face")
+            long endOwner = end.Owner.Id.ToValue();
+            int endId = end.Id;
+            int mineId = mine.Id;
+
             XYZ to = mine.Origin;
             XYZ here = end.Origin;
 
@@ -317,7 +324,7 @@ namespace ATKINSMEC
                 if (blocked == null)
                     return null;
 
-                string stepped = Pipe ? Offset(doc, end, mine, notes) : "";
+                string stepped = Pipe ? Offset(doc, endOwner, endId, mineId, notes) : "";
 
                 if (stepped == null)
                 {
@@ -388,7 +395,7 @@ namespace ATKINSMEC
                     if (blocked == null)
                         return null;
 
-                    string stepped = Pipe ? Offset(doc, end, mine, notes) : "";
+                    string stepped = Pipe ? Offset(doc, endOwner, endId, mineId, notes) : "";
 
                     if (stepped == null)
                     {
@@ -897,8 +904,16 @@ namespace ATKINSMEC
         // pipework is first carried straight out to make the room.
         // Null when built and joined.
         private string Offset(
-            Document doc, Connector end, Connector mine, List<string> notes)
+            Document doc, long endOwner, int endIndex, int mineIndex,
+            List<string> notes)
         {
+            // Read again: the carries tried before this have rolled back
+            Connector mine = QADUCTS.Lookup(doc, OwnerId, mineIndex);
+            Connector end = QADUCTS.Lookup(doc, endOwner, endIndex);
+
+            if (mine == null || end == null)
+                return "its connectors could not be read again";
+
             XYZ facing = EQUIPWALK.Facing(mine);
 
             XYZ back = EQUIPWALK.Facing(end);
@@ -942,7 +957,7 @@ namespace ATKINSMEC
                 doc.Regenerate();
             }
 
-            return EQUIPOFFSET.Build(doc, OwnerId, mine.Id, owner, endId, notes, Called);
+            return EQUIPOFFSET.Build(doc, OwnerId, mineIndex, owner, endId, notes, Called);
         }
 
         // A PIPE THAT TOUCHES THE UNIT BUT WAS NEVER JOINED to it (probe,
