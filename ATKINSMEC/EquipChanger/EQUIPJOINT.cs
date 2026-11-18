@@ -197,7 +197,9 @@ namespace ATKINSMEC
                 if (mine.IsConnectedTo(theirs))
                     return null;
 
-                string why = Bring(doc, theirs, mine, carry, notes);
+                bool joined;
+
+                string why = Bring(doc, theirs, mine, carry, notes, out joined);
 
                 if (why != null)
                 {
@@ -205,6 +207,11 @@ namespace ATKINSMEC
 
                     return why;
                 }
+
+                // An offset was built between them, and joined at both
+                // ends: the unit is NOT joined straight to the pipe
+                if (joined)
+                    return null;
 
                 // A Connector dies with the geometry it was read from,
                 // and Bring has just moved that geometry
@@ -260,8 +267,10 @@ namespace ATKINSMEC
         // the commit and throws the whole unit out. EQUIPREACH decides.
         private string Bring(
             Document doc, Connector end, Connector mine, bool carry,
-            List<string> notes)
+            List<string> notes, out bool joined)
         {
+            joined = false;
+
             XYZ to = mine.Origin;
             XYZ here = end.Origin;
 
@@ -305,9 +314,20 @@ namespace ATKINSMEC
 
                 string blocked = Carry(doc, owner, end.Id, to - here, notes);
 
-                return blocked == null
-                    ? null
-                    : stuck + "; carrying it over " + blocked;
+                if (blocked == null)
+                    return null;
+
+                string stepped = Pipe ? Offset(doc, end, mine, notes) : "";
+
+                if (stepped == null)
+                {
+                    joined = true;
+
+                    return null;
+                }
+
+                return stuck + "; carrying it over " + blocked +
+                       (Pipe ? "; an offset: " + stepped : "");
             }
 
             var located = curve.Location as LocationCurve;
@@ -365,9 +385,20 @@ namespace ATKINSMEC
                     // its far end after it
                     string blocked = Carry(doc, curve, end.Id, to - here, notes);
 
-                    return blocked == null
-                        ? null
-                        : stuck + "; carrying it over " + blocked;
+                    if (blocked == null)
+                        return null;
+
+                    string stepped = Pipe ? Offset(doc, end, mine, notes) : "";
+
+                    if (stepped == null)
+                    {
+                        joined = true;
+
+                        return null;
+                    }
+
+                    return stuck + "; carrying it over " + blocked +
+                           (Pipe ? "; an offset: " + stepped : "");
                 }
 
                 case EQUIPREACHKIND.Shift:
@@ -857,6 +888,186 @@ namespace ATKINSMEC
 
             return false;
         }
+
+        // THE STEP NOTHING CAN STRETCH TO, MADE: an offset of two elbows
+        // between the unit's new connector and the pipe's open end
+        // (EQUIPDOGLEG plans, EQUIPOFFSET builds). If the open end is not
+        // far enough out from the unit for the offset to fit - FCU-10's
+        // connections land INSIDE where FCU-02's pipework was - the
+        // pipework is first carried straight out to make the room.
+        // Null when built and joined.
+        private string Offset(
+            Document doc, Connector end, Connector mine, List<string> notes)
+        {
+            XYZ facing = EQUIPWALK.Facing(mine);
+
+            XYZ back = EQUIPWALK.Facing(end);
+
+            if (facing == null || back == null)
+                return "the connectors will not say which way they face";
+
+            facing = facing.Normalize();
+
+            if (back.Normalize().DotProduct(facing) > -EQUIPREACH.Square)
+                return "the pipe's end does not face the unit";
+
+            double diameter = EQUIPWALK.SizeOf(end).Round
+                ? EQUIPWALK.SizeOf(end).Diameter
+                : 20.0 / 304.8;
+
+            EQUIPDOGLEG fit = EQUIPDOGLEG.Fitting(
+                EQUIPWALK.V(mine.Origin), EQUIPWALK.V(facing),
+                EQUIPWALK.V(end.Origin), diameter);
+
+            if (fit == null)
+                return "no elbows fit a step that small";
+
+            long owner = end.Owner.Id.ToValue();
+            int endId = end.Id;
+
+            if (!fit.Ok)
+            {
+                double more = fit.Room - fit.Gap + 2.0 / 304.8;
+
+                Element piece = doc.GetElement(end.Owner.Id);
+
+                EQUIPLOG.Say("   " + Called + ": making " + EQUIPREACH.Mm(more) +
+                             " mm of room for an offset");
+
+                string blocked = Carry(doc, piece, endId, facing.Multiply(more), notes);
+
+                if (blocked != null)
+                    return "making room for it " + blocked;
+
+                doc.Regenerate();
+            }
+
+            return EQUIPOFFSET.Build(doc, OwnerId, mine.Id, owner, endId, notes, Called);
+        }
+
+        // A PIPE THAT TOUCHES THE UNIT BUT WAS NEVER JOINED to it (probe,
+        // 2026-11-18: unit 164's CHW pipes stop 100 mm off FCU-04's
+        // connections, open). Taken as this connector's joint, so the
+        // change brings it and joins it: its open end within 300 mm,
+        // facing back at the unit, in front of the unit's face, of the
+        // SAME system (a silent one is not guessed at), nearest first,
+        // each end once.
+        public static EQUIPJOINT Loose(
+            Document doc, Connector end, string label, HashSet<string> claimed)
+        {
+            try
+            {
+                if (end == null || end.IsConnected ||
+                    end.Domain != Autodesk.Revit.DB.Domain.DomainPiping)
+                    return null;
+
+                int system = EQUIPWALK.SystemOf(end);
+
+                XYZ facing = EQUIPWALK.Facing(end);
+
+                if (system < 0 || facing == null)
+                    return null;
+
+                facing = facing.Normalize();
+
+                XYZ at = end.Origin;
+
+                double reach = 300.0 / 304.8;
+
+                var near = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType()
+                    .WherePasses(new LogicalOrFilter(new List<ElementFilter>
+                    {
+                        new ElementCategoryFilter(BuiltInCategory.OST_PipeCurves),
+                        new ElementCategoryFilter(BuiltInCategory.OST_PipeFitting),
+                        new ElementCategoryFilter(BuiltInCategory.OST_PipeAccessory)
+                    }))
+                    .WherePasses(new BoundingBoxIntersectsFilter(new Outline(
+                        at - new XYZ(reach, reach, reach),
+                        at + new XYZ(reach, reach, reach))));
+
+                Connector best = null;
+
+                double closest = reach;
+
+                foreach (Element element in near)
+                {
+                    ConnectorManager manager = QADUCTS.Manager(element);
+
+                    if (manager == null)
+                        continue;
+
+                    foreach (Connector other in manager.Connectors)
+                    {
+                        if (other.ConnectorType != ConnectorType.End ||
+                            other.Domain != Autodesk.Revit.DB.Domain.DomainPiping ||
+                            other.IsConnected)
+                            continue;
+
+                        if (claimed.Contains(element.Id.ToValue() + ":" + other.Id))
+                            continue;
+
+                        if (EQUIPWALK.SystemOf(other) != system)
+                            continue;
+
+                        XYZ back = EQUIPWALK.Facing(other);
+
+                        if (back == null || back.Normalize().DotProduct(facing) > -0.7)
+                            continue;
+
+                        // In front of the unit's face, not inside it
+                        if ((other.Origin - at).DotProduct(facing) < -50.0 / 304.8)
+                            continue;
+
+                        double gap = other.Origin.DistanceTo(at);
+
+                        if (gap < closest)
+                        {
+                            closest = gap;
+                            best = other;
+                        }
+                    }
+                }
+
+                if (best == null)
+                    return null;
+
+                claimed.Add(best.Owner.Id.ToValue() + ":" + best.Id);
+
+                var joint = new EQUIPJOINT
+                {
+                    OwnerId = end.Owner.Id.ToValue(),
+                    MyIndex = end.Id,
+                    Label = label,
+                    SystemName = EQUIPWALK.SystemName(end),
+                    Domain = (int)end.Domain,
+                    System = system,
+                    Pipe = true,
+                    OtherId = best.Owner.Id.ToValue(),
+                    OtherIndex = best.Id,
+                    OtherName = EQUIPWALK.Describe(best.Owner) + " " +
+                                best.Owner.Id.ToValue(),
+                    Was = end.Origin,
+                    Facing = facing,
+                    WasLoose = true
+                };
+
+                EQUIPLOG.Say("   " + joint.Called + " was NEVER JOINED: " +
+                             joint.OtherName + "'s open end is " +
+                             EQUIPREACH.Mm(closest) + " mm from it - joining it");
+
+                return joint;
+            }
+            catch (Exception ex)
+            {
+                EQUIPLOG.Blew("looking for a pipe by " + label, ex);
+
+                return null;
+            }
+        }
+
+        // It was not joined when the change started (Loose)
+        public bool WasLoose { get; set; }
 
         // What a carry must never move
         private static bool Fixed(Element element)

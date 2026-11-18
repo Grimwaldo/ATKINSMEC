@@ -321,6 +321,149 @@ namespace ATKINSMEC
     }
 
     // ==================================================
+    // A pipe offset: two elbows and a short pipe
+    // ==================================================
+
+    // When the new connection is off the pipe's line and nothing behind
+    // it can stretch that way (user, 2026-11-18: FCU-02 -> FCU-10 is
+    // 110 mm taller, the unit drops 55 mm to keep its duct, and both CHW
+    // connections land 55 mm off a run that is horizontal for pieces
+    // on end), the step is MADE: from the unit's connector straight out
+    // a leg, an elbow, across - square or slanted - another elbow, and a
+    // leg into the pipe's open end. Planned here, built by EQUIPOFFSET.
+    public class EQUIPDOGLEG
+    {
+        // A pipe between two elbows, at least
+        public const double Shortest = 10.0 / 304.8;
+
+        public bool Ok;
+
+        public double Angle;
+
+        // The two elbow centres
+        public EQUIPV P1;
+        public EQUIPV P2;
+
+        // How far out from the unit's connector the pipe's open end must
+        // be for this to fit, and how far it is
+        public double Room;
+        public double Gap;
+
+        // How far it steps across
+        public double Offset;
+
+        public string Why = string.Empty;
+
+        // An elbow's centre to its end - threaded and butt-welded
+        // fittings in this office's families run 30 to 35 mm at DN20
+        // (probe, 2026-11-18). Generous rather than tight: the build is
+        // read back, and a fit that fails tries the next angle.
+        public static double Centre(double diameter, double angle)
+        {
+            double square = Math.Max(1.75 * diameter, 35.0 / 304.8);
+
+            return angle >= 89.0 ? square : Math.Max(0.8 * square, 25.0 / 304.8);
+        }
+
+        // a: which way the unit's connector faces (out of the unit);
+        // A: where it is; B: the pipe's open end, facing back at it
+        public static EQUIPDOGLEG Plan(
+            EQUIPV A, EQUIPV a, EQUIPV B, double diameter, double angle)
+        {
+            var plan = new EQUIPDOGLEG { Angle = angle };
+
+            EQUIPV out_ = a.Unit;
+
+            EQUIPV d = B - A;
+
+            plan.Gap = d.Dot(out_);
+
+            EQUIPV off = d - out_ * plan.Gap;
+
+            plan.Offset = off.Length;
+
+            if (plan.Offset < EQUIPREACH.Straight)
+            {
+                plan.Why = "it is in line - nothing to step across";
+
+                return plan;
+            }
+
+            double c = Centre(diameter, angle);
+
+            double leg = c + Shortest;
+
+            if (angle >= 89.0)
+            {
+                if (plan.Offset < 2 * c + Shortest)
+                {
+                    plan.Why = "a " + EQUIPREACH.Mm(plan.Offset) +
+                               " mm step is too small for two square elbows";
+
+                    return plan;
+                }
+
+                plan.P1 = A + out_ * leg;
+                plan.P2 = plan.P1 + off;
+                plan.Room = 2 * leg;
+            }
+            else
+            {
+                double t = angle * Math.PI / 180.0;
+
+                double slant = plan.Offset / Math.Sin(t);
+
+                if (slant < 2 * c + Shortest)
+                {
+                    plan.Why = "a " + EQUIPREACH.Mm(plan.Offset) +
+                               " mm step is too small for two " +
+                               angle.ToString("0") + "-degree elbows";
+
+                    return plan;
+                }
+
+                double ahead = plan.Offset / Math.Tan(t);
+
+                plan.P1 = A + out_ * leg;
+                plan.P2 = plan.P1 + out_ * ahead + off;
+                plan.Room = 2 * leg + ahead;
+            }
+
+            if (plan.Gap < plan.Room)
+            {
+                plan.Why = "it needs " + EQUIPREACH.Mm(plan.Room) +
+                           " mm out from the unit and has " +
+                           EQUIPREACH.Mm(plan.Gap);
+
+                return plan;
+            }
+
+            plan.Ok = true;
+
+            return plan;
+        }
+
+        // Square first, then slanted: the angles tried, in order
+        public static readonly double[] Angles = { 90.0, 45.0, 30.0 };
+
+        // The first angle whose step fits, ignoring the room out from
+        // the unit (which a carry can make): its plan, or null
+        public static EQUIPDOGLEG Fitting(
+            EQUIPV A, EQUIPV a, EQUIPV B, double diameter)
+        {
+            foreach (double angle in Angles)
+            {
+                EQUIPDOGLEG plan = Plan(A, a, B, diameter, angle);
+
+                if (plan.Ok || (plan.Room > 0 && plan.Gap < plan.Room))
+                    return plan;
+            }
+
+            return null;
+        }
+    }
+
+    // ==================================================
     // Which new connector each joint belongs to
     // ==================================================
 

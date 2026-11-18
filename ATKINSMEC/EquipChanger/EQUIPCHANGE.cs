@@ -565,6 +565,11 @@ namespace ATKINSMEC
             // swap is thrown out at the commit (FCU-02 -> FCU-10).
             index = 0;
 
+            bool reach = level >= Everything;
+
+            // Open pipe ends already taken by a connector
+            var claimed = new HashSet<string>();
+
             foreach (Connector pipe in pipes)
             {
                 index++;
@@ -572,7 +577,22 @@ namespace ATKINSMEC
                 EQUIPJOINT joint = EQUIPJOINT.Of(pipe, "pipe connector " + index);
 
                 if (joint == null)
+                {
+                    // Not joined: a pipe that only touches it is taken as
+                    // its joint (unit 164, 2026-11-18)
+                    if (reach && level >= Everything)
+                        joint = EQUIPJOINT.Loose(doc, pipe, "pipe connector " + index, claimed);
+
+                    if (joint == null)
+                        continue;
+
+                    joins.Add(joint);
+
+                    outcome.Notes.Add(joint.Called + ": " + joint.OtherName +
+                                      " touched it but was never joined - joined now");
+
                     continue;
+                }
 
                 joins.Add(joint);
 

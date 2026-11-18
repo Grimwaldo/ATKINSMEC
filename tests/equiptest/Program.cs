@@ -260,6 +260,42 @@ internal static class Program
 
         Check("a move along one side is one part",
             EQUIPREACH.Parts(P(0, 322, 0), sides).Count == 1);
+
+        // --- an offset, where nothing can stretch to the step ---------
+        //
+        // The probe (2026-11-18): unit 231's CHW runs are horizontal for
+        // pieces on end, and FCU-10 puts each connection 55 mm off them
+        // vertically. DN20, threaded elbows 30-35 mm centre to end.
+        EQUIPV unitEnd = P(0, 0, 0);
+        EQUIPV outward = new EQUIPV(0, 1, 0);
+        double dn20 = M(20);
+
+        EQUIPDOGLEG plan = EQUIPDOGLEG.Plan(unitEnd, outward, P(0, 200, 55), dn20, 90);
+        Check("a 55 mm step is too small for two square DN20 elbows",
+            !plan.Ok && plan.Why.Contains("too small"));
+
+        plan = EQUIPDOGLEG.Plan(unitEnd, outward, P(0, 200, 55), dn20, 45);
+        Check("...but takes two 45-degree ones with 200 mm of room",
+            plan.Ok && Near(plan.Offset, 55) && Near(plan.P1.Y, 38) &&
+            Near(plan.P2.Y, 93) && Near(plan.P2.Z, 55) && Near(plan.P1.Z, 0));
+
+        plan = EQUIPDOGLEG.Fitting(unitEnd, outward, P(0, -321, 55), dn20);
+        Check("FCU-10's connection inside where the pipework was: the 45 " +
+              "plan says how much room to make",
+            plan != null && plan.Angle == 45 && !plan.Ok &&
+            Near(plan.Room, 131) && Near(plan.Gap, -321));
+
+        // Unit 164: pipes never joined, 100 mm across and 122 mm out
+        plan = EQUIPDOGLEG.Fitting(unitEnd, outward, P(100, 122, 2), dn20);
+        Check("unit 164's 100 mm step fits square elbows in 122 mm",
+            plan != null && plan.Ok && plan.Angle == 90 &&
+            Near(plan.P1.Y, 45) && Near(plan.P2.X, 100));
+
+        plan = EQUIPDOGLEG.Plan(unitEnd, outward, P(0, 200, 0), dn20, 90);
+        Check("in line is no offset", !plan.Ok && plan.Why.Contains("in line"));
+
+        Check("a step too small for every angle has no offset",
+            EQUIPDOGLEG.Fitting(unitEnd, outward, P(0, 300, 12), dn20) == null);
     }
 
     // --- which new connector each joint belongs to --------------------

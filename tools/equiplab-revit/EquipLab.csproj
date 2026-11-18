@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- DRY RUN of the Equipment Changer, loaded through the Add-In Manager
+       (Revit 2024): the changer's OWN files, run on the real model inside
+       a transaction group that is always rolled back, and a report of
+       what joined. Rebuild and Run again - no Revit restart. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>EquipLab</AssemblyName>
+    <RootNamespace>EquipLab</RootNamespace>
+    <DefineConstants>$(DefineConstants);REVIT2023_OR_NEWER;REVIT2024_OR_NEWER</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.3.60" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.3.60" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="EquipLab.cs" />
+    <Compile Include="QADUCTSLAB.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\REVITCOMPAT.cs" />
+    <Compile Include="..\..\ATKINSMEC\Shared\LOGS.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPCHANGE.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPJOINT.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPWALK.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPSIZER.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPLOG.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPFAILURES.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPSTOP.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPREACH.cs" />
+    <Compile Include="..\..\ATKINSMEC\EquipChanger\EQUIPOFFSET.cs" />
+  </ItemGroup>
+</Project>
