@@ -879,10 +879,27 @@ Close, Cancel, Yes/No last), clears warnings only, `Stop` in `finally`.
 `CheckedListBox` cannot multi-select; `Unpick` after filling a grid.
 
 ## EQUIPMENT CHANGER
-Modeless, acts on the selection. **Five steps in order**: walk and record
+**Pick → Finish → a type → OK** (user, 2026-11-18: "instead of using a
+big window ... select the element ... after pressing finish it will give
+a list of the types of the family ... resize the ductwork checkbox to be
+removed ... very simple with ok and cancel"). One modal command:
+`PickObjects` (mechanical equipment + air terminals, `EQUIPFILTER`, the
+current selection pre-picked), then `EQUIPPICK` (Revit-free, built in
+code, docked, resizable; the picked units' family's types, current ones
+marked; several families = "Family : Type", only the chosen type's family
+changed), then a TaskDialog (details expanded, log in the footer); the
+changed units left selected. Always resizes. The modeless window, its
+event, help and LOOK are gone. **Five steps in order**: walk and record
 joints → disconnect → swap type → resize (ducts, then fittings, read
 back) → reconnect. `EQUIPSTOP` (Revit-free) stops at
-reducer/tap/tee/terminal/equipment. Shape changes refused.
+reducer/tap/tee/terminal/equipment - and, **walking back from an air
+terminal, at a duct with a tap-off on its side** (`Tapped`; grille 227,
+2026-11-18: its walk shrank such a duct and the 80-degree transition
+beyond turned FCU 89's 25 mm stub inside out); where the resized part
+meets that duct a transition goes in (`EQUIPSIZER.Bridge`,
+`NewTransitionFitting`). The swap goes in up to three goes: everything →
+without moving the unit → **without resizing** (the type still changes;
+the table says to resize by hand). Shape changes refused.
 - **PIPES are taken off and put back too** (not resized; user,
   2026-11-18: FCU-02 → FCU-10 refused - the CHW stubs stayed joined and
   Revit dragged them inside out). Every HVAC + piping end connector.
@@ -920,7 +937,8 @@ reducer/tap/tee/terminal/equipment. Shape changes refused.
 - **The type swap commits first, then ONE TRANSACTION PER JOINT**
   (`Rejoin`): a joint Revit refuses at its commit is tried again straight
   only, then left open - it no longer takes the others with it. Still
-  off = **left open**, unit changed, named in the table ("yes, N open"),
+  off = **left open**, unit changed, named in the result ("N with a
+  connection left open", details expanded),
   message box, log (with what the walk met). Connectors are re-read by
   id after any tried-and-rolled-back carry (a dead `Connector` read as
   "will not say which way it faces").
@@ -1008,7 +1026,7 @@ touching a layout.
 
 ## Conventions and traps
 - **Modal vs modeless.** Modeless windows (AUTOVENT, SPRINKLERS, ALIGN,
-  SHEET QA, EQUIPMENT CHANGER) route every API call through their
+  SHEET QA) route every API call through their
   external event, keep form/handler/event in statics, clear them in
   `OnFormClosed`. A request raised inside a handler arrives empty — do
   follow-up work inline.

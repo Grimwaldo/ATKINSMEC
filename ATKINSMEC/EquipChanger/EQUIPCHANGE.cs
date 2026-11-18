@@ -313,48 +313,76 @@ namespace ATKINSMEC
             {
             }
 
-            // FIRST moving what has to move - the unit onto its duct, the
-            // pipework over to the new connections. If Revit throws THAT
-            // out at the commit: again with the unit moved but no
-            // pipework carried (so a carry Revit will not take does not
-            // cost the duct its joint), and then again moving nothing -
-            // the swap still goes through with what cannot reach left
-            // open.
+            // THE TYPE SWAP, in up to three goes. First everything: the
+            // unit moved onto its duct, the ductwork resized. If Revit
+            // throws THAT out at the commit: again without moving the
+            // unit; then again without resizing the ductwork either (user,
+            // 2026-11-18: a grille refused outright because the resize
+            // shortened a stub on the next unit) - the type still changes.
+            // Joining back up comes after, a joint at a time (Rejoin).
             int level = Everything;
+
+            int resize = resizeDucts ? ResizeFull : ResizeNone;
 
             Pending pending;
 
-            bool atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level, out pending);
+            bool atCommit = Attempt(doc, instance, symbol, resize, outcome, level, out pending);
 
             string first = string.Empty;
 
-            while (!outcome.Changed && atCommit && outcome.Tried && level > Nothing)
+            while (!outcome.Changed && atCommit)
             {
                 if (first.Length == 0)
                     first = outcome.Said;
 
-                // Nothing was carried: the unit's own move was refused
-                level = level == Everything && outcome.Carried
-                    ? UnitOnly
-                    : Nothing;
+                if (level > Nothing && outcome.Tried)
+                {
+                    level = Nothing;
 
-                EQUIPLOG.Say(level == UnitOnly
-                    ? "   AGAIN, moving the unit but carrying no pipework"
-                    : "   AGAIN, moving nothing - what cannot reach is left open");
+                    EQUIPLOG.Say("   AGAIN, without moving the unit");
+                }
+                else if (resize == ResizeFull)
+                {
+                    // Grille 227 (dry run, 2026-11-18): resizing the duct
+                    // on the 80-degree transition made the transition
+                    // longer, and it grew into FCU 89's 25 mm stub. Short
+                    // of that duct, with a transition of its own, the
+                    // reducer is never asked to change.
+                    level = Nothing;
+                    resize = ResizeShort;
+
+                    EQUIPLOG.Say("   AGAIN, resizing only up to the last duct " +
+                                 "before where it stops, with a transition there");
+                }
+                else if (resize == ResizeShort)
+                {
+                    resize = ResizeNone;
+
+                    EQUIPLOG.Say("   AGAIN, without moving the unit or resizing the ductwork");
+                }
+                else
+                {
+                    break;
+                }
 
                 outcome.Branches.Clear();
                 outcome.Said = string.Empty;
 
-                atCommit = Attempt(doc, instance, symbol, resizeDucts, outcome, level, out pending);
+                atCommit = Attempt(doc, instance, symbol, resize, outcome, level, out pending);
             }
 
             if (outcome.Changed && first.Length > 0)
             {
-                outcome.LeftOpen.Insert(0,
-                    (level == UnitOnly
-                        ? "no pipework was carried over"
-                        : "nothing was moved to reach them") +
-                    " - Revit refused that (" + first + ")");
+                string because = " - Revit refused more (" + first + ")";
+
+                if (resize == ResizeNone)
+                    outcome.LeftOpen.Insert(0,
+                        "the ductwork was NOT resized - change its size by hand" + because);
+                else if (resize == ResizeShort)
+                    outcome.Notes.Insert(0,
+                        "resized only up to the last duct before the reducer" + because);
+                else
+                    outcome.Notes.Insert(0, "the unit was not moved onto its duct" + because);
             }
 
             if (!outcome.Changed || pending == null)
@@ -377,6 +405,13 @@ namespace ATKINSMEC
             return outcome;
         }
 
+        // How far a go resizes the ductwork: not at all, up to the last
+        // duct before where the walk stopped (a transition put in there),
+        // or all the way
+        private const int ResizeNone = 0;
+        private const int ResizeShort = 1;
+        private const int ResizeFull = 2;
+
         // How much a go may move to reach the new connectors
         private const int Nothing = 0;
         private const int UnitOnly = 1;
@@ -389,7 +424,7 @@ namespace ATKINSMEC
             Document doc,
             FamilyInstance instance,
             FamilySymbol symbol,
-            bool resizeDucts,
+            int resizeDucts,
             Outcome outcome,
             int level,
             out Pending pending)
@@ -512,7 +547,7 @@ namespace ATKINSMEC
             Document doc,
             FamilyInstance instance,
             FamilySymbol symbol,
-            bool resizeDucts,
+            int resizeDucts,
             Outcome outcome,
             int level,
             out Pending pending)
@@ -582,7 +617,9 @@ namespace ATKINSMEC
             // swap is thrown out at the commit (FCU-02 -> FCU-10).
             index = 0;
 
-            bool reach = level >= Everything;
+            // Taking in a pipe that only touches the unit changes nothing here:
+            // it is joined later, in its own transaction, whatever this go is
+            bool reach = true;
 
             // Open pipe ends already taken by a connector
             var claimed = new HashSet<string>();
@@ -597,7 +634,7 @@ namespace ATKINSMEC
                 {
                     // Not joined: a pipe that only touches it is taken as
                     // its joint (unit 164, 2026-11-18)
-                    if (reach && level >= Everything)
+                    if (reach)
                         joint = EQUIPJOINT.Loose(doc, pipe, "pipe connector " + index, claimed);
 
                     if (joint == null)
@@ -667,7 +704,7 @@ namespace ATKINSMEC
             Dictionary<int, int> map = EQUIPMATCH.Assign(was, now, sameFamily);
 
             // ---- 4. the ductwork follows ----------------------------
-            if (resizeDucts)
+            if (resizeDucts > ResizeNone)
             {
                 for (int i = 0; i < branches.Count; i++)
                 {
@@ -699,8 +736,44 @@ namespace ATKINSMEC
                     EQUIPLOG.Say("   connector " + (i + 1) + " is now " +
                                  wanted);
 
-                    outcome.Resized += EQUIPSIZER.Drive(
-                        doc, branches[i].Ids, wanted);
+                    List<long> ids = branches[i].Ids;
+
+                    // Where the sizes meet afterwards: the duct the walk
+                    // stopped at (a tap-off on its side) - or, SHORT, the
+                    // last duct before where it stopped, left as it is
+                    long meets = branches[i].Stopped == EQUIPSTOPKIND.Branch &&
+                                 doc.GetElement(REVITCOMPAT.NewId(branches[i].StoppedAt)) is MEPCurve
+                        ? branches[i].StoppedAt
+                        : -1;
+
+                    if (resizeDucts == ResizeShort)
+                    {
+                        int run = ids.FindLastIndex(id =>
+                            doc.GetElement(REVITCOMPAT.NewId(id)) is MEPCurve);
+
+                        if (run <= 0)
+                        {
+                            EQUIPLOG.Say("   connector " + (i + 1) +
+                                         ": nothing before its last duct - not resized");
+
+                            continue;
+                        }
+
+                        meets = ids[run];
+                        ids = ids.GetRange(0, run);
+                    }
+
+                    outcome.Resized += EQUIPSIZER.Drive(doc, ids, wanted);
+
+                    if (meets > 0)
+                    {
+                        doc.Regenerate();
+
+                        string bridged = EQUIPSIZER.Bridge(doc, ids[ids.Count - 1], meets);
+
+                        if (bridged != null)
+                            outcome.Notes.Add("connector " + (i + 1) + ": " + bridged);
+                    }
                 }
 
                 doc.Regenerate();
@@ -725,7 +798,7 @@ namespace ATKINSMEC
             {
                 Joins = joins,
                 Map = map,
-                Carry = level >= Everything
+                Carry = true
             };
 
             return true;

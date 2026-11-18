@@ -239,7 +239,7 @@ namespace ATKINSMEC
 
                 PushButtonData equipbuttondata = new PushButtonData("Tool9", "EQUIPMENT CHANGER", path, "ATKINSMEC.EQUIPCommand");
                 Dress(equipbuttondata, "equipchanger");
-                equipbuttondata.ToolTip = "Changes the type of the selected mechanical equipment or air terminals and resizes the ductwork on them - the ducts, fittings and accessories - as far as the first reducer, tap-off, tee or air terminal.";
+                equipbuttondata.ToolTip = "Pick mechanical equipment or air terminals, press Finish, choose a type of their family. The ductwork on them is resized as far as the first reducer, tap-off, tee or air terminal, and the ducts and pipes are joined back up.";
                 // Available with a model open but nothing selected, so
                 // the command itself can say what to select rather than
                 // the button being mysteriously grey

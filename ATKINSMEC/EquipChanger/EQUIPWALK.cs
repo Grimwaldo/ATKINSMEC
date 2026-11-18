@@ -61,6 +61,19 @@ namespace ATKINSMEC
 
             Connector here = start;
 
+            bool fromTerminal = false;
+
+            try
+            {
+                fromTerminal = start.Owner != null &&
+                               start.Owner.Category != null &&
+                               start.Owner.Category.Id.ToValue() ==
+                               (long)BuiltInCategory.OST_DuctTerminal;
+            }
+            catch
+            {
+            }
+
             while (branch.Ids.Count < Reach)
             {
                 Element next = Across(doc, here);
@@ -88,6 +101,11 @@ namespace ATKINSMEC
                 }
 
                 EQUIPNODE node = Describe(doc, next);
+
+                // Walking back from an air terminal, a duct with a tap on
+                // its side carries more than this terminal's air
+                if (fromTerminal && node.What == EQUIPNODE.Sort.Duct)
+                    node.Tapped = TappedOnSide(next);
 
                 EQUIPSTOPKIND verdict = EQUIPSTOP.Decide(node);
 
@@ -206,6 +224,38 @@ namespace ATKINSMEC
         public static bool Ductwork(Element element)
         {
             return QADUCTS.Carries(element);
+        }
+
+        // A tap-off joined on the duct's side (a Curve connector with
+        // ductwork on it)
+        public static bool TappedOnSide(Element duct)
+        {
+            ConnectorManager manager = QADUCTS.Manager(duct);
+
+            if (manager == null)
+                return false;
+
+            try
+            {
+                foreach (Connector connector in manager.Connectors)
+                {
+                    if (connector.ConnectorType != ConnectorType.Curve)
+                        continue;
+
+                    foreach (Connector other in connector.AllRefs)
+                    {
+                        if (other.Owner != null &&
+                            other.Owner.Id.ToValue() != duct.Id.ToValue() &&
+                            Ductwork(other.Owner))
+                            return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         // The connector to carry on from: the one this element has that

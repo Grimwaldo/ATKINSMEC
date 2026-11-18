@@ -449,6 +449,14 @@ internal static class Program
                 EQUIPSTOP.Decide(Node(EQUIPNODE.Sort.Duct, "", 2, false))
                     == EQUIPSTOPKIND.Cross);
 
+            // Grille 227 (user, 2026-11-18): walking back from a grille, a
+            // duct with a tap-off on its side carries more than its air
+            EQUIPNODE tapped = Node(EQUIPNODE.Sort.Duct, "", 2, false);
+            tapped.Tapped = true;
+
+            Check("a duct with a tap-off on its side ends a grille's resize",
+                EQUIPSTOP.Decide(tapped) == EQUIPSTOPKIND.Branch);
+
             Check("an elbow follows",
                 EQUIPSTOP.Decide(
                     Node(EQUIPNODE.Sort.Fitting, "Elbow", 2, false))

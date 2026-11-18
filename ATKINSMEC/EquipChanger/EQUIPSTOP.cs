@@ -62,6 +62,13 @@ namespace ATKINSMEC
         // whatever it calls itself
         public bool EndsDiffer { get; set; }
 
+        // A DUCT with a tap-off joined on its side, met walking back from
+        // an air terminal: the flow divides there, so it carries more
+        // than this terminal's air (user, 2026-11-18: grille 227's walk
+        // shrank such a duct 800x200 -> 500x250, and the transition
+        // beyond it turned a stub inside out)
+        public bool Tapped { get; set; }
+
         public EQUIPNODE()
         {
             PartType = string.Empty;
@@ -95,7 +102,9 @@ namespace ATKINSMEC
             switch (node.What)
             {
                 case EQUIPNODE.Sort.Duct:
-                    return EQUIPSTOPKIND.Cross;
+                    return node.Tapped
+                        ? EQUIPSTOPKIND.Branch
+                        : EQUIPSTOPKIND.Cross;
 
                 case EQUIPNODE.Sort.Terminal:
                     return EQUIPSTOPKIND.Terminal;
