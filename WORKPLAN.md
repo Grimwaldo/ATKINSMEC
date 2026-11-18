@@ -70,6 +70,33 @@ old tutorial (`tests/video/music.py` - no licence needed). Editing in
 Camtasia's timeline by clicking is slow and fiddly; the user trims
 pauses, or Claude does it if asked.
 
+## EQUIPMENT CHANGER: pick → Finish → a type; grille 227 - 2026-11-18 (night, later)
+
+- **New UI** (user: "instead of using a big window ... select the
+  element ... after pressing finish ... a list of the types of the
+  family ... resize the ductwork checkbox to be removed ... very simple
+  with ok and cancel", resizable): `EQUIPCommand` = `PickObjects` with
+  `EQUIPFILTER` (current selection pre-picked) → `EQUIPPICK` (Revit-free
+  WinForm in code, docked, resizable, rendered at three sizes) → run →
+  TaskDialog (details expanded, log in the footer); changed units left
+  selected. Deleted: `EQUIPForm`, `EQUIPEVENT`, `EQUIPHELPForm`,
+  `EQUIPROW`. Ribbon tooltip rewritten. NOT run in Revit (a command
+  cannot be dry-run through the lab).
+- **Grille 227 refused** (SG-36 800x200 → SG-15 500x250, Revit 2024): its
+  branch is FCU 89's supply - 10 mm duct, damper, 230 mm duct, 80-degree
+  transition, 25 mm stub to the FCU. Resizing up to the transition made
+  the transition longer and it turned the stub inside out. Now:
+  - the swap goes in up to four goes: everything → without moving the
+    unit → **resized SHORT** (up to the last duct before the stop, a new
+    transition there - `EQUIPSIZER.Bridge`, `NewTransitionFitting` whose
+    connector1 MUST be a duct's) → not resized (type changed, "resize by
+    hand" in the result);
+  - walking back from an air terminal, a duct with a tap-off on its side
+    stops the resize (`EQUIPNODE.Tapped`) and is bridged the same way.
+  - Dry runs: → SG-15 resized short + transition, all joined; → SG-09 the
+    400-to-800 transition does not fit in 230 mm, so not resized; 231 →
+    FCU-10 still fully joined.
+
 ## EQUIPMENT CHANGER: offsets, never-joined pipes, one transaction a joint - tested on the real model - 2026-11-18 (night)
 
 The user, third time: "the pipes still disconnect" (and asked whether it
