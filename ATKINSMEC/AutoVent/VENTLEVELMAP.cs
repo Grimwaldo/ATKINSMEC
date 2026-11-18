@@ -75,20 +75,42 @@ namespace ATKINSMEC
         // room off the floor it is really on.
         public static readonly double Allowance = 300.0 / 304.8;
 
-        // Returns the index, or -1 when the floor is below every storey -
-        // a room the main model has no level for - or there are none.
+        // StoreyOf's two answers for a floor on NO level of this model.
+        // Both are below 0, so "< 0" still means "on no level".
+        public const int Below = -1;   // under the lowest level, or no levels at all
+        public const int Above = -2;   // a storey or more over the top level
+
+        // THE TOP LEVEL'S BAND IS ONE STOREY TALL, as every other band is
+        // (user, 2026-11-18). It used to have no top: Tower A's HVAC model
+        // has levels only up to LEVEL 17A (84.62 m) while its arch and
+        // interior links run the whole tower, so the 21 floors from there
+        // to 154.62 m - about 2,130 rooms - all landed on LEVEL 17A. Now a
+        // floor that would be on the NEXT level, if this model had one
+        // (top + StoreyHeight, with the same allowance), is Above, left
+        // out and counted like a room below the lowest level. A model with
+        // no storey to measure (one level) keeps the old answer: its top
+        // level takes everything over it.
+        //
+        // Returns the index, Below, or Above.
         public static int StoreyOf(IList<Storey> storeys, double floor)
         {
             if (storeys == null)
-                return -1;
+                return Below;
 
             int best = -1;
+            double top = double.NegativeInfinity;
 
             for (int i = 0; i < storeys.Count; i++)
             {
                 Storey storey = storeys[i];
 
-                if (storey == null || storey.Elevation > floor + Allowance)
+                if (storey == null)
+                    continue;
+
+                if (storey.Elevation > top)
+                    top = storey.Elevation;
+
+                if (storey.Elevation > floor + Allowance)
                     continue;
 
                 // The HIGHEST level at or under the floor. Strictly
@@ -97,6 +119,20 @@ namespace ATKINSMEC
                 // elevation then name, so it is the same one every run.
                 if (best < 0 || storey.Elevation > storeys[best].Elevation)
                     best = i;
+            }
+
+            if (best < 0)
+                return Below;
+
+            // Only a floor well over the top level is worth measuring the
+            // storeys for (no storey is under MinStorey) - every other room
+            // costs nothing more than it did
+            if (floor + Allowance - top >= MinStorey)
+            {
+                double height = StoreyHeight(storeys);
+
+                if (height > 0 && floor + Allowance >= top + height)
+                    return Above;
             }
 
             return best;
@@ -109,6 +145,53 @@ namespace ATKINSMEC
 
             return at < 0 ? string.Empty : storeys[at].Name;
         }
+
+        // What a log says for a floor on no level: StoreyOf's Below or Above
+        public static string NoLevel(int storey)
+        {
+            return storey == Above ? "above the top level" : "below every level";
+        }
+
+        // HOW TALL ONE STOREY OF THIS MODEL IS: the median gap between its
+        // levels, lowest first, in feet. A gap under MinStorey is not a
+        // storey - a floor level and its slab or ceiling level a few
+        // hundred mm apart - and is left out. The median, so one tall
+        // plant floor (Tower A: 5.4 m from LEVEL 16A to 17A, every other
+        // floor 3.5 m) cannot stretch the top band over the next floor.
+        // 0 when there is nothing to measure.
+        public static double StoreyHeight(IList<Storey> storeys)
+        {
+            if (storeys == null)
+                return 0;
+
+            List<double> heights = storeys
+                .Where(s => s != null)
+                .Select(s => s.Elevation)
+                .OrderBy(e => e)
+                .ToList();
+
+            var gaps = new List<double>();
+
+            for (int i = 1; i < heights.Count; i++)
+            {
+                double gap = heights[i] - heights[i - 1];
+
+                if (gap >= MinStorey)
+                    gaps.Add(gap);
+            }
+
+            if (gaps.Count == 0)
+                return 0;
+
+            gaps.Sort();
+
+            return gaps.Count % 2 == 1
+                ? gaps[gaps.Count / 2]
+                : (gaps[gaps.Count / 2 - 1] + gaps[gaps.Count / 2]) / 2;
+        }
+
+        // No storey is shorter than this (2 m)
+        public static readonly double MinStorey = 2000.0 / 304.8;
 
         // HOW FAR A MODEL'S LEVEL ARITHMETIC IS OUT, from its own rooms
         // and spaces: each one's floor by its GEOMETRY (the bottom of its

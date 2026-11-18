@@ -264,6 +264,7 @@ namespace ATKINSMEC
 
                 int skippedByLevel = 0;
                 int belowEveryLevel = 0;
+                int aboveTopLevel = 0;
                 int unticked = 0;
 
                 foreach (Room room in rooms)
@@ -278,13 +279,19 @@ namespace ATKINSMEC
 
                     // The level of THIS model whose band the room's floor
                     // stands in - the same rule the export writes with
-                    string levelName = VENTLEVELMAP.NameAt(storeys, hostFloor);
+                    int at = VENTLEVELMAP.StoreyOf(storeys, hostFloor);
 
-                    if (levelName.Length == 0)
+                    if (at < 0)
                     {
-                        belowEveryLevel++;
+                        if (at == VENTLEVELMAP.Above)
+                            aboveTopLevel++;
+                        else
+                            belowEveryLevel++;
+
                         continue;
                     }
+
+                    string levelName = storeys[at].Name ?? string.Empty;
 
                     // The window's read and write: every level, every room
                     // Arrange rooms... lists - the run, the ticked ones
